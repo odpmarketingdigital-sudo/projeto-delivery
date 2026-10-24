@@ -1,0 +1,339 @@
+import { NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/server";
+import { slugify } from "@/lib/slug";
+import { addTrialDays } from "@/lib/subscriptions";
+
+/**
+ * POST /api/signup — cadastro público de restaurantes (SaaS de autoatendimento).
+ *
+ * Fluxo (tudo no servidor, com a service role key):
+ *  1. Valida os dados do formulário de `/cadastro`.
+ *  2. Garante que o slug do cardápio está livre (e não colide com rotas fixas).
+ *  3. Cria a conta de acesso no Supabase Auth (`email_confirm: true`, para o
+ *     login automático funcionar sem depender de e-mail de confirmação) com
+ *     `user_metadata.role = 'admin'` — o trigger `handle_new_user` cria o perfil.
+ *  4. Insere o estabelecimento já em trial: `subscription_status = 'trialing'`
+ *     e `trial_ends_at = now() + 30 dias`.
+ *
+ * O login automático é feito pelo cliente (`signInWithPassword`) logo após o
+ * 201, para que a sessão seja gravada nos cookies do navegador.
+ *
+ * Rollback: se o insert em `establishments` falhar, a conta criada em
+ * `auth.users` é removida, evitando um usuário órfão ocupando o e-mail.
+ *
+ * Body: { owner_name, email, password, establishment_name, phone, slug }
+ */
+
+/** Rotas fixas da aplicação — não podem virar slug de cardápio. */
+const RESERVED_SLUGS = new Set([
+  "admin",
+  "api",
+  "cadastro",
+  "cardapio",
+  "checkout",
+  "clientes",
+  "configuracoes",
+  "cupons",
+  "dashboard",
+  "demo",
+  "login",
+  "painel",
+  "pedido",
+  "pedidos",
+  "produtos",
+]);
+
+const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+const MIN_NAME_LENGTH = 2;
+const MAX_NAME_LENGTH = 80;
+const MIN_SLUG_LENGTH = 3;
+const MAX_SLUG_LENGTH = 60;
+/** O Supabase Auth aceita no mínimo 6 caracteres (e no máximo 72 bytes). */
+const MIN_PASSWORD_LENGTH = 6;
+const MAX_PASSWORD_LENGTH = 72;
+
+/** Campos do formulário — devolvidos em `field` para destacar o erro na tela. */
+type SignupField =
+  | "owner_name"
+  | "email"
+  | "password"
+  | "establishment_name"
+  | "phone"
+  | "slug";
+
+/** Resposta de erro padronizada (com o campo culpado, quando houver). */
+function fail(message: string, status = 400, field?: SignupField) {
+  return NextResponse.json(
+    { error: message, ...(field ? { field } : {}) },
+    { status }
+  );
+}
+
+/** Detecta e-mail já cadastrado (GoTrue responde 422 com `email_exists`). */
+function isDuplicateEmailError(
+  error: { code?: string | null; message?: string | null } | null
+): boolean {
+  if (!error) return false;
+  const message = (error.message ?? "").toLowerCase();
+  return (
+    error.code === "email_exists" ||
+    error.code === "user_already_exists" ||
+    message.includes("already registered") ||
+    message.includes("already been registered")
+  );
+}
+
+/** Detecta senha recusada pelo GoTrue (política do projeto). */
+function isWeakPasswordError(
+  error: { code?: string | null; message?: string | null } | null
+): boolean {
+  if (!error) return false;
+  const message = (error.message ?? "").toLowerCase();
+  return error.code === "weak_password" || message.includes("password should be");
+}
+
+/**
+ * Detecta a migração de assinaturas não aplicada — sem ela o insert falha com
+ * "column ... does not exist" / "Could not find the '...' column".
+ */
+function isMissingSubscriptionColumns(
+  error: { message?: string | null } | null
+): boolean {
+  const message = error?.message ?? "";
+  return (
+    /(trial_ends_at|subscription_status|subscription_id|customer_payment_id|plan_id)/i.test(
+      message
+    ) &&
+    (/does not exist/i.test(message) || /could not find/i.test(message))
+  );
+}
+
+export async function POST(request: Request) {
+  // 1) Corpo da requisição.
+  let body: {
+    owner_name?: string;
+    email?: string;
+    password?: string;
+    establishment_name?: string;
+    phone?: string;
+    slug?: string;
+  };
+
+  try {
+    body = await request.json();
+  } catch {
+    return fail("Corpo da requisição inválido (JSON esperado).");
+  }
+
+  const ownerName = body.owner_name?.trim() ?? "";
+  const email = body.email?.trim().toLowerCase() ?? "";
+  const password = body.password ?? "";
+  const establishmentName = body.establishment_name?.trim() ?? "";
+  const phone = body.phone?.trim() ?? "";
+  const rawSlug = body.slug?.trim() ?? "";
+
+  // 2) Validação dos campos.
+  if (ownerName.length < MIN_NAME_LENGTH) {
+    return fail("Informe o nome do responsável.", 400, "owner_name");
+  }
+
+  if (ownerName.length > MAX_NAME_LENGTH) {
+    return fail(
+      `O nome do responsável deve ter no máximo ${MAX_NAME_LENGTH} caracteres.`,
+      400,
+      "owner_name"
+    );
+  }
+
+  if (!EMAIL_PATTERN.test(email)) {
+    return fail("Informe um e-mail válido.", 400, "email");
+  }
+
+  if (
+    password.length < MIN_PASSWORD_LENGTH ||
+    password.length > MAX_PASSWORD_LENGTH
+  ) {
+    return fail(
+      `A senha deve ter entre ${MIN_PASSWORD_LENGTH} e ${MAX_PASSWORD_LENGTH} caracteres.`,
+      400,
+      "password"
+    );
+  }
+
+  if (establishmentName.length < MIN_NAME_LENGTH) {
+    return fail(
+      "Informe o nome do estabelecimento.",
+      400,
+      "establishment_name"
+    );
+  }
+
+  if (establishmentName.length > MAX_NAME_LENGTH) {
+    return fail(
+      `O nome do estabelecimento deve ter no máximo ${MAX_NAME_LENGTH} caracteres.`,
+      400,
+      "establishment_name"
+    );
+  }
+
+  // WhatsApp: 10 (fixo) ou 11 (celular) dígitos, com ou sem máscara.
+  const phoneDigits = phone.replace(/\D/g, "");
+  if (phoneDigits.length < 10 || phoneDigits.length > 11) {
+    return fail(
+      "Informe o WhatsApp com DDD (10 ou 11 dígitos).",
+      400,
+      "phone"
+    );
+  }
+
+  // 3) Slug do cardápio: normaliza, valida formato e rotas reservadas.
+  const slug = slugify(rawSlug || establishmentName);
+
+  if (slug.length < MIN_SLUG_LENGTH) {
+    return fail(
+      "O link do cardápio precisa ter ao menos 3 caracteres (letras ou números).",
+      400,
+      "slug"
+    );
+  }
+
+  if (slug.length > MAX_SLUG_LENGTH) {
+    return fail(
+      `O link do cardápio deve ter no máximo ${MAX_SLUG_LENGTH} caracteres.`,
+      400,
+      "slug"
+    );
+  }
+
+  if (!SLUG_PATTERN.test(slug)) {
+    return fail(
+      "Use apenas letras minúsculas, números e hífens no link do cardápio.",
+      400,
+      "slug"
+    );
+  }
+
+  if (RESERVED_SLUGS.has(slug)) {
+    return fail(
+      `O link "${slug}" é reservado pela plataforma. Escolha outro.`,
+      400,
+      "slug"
+    );
+  }
+
+  const adminClient = createAdminClient();
+
+  const { data: slugOwner } = await adminClient
+    .from("establishments")
+    .select("id")
+    .eq("slug", slug)
+    .limit(1)
+    .maybeSingle();
+
+  if (slugOwner) {
+    return fail(`O link "${slug}" já está em uso. Escolha outro.`, 409, "slug");
+  }
+
+  // 4) Conta de acesso (Supabase Auth). `email_confirm: true` libera o login
+  //    imediato — o onboarding não depende de SMTP configurado.
+  const { data: created, error: createError } =
+    await adminClient.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        name: ownerName,
+        establishment: establishmentName,
+        role: "admin",
+      },
+    });
+
+  if (createError || !created.user) {
+    if (isDuplicateEmailError(createError)) {
+      return fail(
+        "Este e-mail já possui uma conta. Faça login para continuar.",
+        409,
+        "email"
+      );
+    }
+
+    if (isWeakPasswordError(createError)) {
+      return fail(
+        "Senha recusada pelo serviço de autenticação. Use uma senha mais forte.",
+        400,
+        "password"
+      );
+    }
+
+    return fail(
+      createError?.message ?? "Não foi possível criar a conta de acesso."
+    );
+  }
+
+  const userId = created.user.id;
+
+  // Garante a linha em `profiles` (o trigger já cria; upsert por segurança).
+  await adminClient.from("profiles").upsert(
+    {
+      id: userId,
+      name: ownerName,
+      email,
+      role: "admin",
+      establishment: establishmentName,
+    },
+    { onConflict: "id" }
+  );
+
+  // 5) Estabelecimento já em trial (30 dias grátis).
+  const trialEndsAt = addTrialDays();
+
+  const { data: inserted, error: insertError } = await adminClient
+    .from("establishments")
+    .insert({
+      user_id: userId,
+      name: establishmentName,
+      owner_name: ownerName,
+      email,
+      phone,
+      status: "ativo",
+      slug,
+      subscription_status: "trialing",
+      trial_ends_at: trialEndsAt,
+    })
+    .select("id, name, slug, subscription_status, trial_ends_at")
+    .single();
+
+  if (insertError || !inserted) {
+    // Rollback: sem loja a conta não serve para nada — remove para liberar o
+    // e-mail e não deixar usuário órfão.
+    await adminClient.auth.admin.deleteUser(userId);
+
+    if (isMissingSubscriptionColumns(insertError)) {
+      return NextResponse.json(
+        {
+          error:
+            "As colunas de assinatura ainda não existem no banco. Execute a " +
+            "migração 20261110000012_add_subscriptions_to_establishments.sql " +
+            "no SQL Editor do Supabase.",
+        },
+        { status: 500 }
+      );
+    }
+
+    // Corrida: outra loja tomou o slug entre a checagem e o insert.
+    if (
+      insertError?.code === "23505" &&
+      /slug/i.test(insertError.message ?? "")
+    ) {
+      return fail(`O link "${slug}" já está em uso. Escolha outro.`, 409, "slug");
+    }
+
+    return fail(
+      insertError?.message ?? "Não foi possível salvar o estabelecimento."
+    );
+  }
+
+  return NextResponse.json({ establishment: inserted }, { status: 201 });
+}
