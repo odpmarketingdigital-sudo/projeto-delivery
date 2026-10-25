@@ -13,7 +13,7 @@ export function LandingHero() {
   return (
     <section
       id="inicio"
-      className="relative isolate scroll-mt-24 overflow-hidden pt-14 sm:pt-20 lg:pt-24"
+      className="relative isolate scroll-mt-24 overflow-hidden pt-14 sm:pt-6 lg:pt-8"
     >
       <div
         aria-hidden="true"
