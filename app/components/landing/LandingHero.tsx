@@ -81,6 +81,7 @@ export function LandingHero() {
                   />
                   {item}
                 </li>
+
               ))}
             </ul>
 
@@ -120,7 +121,7 @@ export function LandingHero() {
 
             <div className="relative rounded-[1.8rem] ">
               <Image
-                src="/sistema-ipepper.webp"
+                src="/sistema-ipepper-delivery.webp"
                 alt="Painel do Sistema Ipepper: pedidos em tempo real no computador e cardápio digital no celular do cliente"
                 width={889}
                 height={621}
