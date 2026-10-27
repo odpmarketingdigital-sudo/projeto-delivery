@@ -25,6 +25,8 @@ const EMPTY_ITEMS: CartItem[] = [];
 const deliveryCepListeners = new Set<() => void>();
 let deliveryCepSnapshot = "";
 let deliveryCepLoaded = false;
+/** Quantos componentes assinam o CEP (um único listener de `storage` serve todos). */
+let deliveryCepSubscribers = 0;
 
 function loadDeliveryCep(): string {
   if (typeof window === "undefined") return "";
@@ -45,19 +47,31 @@ function notifyDeliveryCep() {
   for (const listener of deliveryCepListeners) listener();
 }
 
+/**
+ * Sincroniza o CEP entre abas. É registrado UMA vez para todo o store — antes
+ * cada componente adicionava o próprio `storage` listener (e a própria
+ * notificação), multiplicando re-renders a cada evento.
+ */
+function handleDeliveryCepStorage(event: StorageEvent) {
+  if (event.key !== DELIVERY_CEP_STORAGE_KEY) return;
+  deliveryCepLoaded = false;
+  deliveryCepSnapshot = "";
+  loadDeliveryCep();
+  notifyDeliveryCep();
+}
+
 function subscribeDeliveryCep(listener: () => void) {
   deliveryCepListeners.add(listener);
-  const handleStorage = (event: StorageEvent) => {
-    if (event.key !== DELIVERY_CEP_STORAGE_KEY) return;
-    deliveryCepLoaded = false;
-    deliveryCepSnapshot = "";
-    loadDeliveryCep();
-    notifyDeliveryCep();
-  };
-  window.addEventListener("storage", handleStorage);
+  deliveryCepSubscribers += 1;
+  if (deliveryCepSubscribers === 1) {
+    window.addEventListener("storage", handleDeliveryCepStorage);
+  }
   return () => {
     deliveryCepListeners.delete(listener);
-    window.removeEventListener("storage", handleStorage);
+    deliveryCepSubscribers = Math.max(0, deliveryCepSubscribers - 1);
+    if (deliveryCepSubscribers === 0) {
+      window.removeEventListener("storage", handleDeliveryCepStorage);
+    }
   };
 }
 
@@ -230,9 +244,20 @@ function migrateItem(raw: unknown): CartItem | null {
 let snapshot: CartItem[] = EMPTY_ITEMS;
 let hasLoaded = false;
 const listeners = new Set<() => void>();
+/** Quantos componentes assinam o carrinho (um único listener de `storage`). */
+let cartSubscribers = 0;
 
 function notify() {
   listeners.forEach((listener) => listener());
+}
+
+/** Sincroniza o carrinho entre abas (registrado uma única vez por store). */
+function handleCartStorage(event: StorageEvent) {
+  if (event.key !== STORAGE_KEY) return;
+  hasLoaded = false;
+  snapshot = EMPTY_ITEMS;
+  loadFromStorage();
+  notify();
 }
 
 function loadFromStorage(): CartItem[] {
@@ -442,19 +467,17 @@ const clearCart = () => {
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
-  // Sincroniza entre abas do mesmo navegador.
-  const handleStorage = (event: StorageEvent) => {
-    if (event.key === STORAGE_KEY) {
-      hasLoaded = false;
-      snapshot = EMPTY_ITEMS;
-      loadFromStorage();
-      notify();
-    }
-  };
-  window.addEventListener("storage", handleStorage);
+  // Sincroniza entre abas do mesmo navegador (um único listener para o store).
+  cartSubscribers += 1;
+  if (cartSubscribers === 1) {
+    window.addEventListener("storage", handleCartStorage);
+  }
   return () => {
     listeners.delete(listener);
-    window.removeEventListener("storage", handleStorage);
+    cartSubscribers = Math.max(0, cartSubscribers - 1);
+    if (cartSubscribers === 0) {
+      window.removeEventListener("storage", handleCartStorage);
+    }
   };
 }
 
@@ -464,10 +487,15 @@ const getSnapshot = (): CartItem[] =>
 const getServerSnapshot = (): CartItem[] => EMPTY_ITEMS;
 
 // Detecta a hidratação sem efeitos colaterais (padrão recomendado pelo React).
+// `getSnapshot`/`getServerSnapshot` ficam no escopo do módulo (referência
+// estável): funções inline recriadas a cada render fazem o React revalidar o
+// snapshot em toda renderização e podem alimentar loops de re-render.
 const subscribeNothing = (listener: () => void) => {
   void listener;
   return () => undefined;
 };
+const getHydratedSnapshot = () => true;
+const getHydratedServerSnapshot = () => false;
 
 // ---------------------------------------------------------------------------
 // Contexto
@@ -499,8 +527,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   );
   const isHydrated = useSyncExternalStore(
     subscribeNothing,
-    () => true,
-    () => false
+    getHydratedSnapshot,
+    getHydratedServerSnapshot
   );
   const deliveryCep = useSyncExternalStore(
     subscribeDeliveryCep,

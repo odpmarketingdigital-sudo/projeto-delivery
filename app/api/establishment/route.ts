@@ -13,6 +13,10 @@ import {
   MAX_ESTIMATED_DELIVERY_MINUTES,
   MIN_ESTIMATED_DELIVERY_MINUTES,
 } from "@/lib/deliveryEstimate";
+import {
+  formatWhatsAppPhoneForDisplay,
+  normalizeWhatsAppNumber,
+} from "@/lib/whatsappOrder";
 
 /** Campos aceitos no body do PUT /api/establishment. */
 export interface IdentityUpdate {
@@ -45,6 +49,16 @@ export interface IdentityUpdate {
   estimated_delivery_time_min?: number;
   /** Tempo máximo estimado de entrega (minutos) — migração 20261110000015. */
   estimated_delivery_time_max?: number;
+  /**
+   * Liga/desliga o envio do resumo do pedido para o WhatsApp da loja no
+   * checkout (migração 20261110000016).
+   */
+  whatsapp_checkout_enabled?: boolean;
+  /**
+   * Telefone/WhatsApp da loja usado no resumo do pedido (coluna `whatsapp`,
+   * migração 20261110000006). String vazia (ou `null`) limpa o campo.
+   */
+  whatsapp?: string | null;
 }
 
 /** Limite de caracteres espelhado no formulário do painel. */
@@ -76,6 +90,12 @@ const ESTIMATE_FIELDS = [
 const ESTIMATE_SQL =
   "alter table public.establishments add column if not exists estimated_delivery_time_min integer not null default 30, add column if not exists estimated_delivery_time_max integer not null default 50;";
 
+/** Colunas da migração 20261110000016 (resumo do pedido no WhatsApp). */
+const WHATSAPP_CHECKOUT_FIELDS = ["whatsapp_checkout_enabled"] as const;
+
+const WHATSAPP_CHECKOUT_SQL =
+  "alter table public.establishments add column if not exists whatsapp_checkout_enabled boolean not null default true;";
+
 function isMissingEstimateColumn(
   error: { code?: string | null; message?: string | null } | null
 ): boolean {
@@ -98,6 +118,31 @@ function isMissingDeliveryColumn(
   );
   return (
     mentionsColumn &&
+    (/does not exist/i.test(message) || /could not find/i.test(message))
+  );
+}
+
+/** Coluna `whatsapp_checkout_enabled` ainda não migrada? */
+function isMissingWhatsAppCheckoutColumn(
+  error: { code?: string | null; message?: string | null } | null
+): boolean {
+  const message = error?.message ?? "";
+  const mentionsColumn = WHATSAPP_CHECKOUT_FIELDS.some((field) =>
+    new RegExp(field, "i").test(message)
+  );
+  return (
+    mentionsColumn &&
+    (/does not exist/i.test(message) || /could not find/i.test(message))
+  );
+}
+
+/** Coluna `whatsapp` ainda não migrada? (não casa com `whatsapp_checkout_enabled`) */
+function isMissingWhatsAppNumberColumn(
+  error: { code?: string | null; message?: string | null } | null
+): boolean {
+  const message = error?.message ?? "";
+  return (
+    /\bwhatsapp\b/i.test(message) &&
     (/does not exist/i.test(message) || /could not find/i.test(message))
   );
 }
@@ -439,11 +484,44 @@ export async function PUT(request: Request) {
     updateFields.estimated_delivery_time_max = max;
   }
 
+  // ---- Telefone/WhatsApp da loja (contato usado no checkout) --------------
+  if (body.whatsapp !== undefined) {
+    const raw = typeof body.whatsapp === "string" ? body.whatsapp.trim() : "";
+    if (raw === "") {
+      // Sem número o checkout esconde o botão do WhatsApp e segue normal.
+      updateFields.whatsapp = null;
+    } else {
+      const normalized = normalizeWhatsAppNumber(raw);
+      if (!normalized) {
+        return NextResponse.json(
+          {
+            error:
+              "Informe um WhatsApp válido com DDD (ex.: (17) 99999-9999).",
+          },
+          { status: 400 }
+        );
+      }
+      // Guarda no formato exibido; os helpers normalizam os dígitos na leitura.
+      updateFields.whatsapp = formatWhatsAppPhoneForDisplay(normalized);
+    }
+  }
+
+  // ---- Resumo do pedido no WhatsApp (migração 20261110000016) -------------
+  if (body.whatsapp_checkout_enabled !== undefined) {
+    if (typeof body.whatsapp_checkout_enabled !== "boolean") {
+      return NextResponse.json(
+        { error: "whatsapp_checkout_enabled deve ser true ou false." },
+        { status: 400 }
+      );
+    }
+    updateFields.whatsapp_checkout_enabled = body.whatsapp_checkout_enabled;
+  }
+
   if (Object.keys(updateFields).length === 0) {
     return NextResponse.json(
       {
         error:
-          "Informe ao menos um campo: `name`, `description`, `opening_hours`, `logo_url`, `banner_url` ou configurações de entrega.",
+          "Informe ao menos um campo: `name`, `description`, `whatsapp`, `opening_hours`, `logo_url`, `banner_url` ou configurações de entrega.",
       },
       { status: 400 }
     );
@@ -494,6 +572,12 @@ export async function PUT(request: Request) {
   const hasOpeningHours = "opening_hours" in updateFields;
   const hasDelivery = DELIVERY_FIELDS.some((field) => field in updateFields);
   const hasEstimate = ESTIMATE_FIELDS.some((field) => field in updateFields);
+  const hasWhatsAppCheckout = WHATSAPP_CHECKOUT_FIELDS.some(
+    (field) => field in updateFields
+  );
+  // Número da loja (coluna `whatsapp`, migração 20261110000006) — base legada
+  // sem a coluna não pode derrubar o restante do formulário.
+  const hasWhatsAppNumber = "whatsapp" in updateFields;
 
   // Campos efetivamente enviados no UPDATE. Bases legadas podem não ter a
   // coluna `description`; nesse caso seguimos com o restante dos campos e os
@@ -616,6 +700,70 @@ export async function PUT(request: Request) {
     }
   }
 
+  if (
+    updateError &&
+    hasWhatsAppNumber &&
+    isMissingWhatsAppNumberColumn(updateError)
+  ) {
+    const rest: Record<string, unknown> = { ...currentFields };
+    delete rest.whatsapp;
+
+    if (Object.keys(rest).length > 0) {
+      currentFields = rest;
+      ({ data: updated, error: updateError } = await runUpdate(
+        rest,
+        "description" in rest,
+        "opening_hours" in rest
+      ));
+      const numberWarning =
+        "O telefone/WhatsApp da loja ainda não foi gravado: a coluna `whatsapp` não existe. " +
+        "Execute a migração 20261110000006_public_menu_and_orders.sql no SQL Editor do Supabase.";
+      warning = warning ? `${warning} ${numberWarning}` : numberWarning;
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            "A coluna `whatsapp` ainda não existe no banco. Execute a migração " +
+            "20261110000006_public_menu_and_orders.sql no SQL Editor do Supabase.",
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (
+    updateError &&
+    hasWhatsAppCheckout &&
+    isMissingWhatsAppCheckoutColumn(updateError)
+  ) {
+    const rest: Record<string, unknown> = { ...currentFields };
+    for (const field of WHATSAPP_CHECKOUT_FIELDS) delete rest[field];
+
+    if (Object.keys(rest).length > 0) {
+      currentFields = rest;
+      ({ data: updated, error: updateError } = await runUpdate(
+        rest,
+        "description" in rest,
+        "opening_hours" in rest
+      ));
+      const whatsappWarning =
+        "A opção de envio do pedido pelo WhatsApp ainda não foi gravada: a coluna da " +
+        "migração 20261110000016_add_whatsapp_checkout_setting.sql não existe. " +
+        `Execute no SQL Editor do Supabase: ${WHATSAPP_CHECKOUT_SQL}`;
+      warning = warning ? `${warning} ${whatsappWarning}` : whatsappWarning;
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            "A coluna de envio do pedido pelo WhatsApp ainda não existe no banco. " +
+            "Execute a migração 20261110000016_add_whatsapp_checkout_setting.sql no SQL Editor do Supabase. " +
+            `SQL: ${WHATSAPP_CHECKOUT_SQL}`,
+        },
+        { status: 400 }
+      );
+    }
+  }
+
 
 
   if (updateError || !updated) {
@@ -648,7 +796,14 @@ export async function PUT(request: Request) {
   // As colunas de entrega não entram no `.select()` para não quebrar bases
   // legadas; devolvemos os valores recém-validados junto do registro.
   const deliveryUpdates: Record<string, unknown> = {};
-  for (const field of [...DELIVERY_FIELDS, ...ESTIMATE_FIELDS]) {
+  for (const field of [
+    ...DELIVERY_FIELDS,
+    ...ESTIMATE_FIELDS,
+    ...WHATSAPP_CHECKOUT_FIELDS,
+    // Telefone/WhatsApp da loja: fora do `select` base para não quebrar bases
+    // legadas, então devolvemos o valor recém-validado junto do registro.
+    "whatsapp",
+  ]) {
     if (field in currentFields) {
       deliveryUpdates[field] = currentFields[field];
     }

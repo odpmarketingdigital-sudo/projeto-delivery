@@ -9,6 +9,8 @@ const NAV_LINKS = [
   { href: "#inicio", label: "Início" },
   { href: "#como-funciona", label: "Como Funciona" },
   { href: "#recursos", label: "Recursos" },
+  { href: "#sistema", label: "Sistema" },
+  { href: "#planos", label: "Planos" },
   { href: "#beneficios", label: "Benefícios" },
   { href: "#depoimentos", label: "Depoimentos" },
 ];
@@ -44,7 +46,7 @@ export function LandingHeader() {
 
         <nav
           aria-label="Navegação principal"
-          className="hidden items-center gap-6 lg:flex"
+          className="hidden items-center gap-4 lg:flex xl:gap-6"
         >
           {NAV_LINKS.map((link) => (
             <a

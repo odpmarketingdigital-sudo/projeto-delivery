@@ -88,6 +88,28 @@ function toPanelOrder(raw: unknown): PanelOrder | null {
 }
 
 /**
+ * `true` quando a lista consultada é idêntica à atual (mesmos pedidos, status e
+ * timestamps). Evita re-renderizar o Kanban a cada ciclo do polling/Realtime
+ * quando nada mudou no painel.
+ */
+function isSameOrderList(current: PanelOrder[], next: PanelOrder[]): boolean {
+  if (current.length !== next.length) return false;
+  return current.every((order, index) => {
+    const other = next[index];
+    return (
+      order.id === other.id &&
+      order.status === other.status &&
+      order.created_at === other.created_at &&
+      order.updated_at === other.updated_at &&
+      order.total === other.total &&
+      order.notes === other.notes &&
+      order.estimated_delivery_at === other.estimated_delivery_at &&
+      order.cancellation_reason === other.cancellation_reason
+    );
+  });
+}
+
+/**
  * Conteúdo interativo da tela de Pedidos do painel (Client Component).
  *
  * A página (`page.tsx`) é um Server Component que exporta `instant = false`
@@ -130,9 +152,20 @@ export function PainelPedidos() {
   }>({ context: "", seenIds: new Set(), baselineReady: false });
 
   const fetchOrders = useCallback(
-    async (establishmentId: string, date: string) => {
+    async (
+      establishmentId: string,
+      date: string,
+      options?: { silent?: boolean }
+    ) => {
+      /**
+       * `silent` = atualização em segundo plano (polling de 15s e Realtime).
+       * Nesse modo o estado de loading NÃO é tocado: ele existe apenas na
+       * primeira carga, na troca de loja/data e no botão "Atualizar". Sem isso
+       * a tela alternava "Atualizando…" a cada ciclo, piscando o conteúdo.
+       */
+      const silent = options?.silent === true;
       const seq = ++requestSeq.current;
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       setError(null);
       try {
         const params = new URLSearchParams({
@@ -174,14 +207,17 @@ export function PainelPedidos() {
         }
         alertState.baselineReady = true;
 
-        setOrders(nextOrders);
+        setOrders((prev) =>
+          isSameOrderList(prev, nextOrders) ? prev : nextOrders
+        );
         if (newPendingOrders.length > 0) playNewOrderSound();
       } catch (err) {
         if (seq !== requestSeq.current) return;
-        setOrders([]);
+        // Falha no polling não deve zerar a lista já exibida (evita "piscar").
+        if (!silent) setOrders([]);
         setError(err instanceof Error ? err.message : "Erro inesperado.");
       } finally {
-        if (seq === requestSeq.current) setIsLoading(false);
+        if (!silent && seq === requestSeq.current) setIsLoading(false);
       }
     },
     [playNewOrderSound]
@@ -199,7 +235,7 @@ export function PainelPedidos() {
   useEffect(() => {
     if (!selectedId) return;
     const id = window.setInterval(
-      () => fetchOrders(selectedId, selectedDate),
+      () => fetchOrders(selectedId, selectedDate, { silent: true }),
       15000
     );
     return () => window.clearInterval(id);
@@ -218,7 +254,7 @@ export function PainelPedidos() {
           table: "orders",
           filter: `establishment_id=eq.${selectedId}`,
         },
-        () => fetchOrders(selectedId, selectedDate)
+        () => fetchOrders(selectedId, selectedDate, { silent: true })
       )
       .subscribe();
     return () => {

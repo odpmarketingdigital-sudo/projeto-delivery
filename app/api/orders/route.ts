@@ -23,6 +23,7 @@ import {
   toCouponNumber,
   type CouponRecord,
 } from "@/lib/coupons";
+import { buildStoreOrderWhatsAppUrl } from "@/lib/whatsappOrder";
 
 /**
  * Status válidos de um pedido — espelha `OrderStatus` (lib/types.ts) e o
@@ -753,6 +754,38 @@ export async function POST(request: Request) {
     }
   }
 
+  // Resumo do pedido no WhatsApp da loja.
+  //
+  // Regras (ver `lib/whatsappOrder.ts`):
+  // - O pedido já foi gravado acima e aparece normalmente no painel.
+  // - A loja precisa ter o recurso ativo (`whatsapp_checkout_enabled !== false`)
+  //   e um WhatsApp/telefone válido. Caso contrário `whatsapp_url` volta `null`
+  //   e o checkout apenas segue o fluxo normal, sem quebrar a experiência.
+  const whatsappUrl = buildStoreOrderWhatsAppUrl(
+    establishment as {
+      whatsapp?: string | null;
+      phone?: string | null;
+      whatsapp_checkout_enabled?: boolean | null;
+    },
+    {
+      orderId: created.id,
+      establishmentName: establishment.name,
+      customerName,
+      customerPhone: customerPhoneDigits,
+      items: orderItems,
+      address: addressData,
+      subtotal,
+      deliveryFee,
+      couponDiscount,
+      couponCode: coupon?.code ?? null,
+      total,
+      paymentMethod,
+      changeFor: changeForValue,
+      notes: notesValue,
+      estimatedDeliveryTime,
+    }
+  );
+
   return NextResponse.json(
     {
       order: {
@@ -765,6 +798,8 @@ export async function POST(request: Request) {
         estimated_delivery_time: estimatedDeliveryTime,
         estimated_delivery_at: estimatedDeliveryAt,
         status: "pendente",
+        /** Link `wa.me` com o resumo do pedido (null quando indisponível). */
+        whatsapp_url: whatsappUrl,
       },
       establishment: { id: establishment.id, name: establishment.name },
     },

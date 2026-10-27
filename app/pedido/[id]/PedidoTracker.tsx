@@ -12,6 +12,11 @@ import {
   parseEstimatedDeliveryWindow,
 } from "@/lib/deliveryEstimate";
 import { getCustomerProfile } from "@/lib/storage";
+import { WhatsAppSendHint } from "@/app/components/WhatsAppSendHint";
+import {
+  clearPendingOrderWhatsAppUrl,
+  readPendingOrderWhatsAppUrl,
+} from "@/lib/whatsappOrder";
 
 interface TrackerItem {
   name: string;
@@ -182,6 +187,22 @@ function normalizeTracker(raw: unknown): TrackerOrder | null {
   };
 }
 
+/**
+ * `true` quando a resposta do polling é igual ao estado atual.
+ *
+ * O acompanhamento consulta o pedido a cada 10s (+ Realtime). Sem essa
+ * comparação o estado seria recriado a cada resposta e a tela re-renderizaria
+ * sem nenhuma mudança real, embaralhando animações e o resumo do WhatsApp.
+ * `normalizeTracker` devolve sempre as mesmas chaves (ordem estável), então a
+ * comparação por JSON é determinística.
+ */
+function isSameTrackerOrder(
+  current: TrackerOrder | null,
+  next: TrackerOrder
+): boolean {
+  return current !== null && JSON.stringify(current) === JSON.stringify(next);
+}
+
 /** Componente interativo: busca inicial + Realtime + polling de fallback. */
 export function PedidoTracker({ orderId }: { orderId: string }) {
   const router = useRouter();
@@ -189,6 +210,14 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
   const [order, setOrder] = useState<TrackerOrder | null>(null);
   const [estName, setEstName] = useState("Restaurante");
   const [whatsapp, setWhatsapp] = useState<string | null>(null);
+  /**
+   * Link do resumo do pedido no WhatsApp, gerado pelo checkout e transportado
+   * via `sessionStorage` (o checkout redireciona para cá). `null` quando a loja
+   * desativou o recurso, não tem número válido ou o pedido saiu de `pendente`.
+   */
+  const [dismissedWhatsAppUrl, setDismissedWhatsAppUrl] = useState<string | null>(
+    null
+  );
   const [estSlug, setEstSlug] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -212,7 +241,9 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
         window.setTimeout(() => setJustUpdated(false), 4000);
       }
       prevStatus.current = parsed.status;
-      setOrder(parsed);
+      // Atualiza os dados em silêncio: o polling/Realtime NÃO pode reexibir o
+      // estado "Carregando pedido..." (reservado à primeira carga).
+      setOrder((prev) => (isSameTrackerOrder(prev, parsed) ? prev : parsed));
       if (data.establishment && typeof data.establishment === "object") {
         const est = data.establishment as { name?: unknown; whatsapp?: unknown; slug?: unknown };
         if (typeof est.name === "string" && est.name) setEstName(est.name);
@@ -224,6 +255,8 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro inesperado.");
     } finally {
+      // Encerra apenas o loading da PRIMEIRA carga. As buscas seguintes
+      // (polling de 10s e Realtime) são silenciosas por definição.
       setIsLoading(false);
     }
   }, [orderId]);
@@ -253,6 +286,24 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
       client.removeChannel(channel);
     };
   }, [orderId, fetchStatus]);
+
+  /**
+   * Link do resumo no WhatsApp: derivado do pedido + `sessionStorage` (sem
+   * efeito, evitando renders em cascata). Só faz sentido enquanto o pedido está
+   * `pendente` — depois disso a loja já confirmou/iniciou o preparo. O helper
+   * valida se a URL salva pertence a este pedido, evitando o resumo de uma
+   * compra anterior. `dismissedWhatsAppUrl` esconde o card após o clique.
+   */
+  const orderStatus = order?.status ?? null;
+  const storedWhatsAppUrl = useMemo(
+    () =>
+      orderStatus === "pendente" ? readPendingOrderWhatsAppUrl(orderId) : null,
+    [orderId, orderStatus]
+  );
+  const orderWhatsAppUrl =
+    storedWhatsAppUrl && storedWhatsAppUrl !== dismissedWhatsAppUrl
+      ? storedWhatsAppUrl
+      : null;
 
   /**
    * Link "Voltar ao cardápio": aponta para a vitrine da loja do pedido (/[slug]).
@@ -435,6 +486,43 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
             </p>
           )}
         </section>
+        {/*
+         * Resumo do pedido no WhatsApp: link montado no servidor no momento da
+         * criação do pedido (respeita a preferência da loja). O pedido já está
+         * no painel — o botão é apenas um atalho para enviar o comprovante.
+         */}
+        {orderWhatsAppUrl && (
+          <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300">
+              Resumo no WhatsApp
+            </h2>
+            <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-300">
+              Envie o pedido completo (itens, adicionais, endereço e valores)
+              para o WhatsApp do restaurante.
+            </p>
+            <WhatsAppSendHint className="mt-4" />
+            <a
+              href={orderWhatsAppUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => {
+                clearPendingOrderWhatsAppUrl();
+                setDismissedWhatsAppUrl(orderWhatsAppUrl);
+              }}
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500/40"
+            >
+              <svg
+                aria-hidden="true"
+                className="h-4 w-4"
+                fill="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm5.8 14.13c-.25.69-1.44 1.32-1.99 1.4-.51.08-1.16.11-1.87-.12-.43-.14-.98-.32-1.69-.62-2.97-1.28-4.91-4.27-5.06-4.47-.15-.2-1.21-1.61-1.21-3.07 0-1.46.77-2.18 1.04-2.48.27-.3.59-.37.79-.37.2 0 .39 0 .57.01.18.01.43-.07.67.51.24.59.83 2.03.9 2.18.07.15.12.32.02.52-.1.2-.15.32-.3.5-.15.17-.31.39-.45.52-.15.15-.3.31-.13.61.17.3.76 1.25 1.63 2.02 1.12.99 2.06 1.3 2.36 1.45.3.15.47.12.65-.07.17-.2.76-.89.96-1.19.2-.3.4-.25.67-.15.27.1 1.72.81 2.02.96.3.15.5.22.57.35.07.12.07.72-.18 1.41Z" />
+              </svg>
+              Enviar resumo no WhatsApp
+            </a>
+          </section>
+        )}
         <section className="rounded-2xl border border-gray-200/70 bg-white p-5 dark:border-gray-700/60 dark:bg-gray-800/60">
           <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400">Resumo</h2>
           <ul className="mt-3 flex flex-col gap-2">

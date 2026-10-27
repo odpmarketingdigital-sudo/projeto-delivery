@@ -27,10 +27,9 @@ const slugify = (value: string) =>
 
 /**
  * Monta os grupos de opções do modal a partir dos adicionais cadastrados no
- * painel. `is_required = true` vira um grupo OBRIGATÓRIO (o cliente precisa
- * escolher antes de adicionar); os demais formam um grupo opcional de
- * múltipla escolha. Retorna `[]` quando o produto não tem adicionais — nesse
- * caso o modal exibe apenas observações e a quantidade.
+ * painel. Todos os adicionais são opcionais (múltipla escolha): o cliente
+ * decide se quer incluir. Retorna `[]` quando o produto não tem adicionais —
+ * nesse caso o modal exibe apenas observações e a quantidade.
  */
 function buildOptionGroups(
   productId: string,
@@ -41,39 +40,18 @@ function buildOptionGroups(
   );
   if (active.length === 0) return [];
 
-  const required = active.filter((a) => a.is_required);
-  const optional = active.filter((a) => !a.is_required);
-  const groups: ProductOptionGroup[] = [];
-
-  if (required.length > 0) {
-    groups.push({
-      id: `${productId}-required`,
-      title: "Adicionais obrigatórios",
-      required: true,
-      minSelect: 1,
-      maxSelect: 1,
-      options: required.map((a) => ({
-        id: a.id,
-        name: a.name,
-        price: a.price,
-      })),
-    });
-  }
-
-  if (optional.length > 0) {
-    groups.push({
+  return [
+    {
       id: `${productId}-optional`,
       title: "Adicionais",
       required: false,
-      options: optional.map((a) => ({
+      options: active.map((a) => ({
         id: a.id,
         name: a.name,
         price: a.price,
       })),
-    });
-  }
-
-  return groups;
+    },
+  ];
 }
 
 

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BrandMark, Icon } from "./LandingIcons";
+import { SUPPORT_WHATSAPP_DISPLAY, SUPPORT_WHATSAPP_URL } from "./contact";
 
 /**
  * Banner final de conversão, antes do rodapé.
@@ -66,6 +67,19 @@ export function FinalCta() {
               >
                 Acessar o painel
               </Link>
+            </p>
+
+            <p className="mt-2 text-xs font-medium text-gray-900/70">
+              Prefere conversar antes?{" "}
+              <a
+                href={SUPPORT_WHATSAPP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-bold underline decoration-gray-950/30 underline-offset-2 transition hover:decoration-gray-950"
+              >
+                <Icon name="whatsapp" className="h-3.5 w-3.5" />
+                WhatsApp {SUPPORT_WHATSAPP_DISPLAY}
+              </a>
             </p>
           </div>
         </div>

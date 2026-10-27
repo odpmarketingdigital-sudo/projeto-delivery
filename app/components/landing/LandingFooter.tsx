@@ -1,13 +1,17 @@
 import Link from "next/link";
 import { LandingBrand } from "./LandingBrand";
 import { Icon, type IconName } from "./LandingIcons";
+import { SUPPORT_WHATSAPP_DISPLAY, SUPPORT_WHATSAPP_URL } from "./contact";
 
 const NAV_LINKS = [
   { href: "#inicio", label: "Início" },
   { href: "#como-funciona", label: "Como Funciona" },
   { href: "#recursos", label: "Recursos" },
+  { href: "#sistema", label: "Sistema" },
+  { href: "#planos", label: "Planos" },
   { href: "#beneficios", label: "Benefícios" },
   { href: "#depoimentos", label: "Depoimentos" },
+  { href: "#treinamento", label: "Treinamento" },
 ];
 
 const SOCIAL_LINKS: { href: string; label: string; icon: IconName }[] = [
@@ -22,8 +26,8 @@ const SOCIAL_LINKS: { href: string; label: string; icon: IconName }[] = [
     icon: "facebook",
   },
   {
-    href: "https://wa.me/",
-    label: "WhatsApp",
+    href: SUPPORT_WHATSAPP_URL,
+    label: `WhatsApp ${SUPPORT_WHATSAPP_DISPLAY}`,
     icon: "whatsapp",
   },
 ];
@@ -115,6 +119,17 @@ export function LandingFooter() {
                 >
                   Entrar na minha conta
                 </Link>
+              </li>
+              <li>
+                <a
+                  href={SUPPORT_WHATSAPP_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-gray-500 transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                >
+                  <Icon name="whatsapp" className="h-3.5 w-3.5 text-emerald-400" />
+                  WhatsApp {SUPPORT_WHATSAPP_DISPLAY}
+                </a>
               </li>
             </ul>
           </div>

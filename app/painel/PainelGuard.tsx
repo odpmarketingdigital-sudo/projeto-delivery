@@ -58,16 +58,26 @@ export function PainelGuard({ children }: { children: ReactNode }) {
     // (isLoading) terminou — nunca redireciona durante o estado de loading.
     if (isLoading) return;
 
-    if (!isAuthenticated) {
-      if (hasRedirectedRef.current) return;
-      hasRedirectedRef.current = true;
-      router.replace("/login");
-      return;
-    }
+    /**
+     * NUNCA redirecionar para `/login` daqui.
+     *
+     * O `proxy` (middleware) já protege todas as rotas `/painel*` no servidor e,
+     * quando existe cookie de sessão, devolve `/login` → `/painel`. Se o cliente
+     * não conseguir montar o perfil (ex.: `profiles` sem papel, falha de rede no
+     * `getUser`) e disparasse `router.replace("/login")`, o navegador entraria no
+     * ciclo `/painel` → (`/login` 307) → `/painel` …: cada volta recarrega o
+     * documento inteiro e a tela fica piscando "Carregando..." indefinidamente.
+     *
+     * Por isso o estado "sessão não identificada" é tratado apenas na
+     * renderização abaixo, com saída manual (o middleware decide o acesso).
+     */
+    if (!isAuthenticated) return;
 
     // Proteção de role: apenas super_admin acessa /painel/admin.
+    // Nunca navegar para a rota atual: no App Router isso ainda dispara uma
+    // nova requisição (recarregando a página) e realimenta o efeito.
     if (isAdminRoute && currentUser?.role !== "super_admin") {
-      if (hasRedirectedRef.current) return;
+      if (hasRedirectedRef.current || pathname === "/painel") return;
       hasRedirectedRef.current = true;
       router.replace("/painel");
       return;
@@ -78,6 +88,7 @@ export function PainelGuard({ children }: { children: ReactNode }) {
     if (isStoreRoot && currentUser?.role === "super_admin") {
       if (lastStoreRootPathRef.current === pathname) return;
       lastStoreRootPathRef.current = pathname;
+      // `isStoreRoot` garante `pathname === "/painel"` (rota diferente do destino).
       router.replace("/painel/admin");
       return;
     }
@@ -103,13 +114,36 @@ export function PainelGuard({ children }: { children: ReactNode }) {
     );
   }
 
-  // 2) Não autenticado: não renderiza conteúdo protegido (o efeito redireciona).
+  // 2) Sessão não identificada no cliente.
+  //
+  // O acesso já foi autorizado pelo middleware (que redireciona para /login
+  // quando não há sessão), mas o perfil pode não ter carregado (RLS, `profiles`
+  // sem papel, falha de rede). Aqui NÃO redirecionamos automaticamente: sair
+  // da rota dispararia o ciclo /login ⇄ /painel descrito no efeito acima.
   if (!isAuthenticated || !currentUser) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-950">
-        <p className="text-sm font-medium text-gray-500">
-          Redirecionando para o login...
-        </p>
+      <div className="flex min-h-screen items-center justify-center bg-gray-950 px-4">
+        <div className="w-full max-w-md rounded-2xl border border-gray-800 bg-gray-900/60 p-6 text-center">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-yellow-400/15 text-2xl text-yellow-300">
+            🔒
+          </span>
+          <h1 className="mt-4 text-lg font-bold text-white">
+            Sessão não identificada
+          </h1>
+          <p className="mt-2 text-sm text-gray-400">
+            Não foi possível confirmar sua sessão neste navegador. Encerre a
+            sessão e entre novamente para continuar.
+          </p>
+          <div className="mt-5 flex items-center justify-center">
+            <LogoutButton />
+          </div>
+          <Link
+            href="/login"
+            className="mt-3 inline-block text-xs font-semibold text-gray-400 underline-offset-2 hover:text-gray-200 hover:underline"
+          >
+            Ir para a tela de login
+          </Link>
+        </div>
       </div>
     );
   }

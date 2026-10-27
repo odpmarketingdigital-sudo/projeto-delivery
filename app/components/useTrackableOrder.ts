@@ -143,7 +143,9 @@ export function useTrackableOrder(
         return;
       }
 
-      setIsLoading(true);
+      // O `isLoading` é apenas o da PRIMEIRA consulta (estado inicial `true`).
+      // Reconsultas (ex.: troca de loja) atualizam o link em silêncio, sem
+      // reexibir o estado de carregamento da vitrine.
       try {
         const query = new URLSearchParams();
         query.set("phone", phoneDigits);

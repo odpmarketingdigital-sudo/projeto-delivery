@@ -222,6 +222,14 @@ export interface Establishment {
   email: string;
   /** Telefone de contato (opcional; null quando não informado). */
   phone: string | null;
+  /** WhatsApp oficial da loja (coluna `whatsapp`, migração 20261110000006). */
+  whatsapp?: string | null;
+  /**
+   * Liga/desliga o envio do resumo do pedido para o WhatsApp da loja no
+   * checkout (coluna `whatsapp_checkout_enabled`, migração 20261110000016).
+   * Ausente em bases legadas — tratado como ativo (`!== false`).
+   */
+  whatsapp_checkout_enabled?: boolean | null;
   status: "ativo" | "inativo";
   /**
    * Slug público usado na URL exclusiva do cardápio (rota `/[slug]`).
@@ -311,7 +319,10 @@ export interface MenuAddon {
   name: string;
   /** Preço adicional cobrado por unidade (numeric(10,2) no banco). */
   price: number;
-  /** true = obrigatório (precisa ser selecionado); false = opcional. */
+  /**
+   * Legado: a coluna continua no banco/API por compatibilidade. Na interface
+   * os adicionais são sempre opcionais — a vitrine não exige seleção.
+   */
   is_required: boolean;
   /** false = opcional pausado (não exibido no cardápio). */
   is_active: boolean;
@@ -379,6 +390,12 @@ export interface StorefrontInfo {
   logo_url: string | null;
   /** WhatsApp do estabelecimento (usado na confirmação do pedido). */
   whatsapp: string | null;
+  /**
+   * Indica se a loja oferece o envio do resumo do pedido no WhatsApp ao
+   * finalizar o checkout (`establishments.whatsapp_checkout_enabled`).
+   * Ausente/`undefined` = ativo (compatibilidade com bases legadas).
+   */
+  whatsapp_checkout_enabled?: boolean;
   /** Telefone de contato (fallback quando `whatsapp` não existe). */
   phone: string | null;
   /** Taxa de entrega padrão cobrada no checkout. */

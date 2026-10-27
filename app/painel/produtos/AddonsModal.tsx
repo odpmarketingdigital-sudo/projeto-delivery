@@ -30,9 +30,9 @@ function parsePrice(raw: string): number {
 }
 
 /**
- * Modal de Gestão de Adicionais de um produto: criar (marcando se é
- * obrigatório), alternar obrigatório/opcional (is_required), pausar (is_active)
- * e excluir (ex: "Bacon +R$ 5,00").
+ * Modal de Gestão de Adicionais de um produto: criar, pausar (is_active) e
+ * excluir (ex: "Bacon +R$ 5,00"). Todos os adicionais são opcionais — o
+ * cliente decide se quer incluir.
  *
  * Consome /api/addons (a listagem já vem da página via GET /api/products; aqui
  * POST/PUT/DELETE).
@@ -50,7 +50,6 @@ export function AddonsModal({
   );
   const [newName, setNewName] = useState("");
   const [newPrice, setNewPrice] = useState("");
-  const [newRequired, setNewRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -101,7 +100,6 @@ export function AddonsModal({
         product_id: product.id,
         name,
         price,
-        is_required: newRequired,
       };
       if (isSuperAdmin) body.establishment_id = establishmentId;
       const res = await fetch("/api/addons", {
@@ -113,7 +111,6 @@ export function AddonsModal({
       if (!res.ok) throw new Error(data.error ?? "Falha ao criar o adicional.");
       setNewName("");
       setNewPrice("");
-      setNewRequired(false);
       onChanged();
     } catch (err) {
       setError(handleError(err, "Erro ao criar adicional."));
@@ -174,40 +171,6 @@ export function AddonsModal({
     }
   };
 
-  /** Alterna `is_required` (obrigatório/opcional) de um adicional (PUT). */
-  const handleToggleRequired = async (addon: MenuAddon) => {
-    if (busyId) return;
-    const previous = addon.is_required;
-    // Otimista: reflete imediatamente na lista.
-    setItems((prev) =>
-      prev.map((a) =>
-        a.id === addon.id ? { ...a, is_required: !previous } : a
-      )
-    );
-    setBusyId(addon.id);
-    setError(null);
-    try {
-      const res = await fetch("/api/addons", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: addon.id, is_required: !previous }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Falha ao atualizar o adicional.");
-      onChanged();
-    } catch (err) {
-      // Reverte a mudança otimista.
-      setItems((prev) =>
-        prev.map((a) =>
-          a.id === addon.id ? { ...a, is_required: previous } : a
-        )
-      );
-      setError(handleError(err, "Erro ao atualizar adicional."));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
   const inputClass =
     "rounded-xl border border-gray-700 bg-gray-900/60 px-3.5 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none transition focus:border-yellow-400/60";
 
@@ -259,16 +222,6 @@ export function AddonsModal({
                 className={`w-full ${inputClass} disabled:opacity-60`}
               />
             </div>
-            <label className="flex shrink-0 cursor-pointer select-none items-center gap-2 pb-2.5 text-xs font-semibold text-gray-300">
-              <input
-                type="checkbox"
-                checked={newRequired}
-                onChange={(e) => setNewRequired(e.target.checked)}
-                disabled={isCreating}
-                className="h-4 w-4 cursor-pointer rounded border-gray-600 bg-gray-900 accent-yellow-400 disabled:opacity-60"
-              />
-              Obrigatório
-            </label>
             <button
               type="submit"
               disabled={isCreating}
@@ -324,23 +277,6 @@ export function AddonsModal({
                       <span className="shrink-0 text-xs font-bold tabular-nums text-yellow-300">
                         + {formatBRL(addon.price)}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => void handleToggleRequired(addon)}
-                        disabled={busy}
-                        title={
-                          addon.is_required
-                            ? "Obrigatório — tornar opcional"
-                            : "Opcional — tornar obrigatório"
-                        }
-                        className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition disabled:opacity-50 ${
-                          addon.is_required
-                            ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
-                            : "border-gray-600/50 bg-gray-600/30 text-gray-400"
-                        }`}
-                      >
-                        {addon.is_required ? "Obrigatório" : "Opcional"}
-                      </button>
                       <button
                         type="button"
                         onClick={() => void handleToggle(addon)}

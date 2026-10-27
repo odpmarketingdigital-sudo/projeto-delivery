@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useEstablishment } from "@/app/painel/produtos/useEstablishment";
 import { createClient } from "@/lib/supabase/client";
 import type { Establishment, OpeningHours } from "@/lib/types";
@@ -24,6 +31,7 @@ import {
   MAX_ESTIMATED_DELIVERY_MINUTES,
   MIN_ESTIMATED_DELIVERY_MINUTES,
 } from "@/lib/deliveryEstimate";
+import { formatWhatsAppPhoneForDisplay } from "@/lib/whatsappOrder";
 
 const STORAGE_BUCKET = "products";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -73,6 +81,16 @@ const timeInputClass =
 
 const deliveryInputClass =
   "w-full rounded-xl border border-gray-700 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 hover:border-gray-600 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30 disabled:cursor-not-allowed disabled:opacity-40";
+
+/** Input do telefone/WhatsApp da loja (contato usado no checkout). */
+const contactInputClass =
+  "w-full rounded-xl border border-gray-700 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 hover:border-gray-600 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30 disabled:cursor-not-allowed disabled:opacity-40";
+
+/**
+ * Assinatura vazia para `useSyncExternalStore`: a origem do site só existe no
+ * cliente, então o servidor renderiza `""` e a hidratação não diverge.
+ */
+const subscribeToNothing = () => () => {};
 
 interface DeliveryFormState {
   delivery_type: DeliveryType;
@@ -168,6 +186,26 @@ export default function ConfiguracoesIdentidade() {
   const [deliverySuccess, setDeliverySuccess] = useState<string | null>(null);
   const [deliveryWarning, setDeliveryWarning] = useState<string | null>(null);
 
+  // Envio do resumo do pedido para o WhatsApp da loja (migração 16).
+  // Default `true` — mesma regra de `isWhatsAppCheckoutEnabled`.
+  const [whatsappCheckoutEnabled, setWhatsappCheckoutEnabled] = useState(true);
+  // Telefone/WhatsApp da loja (coluna `whatsapp`) — editável pelo lojista.
+  const [whatsappValue, setWhatsappValue] = useState("");
+  const [isSavingWhatsApp, setIsSavingWhatsApp] = useState(false);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
+  const [whatsappSuccess, setWhatsappSuccess] = useState<string | null>(null);
+  const [whatsappWarning, setWhatsappWarning] = useState<string | null>(null);
+
+  // Link público da loja: exibido apenas para leitura/cópia (o slug é definido
+  // no cadastro do estabelecimento e não é editável por esta tela).
+  const siteOrigin = useSyncExternalStore(
+    subscribeToNothing,
+    () => window.location.origin,
+    () => ""
+  );
+  const [storeLinkCopied, setStoreLinkCopied] = useState(false);
+  const copyTimerRef = useRef<number | null>(null);
+
   useEffect(() => {
     if (!selectedId) return;
 
@@ -222,6 +260,10 @@ export default function ConfiguracoesIdentidade() {
             : null
         );
         setLoadError(null);
+        // Migração 20261110000016: ausência da coluna = recurso ativo.
+        setWhatsappCheckoutEnabled(row.whatsapp_checkout_enabled !== false);
+        // Número usado pelo checkout: WhatsApp oficial com fallback ao telefone.
+        setWhatsappValue(row.whatsapp ?? row.phone ?? "");
       });
   }, [selectedId, supabase]);
 
@@ -246,6 +288,46 @@ export default function ConfiguracoesIdentidade() {
       urls.clear();
     };
   }, []);
+
+  // Cancela o timer do aviso "Copiado!" ao desmontar a tela.
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current != null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Slug público da loja — gerado no cadastro e exibido apenas para leitura.
+  const storeSlug = establishmentData?.slug?.trim() ?? "";
+  const storePath = storeSlug ? `/${storeSlug}` : "/";
+  // Origem só existe no cliente; até a hidratação o link aparece relativo.
+  const storeLink = siteOrigin ? `${siteOrigin}${storePath}` : storePath;
+
+  // Prévia formatada do número digitado (`null` = vazio ou inválido).
+  const whatsappPreview = formatWhatsAppPhoneForDisplay(whatsappValue);
+  const whatsappInvalid = whatsappValue.trim() !== "" && !whatsappPreview;
+
+  /**
+   * Copia o link público da loja para a área de transferência. O endereço é
+   * somente informativo: o slug não pode ser alterado por esta tela.
+   */
+  const handleCopyStoreLink = useCallback(async () => {
+    const url = siteOrigin ? `${siteOrigin}${storePath}` : storePath;
+    try {
+      await navigator.clipboard.writeText(url);
+      setStoreLinkCopied(true);
+      if (copyTimerRef.current != null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+      copyTimerRef.current = window.setTimeout(
+        () => setStoreLinkCopied(false),
+        2000
+      );
+    } catch {
+      // Navegadores sem Clipboard API (ex.: contexto não seguro).
+    }
+  }, [siteOrigin, storePath]);
 
   const clearPreview = useCallback((field: "logo_url" | "banner_url") => {
     setPreview(field, { status: "idle" });
@@ -661,6 +743,74 @@ export default function ConfiguracoesIdentidade() {
     }
   };
 
+  /**
+   * Salva o telefone/WhatsApp da loja junto da preferência de envio do resumo
+   * no checkout. O número é o mesmo usado pelo botão do WhatsApp no checkout —
+   * sem número válido o botão simplesmente não aparece lá.
+   */
+  const handleSaveWhatsApp = async () => {
+    if (!selectedId) return;
+
+    const whatsapp = whatsappValue.trim();
+    // `formatWhatsAppPhoneForDisplay` devolve null para números inválidos.
+    if (whatsapp && !formatWhatsAppPhoneForDisplay(whatsapp)) {
+      setWhatsappError(
+        "Informe um WhatsApp válido com DDD (ex.: (17) 99999-9999)."
+      );
+      setWhatsappSuccess(null);
+      setWhatsappWarning(null);
+      return;
+    }
+
+    setIsSavingWhatsApp(true);
+    setWhatsappError(null);
+    setWhatsappSuccess(null);
+    setWhatsappWarning(null);
+    try {
+      const res = await fetch("/api/establishment", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          establishment_id: selectedId,
+          // String vazia limpa o número cadastrado na loja.
+          whatsapp,
+          whatsapp_checkout_enabled: whatsappCheckoutEnabled,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        warning?: string;
+        establishment?: Establishment;
+      };
+      if (!res.ok) {
+        throw new Error(json.error ?? "Falha ao salvar o WhatsApp da loja.");
+      }
+
+      const warning =
+        typeof json.warning === "string" && json.warning ? json.warning : null;
+      setWhatsappWarning(warning);
+      const saved = json.establishment;
+      if (saved) {
+        setEstablishmentData((prev) => ({ ...(prev ?? saved), ...saved }));
+        // A API devolve o número no formato de exibição (já normalizado).
+        if (saved.whatsapp !== undefined) {
+          setWhatsappValue(saved.whatsapp ?? "");
+        }
+      }
+      setWhatsappSuccess(
+        warning
+          ? "Número salvo. A preferência de envio será gravada após criar a coluna pendente."
+          : "Telefone/WhatsApp e preferência de envio salvos."
+      );
+    } catch (err) {
+      setWhatsappError(
+        err instanceof Error ? err.message : "Erro inesperado ao salvar."
+      );
+    } finally {
+      setIsSavingWhatsApp(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col bg-gray-950">
       <AdminHeader
@@ -682,18 +832,56 @@ export default function ConfiguracoesIdentidade() {
           </div>
         )}
 
-        {/* Dados públicos da loja (nome + slogan exibidos na vitrine) */}
+        {/* Dados públicos da loja (nome, descrição e link exibidos na vitrine) */}
         <section className="rounded-2xl border border-gray-800 bg-gray-900/40 p-5 sm:p-6">
           <div className="flex items-center gap-2">
             <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-yellow-400" />
             <h2 className="font-semibold text-white">Dados da Loja</h2>
           </div>
           <p className="mt-1 text-xs text-gray-400">
-            Nome e texto exibidos no topo do cardápio público. A URL do cardápio
-            (slug) não muda ao renomear a loja.
+            Nome, texto e link exibidos no cardápio público. O link abaixo é
+            apenas informativo — ele é gerado no cadastro e não pode ser
+            alterado por aqui.
           </p>
 
           <div className="mt-4 flex flex-col gap-4">
+            {/* Link público: somente leitura + cópia (o slug não é editável). */}
+            <div>
+              <span className="mb-1.5 block text-sm font-medium text-gray-300">
+                Link da loja
+              </span>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  type="text"
+                  readOnly
+                  value={storeLink}
+                  aria-label="Link público da loja (somente leitura)"
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="w-full cursor-text rounded-xl border border-gray-800 bg-gray-950/60 px-3 py-2.5 text-sm text-gray-400 outline-none focus:border-gray-700"
+                />
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyStoreLink()}
+                    className="rounded-xl border border-gray-700 px-3 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
+                  >
+                    {storeLinkCopied ? "Copiado!" : "Copiar"}
+                  </button>
+                  <a
+                    href={storePath}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-xl border border-gray-700 px-3 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
+                  >
+                    Abrir
+                  </a>
+                </div>
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Endereço fixo do cardápio — não é possível editar o slug.
+              </p>
+            </div>
+
             <div>
               <label
                 htmlFor="store-name"
@@ -1223,6 +1411,156 @@ export default function ConfiguracoesIdentidade() {
                 </>
               ) : (
                 "Salvar entrega"
+              )}
+            </button>
+          </div>
+        </section>
+
+        {/* Envio do resumo do pedido no WhatsApp (migração 20261110000016) */}
+        <section
+          aria-labelledby="whatsapp-checkout-title"
+          className="rounded-2xl border border-gray-800 bg-gray-900/40 p-5 sm:p-6"
+        >
+          <div className="flex items-center gap-2">
+            <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-yellow-400" />
+            <h2
+              id="whatsapp-checkout-title"
+              className="font-semibold text-white"
+            >
+              Pedidos no WhatsApp
+            </h2>
+          </div>
+          <p className="mt-1 text-xs text-gray-400">
+            O pedido continua sendo registrado no painel normalmente. Com esta
+            opção ativa, o cliente vê ao finalizar o checkout um botão para
+            enviar o resumo completo (itens, adicionais, endereço e valores)
+            para o WhatsApp da loja.
+          </p>
+
+          {/* Telefone/WhatsApp da loja: sempre editável pelo lojista. */}
+          <div className="mt-4">
+            <label
+              htmlFor="store-whatsapp"
+              className="mb-1.5 block text-sm font-medium text-gray-300"
+            >
+              Telefone / WhatsApp da loja
+            </label>
+            <input
+              id="store-whatsapp"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              value={whatsappValue}
+              onChange={(e) => {
+                setWhatsappValue(e.target.value);
+                setWhatsappError(null);
+                setWhatsappSuccess(null);
+                setWhatsappWarning(null);
+              }}
+              maxLength={20}
+              placeholder="(17) 99999-9999"
+              aria-invalid={whatsappInvalid}
+              aria-describedby="store-whatsapp-hint"
+              className={contactInputClass}
+            />
+            <p
+              id="store-whatsapp-hint"
+              className={`mt-1 text-xs ${
+                whatsappInvalid ? "text-red-400" : "text-gray-500"
+              }`}
+            >
+              {whatsappInvalid
+                ? "Número inválido — informe DDD + número (ex.: (17) 99999-9999)."
+                : "Número com DDD que recebe o resumo do pedido. Altere e salve quando precisar."}
+            </p>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-950/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p
+                id="whatsapp-checkout-label"
+                className="text-sm font-medium text-gray-200"
+              >
+                Enviar resumo do pedido para o WhatsApp do estabelecimento ao
+                finalizar
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                {whatsappPreview
+                  ? `Número usado no checkout: ${whatsappPreview}`
+                  : "Nenhum WhatsApp/telefone válido cadastrado — o botão não aparecerá no checkout até que um número seja cadastrado."}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={whatsappCheckoutEnabled}
+              aria-labelledby="whatsapp-checkout-label"
+              onClick={() => {
+                setWhatsappCheckoutEnabled((prev) => !prev);
+                setWhatsappSuccess(null);
+                setWhatsappError(null);
+                setWhatsappWarning(null);
+              }}
+              disabled={!selectedId || isSavingWhatsApp}
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-yellow-400/40 disabled:cursor-not-allowed disabled:opacity-60 ${
+                whatsappCheckoutEnabled ? "bg-yellow-400" : "bg-gray-700"
+              }`}
+            >
+              <span className="sr-only">
+                {whatsappCheckoutEnabled ? "Desativar" : "Ativar"} envio do
+                resumo pelo WhatsApp
+              </span>
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                  whatsappCheckoutEnabled ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+
+          {/*
+           * Base sem a migração 16: o campo não vem no `select("*")`. Avisa o
+           * lojista antes de ele tentar salvar (o PUT também devolve erro).
+           */}
+          {establishmentData &&
+            establishmentData.whatsapp_checkout_enabled === undefined && (
+              <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-300">
+                A coluna <code>whatsapp_checkout_enabled</code> ainda não existe
+                no banco. Execute a migração{" "}
+                <code>20261110000016_add_whatsapp_checkout_setting.sql</code> no
+                SQL Editor do Supabase para que esta preferência seja gravada.
+              </p>
+            )}
+
+          {whatsappError && (
+            <p className="mt-3 text-sm text-red-400">{whatsappError}</p>
+          )}
+          {whatsappSuccess && (
+            <p className="mt-3 flex items-center gap-2 text-sm text-green-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+              {whatsappSuccess}
+            </p>
+          )}
+          {whatsappWarning && (
+            <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-300">
+              {whatsappWarning}
+            </p>
+          )}
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => void handleSaveWhatsApp()}
+              disabled={isSavingWhatsApp || !selectedId || whatsappInvalid}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSavingWhatsApp ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-950 border-t-transparent" />
+                  Salvando...
+                </>
+              ) : (
+                "Salvar WhatsApp"
               )}
             </button>
           </div>

@@ -22,6 +22,11 @@ import {
   getCustomerProfile,
   saveCustomerProfile,
 } from "@/lib/storage";
+import {
+  clearPendingOrderWhatsAppUrl,
+  savePendingOrderWhatsAppUrl,
+} from "@/lib/whatsappOrder";
+import { WhatsAppSendHint } from "@/app/components/WhatsAppSendHint";
 
 type PaymentMethod = "pix" | "cartao" | "dinheiro";
 
@@ -198,6 +203,8 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     total: number;
     establishmentName: string;
     estimatedDeliveryTime: string | null;
+    /** Link `wa.me` com o resumo do pedido (null quando o envio está off). */
+    whatsappUrl: string | null;
   } | null>(null);
   // Nome do cliente reconhecido (perfil salvo) para o banner "Bem-vindo de volta".
   // Lido uma única vez na montagem; não muda durante a sessão do checkout.
@@ -869,6 +876,8 @@ export function CheckoutForm({ slug }: { slug?: string }) {
           id: string;
           total?: number;
           estimated_delivery_time?: string | null;
+          /** Resumo do pedido no WhatsApp da loja (null quando indisponível). */
+          whatsapp_url?: string | null;
         };
       };
 
@@ -915,6 +924,21 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       const confirmedEstimatedDeliveryTime = parsedResponseEstimate
         ? formatEstimatedDeliveryWindowLabel(parsedResponseEstimate)
         : responseEstimate ?? estimatedDeliveryLabel;
+      // Resumo do pedido no WhatsApp: o servidor já aplicou as regras da loja
+      // (flag `whatsapp_checkout_enabled` + número válido). Quando indisponível,
+      // o pedido segue normalmente — apenas sem o botão.
+      const whatsappUrl =
+        typeof data.order?.whatsapp_url === "string" && data.order.whatsapp_url
+          ? data.order.whatsapp_url
+          : null;
+      // O redirect para `/pedido/[id]` encerra esta tela; o link viaja pelo
+      // sessionStorage para o botão aparecer no acompanhamento. Sem link,
+      // limpamos resumos antigos para não misturar pedidos.
+      if (whatsappUrl && targetId) {
+        savePendingOrderWhatsAppUrl(targetId, whatsappUrl);
+      } else {
+        clearPendingOrderWhatsAppUrl();
+      }
       setConfirmedSummary({
         total:
           typeof data.order?.total === "number"
@@ -922,6 +946,7 @@ export function CheckoutForm({ slug }: { slug?: string }) {
             : grandTotal,
         establishmentName: establishment?.name ?? "",
         estimatedDeliveryTime: confirmedEstimatedDeliveryTime,
+        whatsappUrl,
       });
       setOrderConfirmed(true);
       clearCart();
@@ -996,8 +1021,33 @@ export function CheckoutForm({ slug }: { slug?: string }) {
               ) : null}
             </div>
 
-            {/* Enviar comprovante/duvida pelo WhatsApp do estabelecimento */}
-            {whatsappNumber && (
+            {/*
+              * Resumo do pedido no WhatsApp oficial da loja (recurso opcional
+              * controlado em `/painel/configuracoes`). O link já vem pronto do
+              * servidor; quando indisponível, mantém o contato simples. O aviso
+              * acima só aparece quando existe algum botão de WhatsApp.
+              */}
+            {(confirmedSummary?.whatsappUrl || whatsappNumber) && (
+              <WhatsAppSendHint className="mt-5" />
+            )}
+            {confirmedSummary?.whatsappUrl ? (
+              <a
+                href={confirmedSummary.whatsappUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+              >
+                <svg
+                  aria-hidden="true"
+                  className="h-4 w-4"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.82 9.82 0 0 0 12.04 2Zm5.8 14.13c-.25.69-1.44 1.32-1.99 1.4-.51.08-1.16.11-1.87-.12-.43-.14-.98-.32-1.69-.62-2.97-1.28-4.91-4.27-5.06-4.47-.15-.2-1.21-1.61-1.21-3.07 0-1.46.77-2.18 1.04-2.48.27-.3.59-.37.79-.37.2 0 .39 0 .57.01.18.01.43-.07.67.51.24.59.83 2.03.9 2.18.07.15.12.32.02.52-.1.2-.15.32-.3.5-.15.17-.31.39-.45.52-.15.15-.3.31-.13.61.17.3.76 1.25 1.63 2.02 1.12.99 2.06 1.3 2.36 1.45.3.15.47.12.65-.07.17-.2.76-.89.96-1.19.2-.3.4-.25.67-.15.27.1 1.72.81 2.02.96.3.15.5.22.57.35.07.12.07.72-.18 1.41Z" />
+                </svg>
+                Enviar pedido no WhatsApp
+              </a>
+            ) : whatsappNumber ? (
               <a
                 href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
                   `Olá! Acabei de fazer o pedido${
@@ -1020,7 +1070,7 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                 </svg>
                 Falar no WhatsApp
               </a>
-            )}
+            ) : null}
 
             <Link
               href={backHref}

@@ -144,6 +144,32 @@ const SubscriptionContext = createContext<PanelSubscription | null>(null);
  * paywall é cobrar, não derrubar o painel de quem já paga por um erro de
  * infraestrutura.
  */
+/**
+ * `true` quando a leitura atual é idêntica à anterior.
+ *
+ * `refresh()` (pagamento confirmado, botão "Tentar novamente") e o efeito de
+ * montagem releem a loja e devolveriam um objeto novo mesmo sem mudança — o que
+ * re-renderiza o guard, o banner de trial e toda a página a cada leitura.
+ */
+function isSameSnapshot(
+  a: SubscriptionSnapshot | null,
+  b: SubscriptionSnapshot
+): boolean {
+  if (!a) return false;
+  return (
+    a.establishmentId === b.establishmentId &&
+    a.establishmentName === b.establishmentName &&
+    a.status === b.status &&
+    a.trialEndsAt === b.trialEndsAt &&
+    a.planId === b.planId &&
+    a.daysRemaining === b.daysRemaining &&
+    a.isActive === b.isActive &&
+    a.error === b.error &&
+    a.isSchemaPending === b.isSchemaPending &&
+    a.isSuperAdmin === b.isSuperAdmin
+  );
+}
+
 export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
   const { currentUser } = useAuth();
@@ -219,11 +245,12 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
     fetchSubscription()
       .then((next) => {
         if (cancelled) return;
-        setSnapshot(next);
+        setSnapshot((prev) => (isSameSnapshot(prev, next) ? prev : next));
       })
       .catch(() => {
         if (cancelled) return;
-        setSnapshot({ ...EMPTY_SNAPSHOT, isActive: true, error: LOAD_ERROR });
+        const fallback = { ...EMPTY_SNAPSHOT, isActive: true, error: LOAD_ERROR };
+        setSnapshot((prev) => (isSameSnapshot(prev, fallback) ? prev : fallback));
       });
 
     return () => {
@@ -233,9 +260,11 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      setSnapshot(await fetchSubscription());
+      const next = await fetchSubscription();
+      setSnapshot((prev) => (isSameSnapshot(prev, next) ? prev : next));
     } catch {
-      setSnapshot({ ...EMPTY_SNAPSHOT, isActive: true, error: LOAD_ERROR });
+      const fallback = { ...EMPTY_SNAPSHOT, isActive: true, error: LOAD_ERROR };
+      setSnapshot((prev) => (isSameSnapshot(prev, fallback) ? prev : fallback));
     }
   }, [fetchSubscription]);
 

@@ -64,6 +64,11 @@ function mapEstablishment(row: EstablishmentRow): StorefrontInfo {
     whatsapp:
       typeof row.whatsapp === "string" && row.whatsapp ? row.whatsapp : null,
     phone: typeof row.phone === "string" && row.phone ? row.phone : null,
+    /**
+     * Recurso "enviar resumo no WhatsApp": ativo por padrão. Só é desligado
+     * quando a loja marca `false` no painel (migração 20261110000016).
+     */
+    whatsapp_checkout_enabled: row.whatsapp_checkout_enabled !== false,
     delivery_fee: delivery.delivery_fee,
     delivery_type: delivery.delivery_type,
     distance_base_km: delivery.distance_base_km,

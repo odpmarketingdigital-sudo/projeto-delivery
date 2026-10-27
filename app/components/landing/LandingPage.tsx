@@ -2,17 +2,23 @@ import { LandingHeader } from "./LandingHeader";
 import { LandingHero } from "./LandingHero";
 import { HowItWorks } from "./HowItWorks";
 import { Features } from "./Features";
+import { SystemGallery } from "./SystemGallery";
 import { Benefits } from "./Benefits";
 import { Testimonials } from "./Testimonials";
+import { Pricing } from "./Pricing";
 import { FinalCta } from "./FinalCta";
+import { TrainingCta } from "./TrainingCta";
 import { LandingFooter } from "./LandingFooter";
+import { FloatingWhatsApp } from "./FloatingWhatsApp";
 
 /**
  * Landing Page institucional do Ipepper.
  *
  * A página é sempre escura (independente do tema do sistema) para manter a
  * identidade visual da marca. As seções usam âncoras com `scroll-mt` para não
- * ficarem escondidas atrás do cabeçalho fixo.
+ * ficarem escondidas atrás do cabeçalho fixo: hero, como funciona, recursos,
+ * galeria do sistema, planos, benefícios, depoimentos, CTA final e o convite
+ * para agendar um treinamento (logo acima do rodapé).
  */
 export function LandingPage() {
   return (
@@ -30,12 +36,16 @@ export function LandingPage() {
         <LandingHero />
         <HowItWorks />
         <Features />
+        <SystemGallery />
+        <Pricing />
         <Benefits />
         <Testimonials />
         <FinalCta />
+        <TrainingCta />
       </main>
 
       <LandingFooter />
+      <FloatingWhatsApp />
     </div>
   );
 }

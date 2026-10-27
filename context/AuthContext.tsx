@@ -47,6 +47,26 @@ function metaString(user: User, key: string): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+/**
+ * `true` quando os dois usuários têm exatamente os mesmos dados.
+ *
+ * Usado para preservar a referência do estado: o Supabase emite eventos de auth
+ * com frequência (refresh de token, foco da aba, `INITIAL_SESSION`) e recriar o
+ * objeto a cada evento re-renderiza todo o painel e refaz as leituras que
+ * dependem de `currentUser` (assinatura, estabelecimentos) — causando cascatas
+ * de requisições e piscadas de "Carregando...".
+ */
+function sameAuthUser(a: AuthUser | null, b: AuthUser): boolean {
+  return (
+    a !== null &&
+    a.id === b.id &&
+    a.name === b.name &&
+    a.email === b.email &&
+    a.role === b.role &&
+    a.establishment === b.establishment
+  );
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = useMemo(() => createClient(), []);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
@@ -96,14 +116,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setCurrentUser({
+      const nextUser: AuthUser = {
         id: data?.id ?? user.id,
         name: data?.name ?? metaString(user, "name") ?? "",
         email: data?.email ?? user.email ?? "",
         role,
         establishment:
           data?.establishment ?? metaString(user, "establishment") ?? undefined,
-      });
+      };
+      // Preserva a referência quando o perfil não mudou (ver `sameAuthUser`).
+      setCurrentUser((prev) => (sameAuthUser(prev, nextUser) ? prev : nextUser));
       setIsLoading(false);
     }
 
