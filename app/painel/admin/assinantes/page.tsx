@@ -331,6 +331,15 @@ export default function AdminAssinantesPage() {
                 >
                   Preço do plano
                 </Link>
+                <span aria-hidden="true" className="text-gray-700">
+                  |
+                </span>
+                <Link
+                  href="/painel/admin/cupons"
+                  className="text-gray-400 transition hover:text-white"
+                >
+                  Cupons de assinatura
+                </Link>
               </nav>
 
               <h1 className="text-3xl font-bold tracking-tight text-white">

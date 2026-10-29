@@ -16,7 +16,8 @@ import { createClient } from "@/lib/supabase/client";
  *    Produtos (`/painel/produtos`), Configurações (`/painel/configuracoes`)
  *    e Assinatura (`/painel/assinatura`);
  *  - super_admin → apenas a gestão do SaaS: Dashboard SaaS (`/painel/admin`),
- *    Assinantes (`/painel/admin/assinantes`) e Preço do Plano
+ *    Assinantes (`/painel/admin/assinantes`), Cupons de Assinatura
+ *    (`/painel/admin/cupons`) e Preço do Plano
  *    (`/painel/admin/configuracoes`). Os menus operacionais de loja ficam
  *    ocultos, porque o super admin administra a plataforma e não opera loja.
  *
@@ -52,6 +53,7 @@ type PanelPage =
   | "assinatura"
   | "admin"
   | "admin-assinantes"
+  | "admin-cupons"
   | "admin-configuracoes";
 
 /** Item de navegação (label visível + rota base, sem query string). */
@@ -79,6 +81,11 @@ const SAAS_NAV_ITEMS: NavItem[] = [
     page: "admin-assinantes",
     href: "/painel/admin/assinantes",
     label: "Assinantes",
+  },
+  {
+    page: "admin-cupons",
+    href: "/painel/admin/cupons",
+    label: "Cupons de Assinatura",
   },
   {
     page: "admin-configuracoes",
@@ -139,6 +146,7 @@ export function AdminHeader({ establishmentId, isSuperAdmin, badge }: AdminHeade
     if (pathname.startsWith("/painel/produtos")) return "produtos";
     if (pathname.startsWith("/painel/admin/assinantes"))
       return "admin-assinantes";
+    if (pathname.startsWith("/painel/admin/cupons")) return "admin-cupons";
     if (pathname.startsWith("/painel/admin/configuracoes"))
       return "admin-configuracoes";
     if (pathname.startsWith("/painel/admin")) return "admin";

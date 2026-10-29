@@ -9,7 +9,7 @@
  * rota de checkout e desta para o Asaas.
  */
 
-import type { SubscriptionStatus } from "./subscriptions";
+import type { BillingCycleId, SubscriptionStatus } from "./subscriptions";
 
 // ---------------------------------------------------------------------------
 // Formas de pagamento
@@ -71,6 +71,70 @@ export function onlyDigits(value: string): string {
 /** `true` quando o e-mail tem o formato mínimo aceito pelo checkout. */
 export function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim());
+}
+
+// ---------------------------------------------------------------------------
+// CPF/CNPJ — validação estrita (tamanho + dígitos verificadores)
+// ---------------------------------------------------------------------------
+
+/** `true` quando todos os dígitos são iguais (000.000.000-00, 111…). */
+function hasRepeatedDigits(digits: string): boolean {
+  return /^(\d)\1+$/.test(digits);
+}
+
+/** Valida CPF (11 dígitos) pelo módulo 11. */
+function isValidCpfDigits(digits: string): boolean {
+  if (digits.length !== 11 || hasRepeatedDigits(digits)) return false;
+
+  const calculateDigit = (length: number): number => {
+    let sum = 0;
+    for (let index = 0; index < length; index += 1) {
+      sum += Number(digits[index]) * (length + 1 - index);
+    }
+    const remainder = (sum * 10) % 11;
+    return remainder === 10 ? 0 : remainder;
+  };
+
+  return (
+    calculateDigit(9) === Number(digits[9]) &&
+    calculateDigit(10) === Number(digits[10])
+  );
+}
+
+/** Valida CNPJ (14 dígitos) pelo módulo 11. */
+function isValidCnpjDigits(digits: string): boolean {
+  if (digits.length !== 14 || hasRepeatedDigits(digits)) return false;
+
+  const calculateDigit = (length: number): number => {
+    const firstWeights = [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
+    const secondWeights = [6, ...firstWeights];
+    const weights = length === 12 ? firstWeights : secondWeights;
+
+    let sum = 0;
+    for (let index = 0; index < length; index += 1) {
+      sum += Number(digits[index]) * weights[index];
+    }
+
+    const remainder = sum % 11;
+    return remainder < 2 ? 0 : 11 - remainder;
+  };
+
+  return (
+    calculateDigit(12) === Number(digits[12]) &&
+    calculateDigit(13) === Number(digits[13])
+  );
+}
+
+/**
+ * Validação estrita de CPF/CNPJ: confere o tamanho (11 ou 14 dígitos) e os
+ * dígitos verificadores. Aceita o documento com ou sem máscara.
+ */
+export function isValidCpfCnpj(value: string): boolean {
+  const digits = onlyDigits(value);
+
+  if (digits.length === 11) return isValidCpfDigits(digits);
+  if (digits.length === 14) return isValidCnpjDigits(digits);
+  return false;
 }
 
 /** Máscara progressiva de CPF (000.000.000-00) ou CNPJ (00.000.000/0000-00). */
@@ -160,6 +224,10 @@ export interface CheckoutRequest {
   /** Necessário apenas para super_admin (o admin usa a própria loja). */
   establishment_id?: string;
   billingType: BillingType;
+  /** Ciclo de cobrança escolhido (mensal quando ausente). */
+  cycle?: BillingCycleId;
+  /** Código do cupom de assinatura aplicado ao total do período. */
+  couponCode?: string;
   customer: BillingCustomerInput;
   creditCard?: CreditCardInput;
   creditCardHolderInfo?: CreditCardHolderInput;
@@ -194,6 +262,20 @@ export interface CheckoutResponse {
   paymentStatus: string | null;
   /** Situação da loja já persistida no banco. */
   subscriptionStatus: SubscriptionStatus;
+  /** Ciclo efetivamente contratado (ausente em respostas reaproveitadas). */
+  billingCycle?: BillingCycleId;
+  /** Rótulo do ciclo (ex.: "Semestral"). */
+  cycleLabel?: string;
+  /** Duração do período contratado (ex.: "6 meses"). */
+  durationLabel?: string;
+  /** Total do período antes do cupom, em centavos. */
+  subtotalCents?: number;
+  /** Desconto aplicado pelo cupom, em centavos. */
+  discountCents?: number;
+  /** Total cobrado no período, em centavos. */
+  totalCents?: number;
+  /** Código do cupom aplicado (null/ausente quando não houve). */
+  couponCode?: string | null;
   pix?: CheckoutPixInfo;
   boleto?: CheckoutBoletoInfo;
 }
@@ -237,9 +319,9 @@ const MIN_CARD_HOLDER_LENGTH = 3;
  * Valida os dados de faturamento.
  * Retorna a mensagem do primeiro campo inválido ou `null` quando está tudo ok.
  *
- * O CPF/CNPJ é validado apenas por tamanho (11 ou 14 dígitos): o dígito
- * verificador fica a cargo do Asaas, para não bloquear dados de teste no
- * Sandbox.
+ * O CPF/CNPJ passa por validação estrita (tamanho + dígitos verificadores),
+ * com a mesma regra no navegador e no servidor — documentos de teste no
+ * Sandbox do Asaas também precisam ser válidos.
  */
 export function validateBillingCustomer(
   customer: BillingCustomerInput
@@ -259,6 +341,9 @@ export function validateBillingCustomer(
   const cpfCnpj = onlyDigits(customer.cpfCnpj);
   if (cpfCnpj.length !== 11 && cpfCnpj.length !== 14) {
     return "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.";
+  }
+  if (!isValidCpfCnpj(cpfCnpj)) {
+    return "CPF/CNPJ inválido: confira os dígitos informados no faturamento.";
   }
 
   const phone = onlyDigits(customer.phone);

@@ -341,3 +341,150 @@ export function buildSubscriptionPlan(priceCents: number): SubscriptionPlan {
 export const IPEPPER_PRO_PLAN: SubscriptionPlan =
   buildSubscriptionPlan(PLAN_PRICE_CENTS);
 
+// ---------------------------------------------------------------------------
+// Ciclos de cobrança (mensal, semestral e anual)
+// ---------------------------------------------------------------------------
+
+/**
+ * Ciclos vendidos no autoatendimento.
+ *
+ * - `id`          → valor usado nas rotas (`cycle`) e no navegador;
+ * - `asaasCycle`  → enum aceito pelo `POST /subscriptions` do Asaas;
+ * - `months`/`discountPercent` → base do cálculo do total do período.
+ *
+ * Semestral e anual são UMA assinatura com ciclo maior (o Asaas gera uma
+ * cobrança por período). O desconto é aplicado sobre o valor do período, e a
+ * tela de assinatura mostra o equivalente mensal para facilitar a comparação.
+ */
+export const BILLING_CYCLES = [
+  {
+    id: "monthly",
+    label: "Mensal",
+    months: 1,
+    discountPercent: 0,
+    asaasCycle: "MONTHLY",
+    periodLabel: "mês",
+  },
+  {
+    id: "semiannual",
+    label: "Semestral",
+    months: 6,
+    discountPercent: 5,
+    asaasCycle: "SEMIANNUAL",
+    periodLabel: "semestre",
+  },
+  {
+    id: "annual",
+    label: "Anual",
+    months: 12,
+    discountPercent: 10,
+    asaasCycle: "YEARLY",
+    periodLabel: "ano",
+  },
+] as const;
+
+export type BillingCycle = (typeof BILLING_CYCLES)[number];
+export type BillingCycleId = BillingCycle["id"];
+export type AsaasSubscriptionCycle = BillingCycle["asaasCycle"];
+
+/** Type guard para valores vindos do cliente. */
+export function isBillingCycleId(value: unknown): value is BillingCycleId {
+  return (
+    typeof value === "string" &&
+    BILLING_CYCLES.some((cycle) => cycle.id === value)
+  );
+}
+
+/** Ciclo pelo id (mensal quando o valor é desconhecido). */
+export function getBillingCycle(
+  id: string | null | undefined
+): BillingCycle {
+  return BILLING_CYCLES.find((cycle) => cycle.id === id) ?? BILLING_CYCLES[0];
+}
+
+/** Valores de um ciclo já calculados (tudo em centavos + rótulos prontos). */
+export interface BillingCyclePrice {
+  id: BillingCycleId;
+  label: string;
+  months: number;
+  discountPercent: number;
+  asaasCycle: AsaasSubscriptionCycle;
+  periodLabel: string;
+  /** Duração legível do período (ex.: "6 meses"). */
+  durationLabel: string;
+  /** Valor mensal do plano (sem desconto), em centavos. */
+  monthlyCents: number;
+  /** Total do período sem desconto, em centavos. */
+  listCents: number;
+  listLabel: string;
+  /** Desconto do ciclo, em centavos. */
+  discountCents: number;
+  /** Texto do desconto (ex.: "R$ 29,10 (5%)"); vazio no mensal. */
+  discountLabel: string;
+  /** Total cobrado no período, em centavos. */
+  totalCents: number;
+  totalLabel: string;
+  /** Equivalente mensal do total (para comparar os ciclos). */
+  monthlyEquivalentCents: number;
+  monthlyEquivalentLabel: string;
+}
+
+/**
+ * Calcula os valores de um ciclo a partir do preço mensal (centavos).
+ *
+ * O desconto é arredondado para o centavo mais próximo, e o total nunca é
+ * menor que zero.
+ */
+export function computeBillingCyclePrice(
+  monthlyCents: number,
+  id: BillingCycleId = "monthly"
+): BillingCyclePrice {
+  const cycle = getBillingCycle(id);
+  const monthly =
+    Number.isFinite(monthlyCents) && monthlyCents > 0
+      ? Math.round(monthlyCents)
+      : 0;
+
+  const listCents = monthly * cycle.months;
+  const discountCents =
+    cycle.discountPercent > 0
+      ? Math.round((listCents * cycle.discountPercent) / 100)
+      : 0;
+  const totalCents = Math.max(0, listCents - discountCents);
+  const monthlyEquivalentCents = Math.round(totalCents / cycle.months);
+
+  const durationLabel =
+    cycle.months === 1 ? "1 mês" : `${cycle.months} meses`;
+
+  return {
+    id: cycle.id,
+    label: cycle.label,
+    months: cycle.months,
+    discountPercent: cycle.discountPercent,
+    asaasCycle: cycle.asaasCycle,
+    periodLabel: cycle.periodLabel,
+    durationLabel,
+    monthlyCents: monthly,
+    listCents,
+    listLabel: formatBRL(listCents),
+    discountCents,
+    discountLabel:
+      discountCents > 0
+        ? `${formatBRL(discountCents)} (${cycle.discountPercent}%)`
+        : "",
+    totalCents,
+    totalLabel: formatBRL(totalCents),
+    monthlyEquivalentCents,
+    monthlyEquivalentLabel: formatBRL(monthlyEquivalentCents),
+  };
+}
+
+/** Todos os ciclos com os valores calculados (usado na tela de assinatura). */
+export function buildBillingCyclePrices(
+  monthlyCents: number
+): BillingCyclePrice[] {
+  return BILLING_CYCLES.map((cycle) =>
+    computeBillingCyclePrice(monthlyCents, cycle.id)
+  );
+}
+

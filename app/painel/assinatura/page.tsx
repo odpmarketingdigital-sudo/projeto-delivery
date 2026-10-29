@@ -6,6 +6,8 @@ import { useSubscription } from "@/app/painel/components/SubscriptionProvider";
 import {
   IPEPPER_PRO_PLAN,
   SUBSCRIPTION_STATUS_LABELS,
+  buildBillingCyclePrices,
+  type BillingCycleId,
 } from "@/lib/subscriptions";
 import { CheckoutModal } from "./CheckoutModal";
 
@@ -79,21 +81,28 @@ export default function AssinaturaPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
-  // Preço vigente do plano (system_settings). O fallback local (R$ 97,00) é
-  // exibido até a resposta da API — se a rota falhar, ele permanece.
-  const [planPriceLabel, setPlanPriceLabel] = useState(
-    IPEPPER_PRO_PLAN.priceLabel
+  // Preço mensal vigente do plano (system_settings). O fallback local
+  // (`IPEPPER_PRO_PLAN`) é usado até a resposta da API — se a rota falhar, ele
+  // permanece e os ciclos semestral/anual continuam calculados.
+  const [planPriceCents, setPlanPriceCents] = useState<number>(
+    IPEPPER_PRO_PLAN.priceCents
   );
+  // Ciclo escolhido para a cobrança (mensal por padrão).
+  const [cycleId, setCycleId] = useState<BillingCycleId>("monthly");
 
   useEffect(() => {
     let active = true;
 
     fetch("/api/billing/plan", { cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { priceLabel?: unknown } | null) => {
+      .then((data: { priceCents?: unknown } | null) => {
         if (!active || !data) return;
-        if (typeof data.priceLabel === "string" && data.priceLabel.trim()) {
-          setPlanPriceLabel(data.priceLabel);
+        if (
+          typeof data.priceCents === "number" &&
+          Number.isFinite(data.priceCents) &&
+          data.priceCents > 0
+        ) {
+          setPlanPriceCents(Math.round(data.priceCents));
         }
       })
       .catch(() => {
@@ -104,6 +113,11 @@ export default function AssinaturaPage() {
       active = false;
     };
   }, []);
+
+  // Mensal, semestral (−5%) e anual (−10%) com os valores já calculados.
+  const cyclePrices = buildBillingCyclePrices(planPriceCents);
+  const selectedCycle =
+    cyclePrices.find((cycle) => cycle.id === cycleId) ?? cyclePrices[0];
 
   // Callbacks estáveis: o modal os usa em efeitos (ESC, polling do pagamento).
   const closeCheckout = useCallback(() => setIsCheckoutOpen(false), []);
@@ -296,11 +310,60 @@ export default function AssinaturaPage() {
               </div>
               <div className="shrink-0 text-left sm:text-right">
                 <p className="text-3xl font-extrabold text-white sm:text-4xl">
-                  {planPriceLabel}
+                  {selectedCycle.totalLabel}
                 </p>
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  por {IPEPPER_PRO_PLAN.period}
+                  por {selectedCycle.durationLabel}
+                  {selectedCycle.discountPercent > 0 && (
+                    <span className="ml-2 rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+                      −{selectedCycle.discountPercent}%
+                    </span>
+                  )}
                 </p>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">
+                Forma de cobrança
+              </h3>
+              <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                {cyclePrices.map((cycle) => {
+                  const selected = cycle.id === selectedCycle.id;
+
+                  return (
+                    <button
+                      key={cycle.id}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setCycleId(cycle.id)}
+                      className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                        selected
+                          ? "border-yellow-400/70 bg-yellow-400/10"
+                          : "border-gray-700 bg-gray-950/40 hover:border-gray-600"
+                      }`}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-semibold text-gray-100">
+                          {cycle.label}
+                        </span>
+                        {cycle.discountPercent > 0 && (
+                          <span className="rounded-full bg-emerald-400/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300">
+                            −{cycle.discountPercent}%
+                          </span>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-sm font-bold tabular-nums text-white">
+                        {cycle.totalLabel}
+                      </span>
+                      <span className="mt-0.5 block text-[11px] text-gray-500">
+                        {cycle.months === 1
+                          ? "cobrança a cada mês"
+                          : `equivale a ${cycle.monthlyEquivalentLabel}/mês`}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -363,8 +426,9 @@ export default function AssinaturaPage() {
                 {status === "active" ? "Plano ativo" : "Assinar Agora"}
               </button>
               <p className="text-center text-xs text-gray-500">
-                Pagamento seguro · o acesso é liberado automaticamente após a
-                confirmação.
+                {selectedCycle.label} · {selectedCycle.totalLabel} por{" "}
+                {selectedCycle.periodLabel} · pagamento seguro, com acesso
+                liberado após a confirmação.
               </p>
             </div>
 
@@ -383,7 +447,7 @@ export default function AssinaturaPage() {
       {isCheckoutOpen && (
         <CheckoutModal
           establishmentId={establishmentId}
-          amountLabel={planPriceLabel}
+          cyclePrice={selectedCycle}
           planName={IPEPPER_PRO_PLAN.name}
           onClose={closeCheckout}
           onConfirmed={handleCheckoutConfirmed}

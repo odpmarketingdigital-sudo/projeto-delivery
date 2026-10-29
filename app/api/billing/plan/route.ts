@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getMonthlyPlanPrice } from "@/lib/settings";
+import { buildBillingCyclePrices } from "@/lib/subscriptions";
 
 /**
  * GET /api/billing/plan — preço vigente do Plano Profissional.
@@ -9,7 +10,9 @@ import { getMonthlyPlanPrice } from "@/lib/settings";
  * em `system_settings` e, se a leitura falhar, mantém o fallback local
  * (`IPEPPER_PRO_PLAN`, R$ 97,00).
  *
- * Resposta: `{ priceCents, priceLabel, period, source, schemaPending }`.
+ * Resposta:
+ * `{ priceCents, priceLabel, period, cycles, source, schemaPending }`, onde
+ * `cycles` traz mensal, semestral (−5%) e anual (−10%) já calculados.
  * `Cache-Control: no-store` para que uma alteração no painel apareça no
  * próximo carregamento.
  */
@@ -21,6 +24,7 @@ export async function GET() {
       priceCents: pricing.priceCents,
       priceLabel: pricing.priceLabel,
       period: "mês",
+      cycles: buildBillingCyclePrices(pricing.priceCents),
       source: pricing.source,
       schemaPending: pricing.schemaPending,
     },

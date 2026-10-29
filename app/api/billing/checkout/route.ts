@@ -28,9 +28,22 @@ import {
   resolveMenuEstablishment,
 } from "@/lib/supabase/menuGuard";
 import {
+  computeBillingCyclePrice,
+  isBillingCycleId,
   isSubscriptionActive,
   type SubscriptionStatus,
 } from "@/lib/subscriptions";
+import {
+  buildSubscriptionCouponQuote,
+  isValidSubscriptionCouponCode,
+  normalizeSubscriptionCouponCode,
+  subscriptionCouponEligibilityError,
+  type SubscriptionCouponRecord,
+} from "@/lib/subscription-coupons";
+import {
+  consumeSubscriptionCouponUsage,
+  findSubscriptionCouponByCode,
+} from "@/lib/subscription-coupons-server";
 import { getSubscriptionPlan } from "@/lib/settings";
 
 /**
@@ -39,12 +52,15 @@ import { getSubscriptionPlan } from "@/lib/settings";
  * Fluxo (tudo no servidor):
  *  1. Exige sessão de admin e resolve a loja (admin = a própria; super admin
  *     informa `establishment_id`).
- *  2. Valida os dados de faturamento e, no cartão, os dados do titular.
- *  3. Reaproveita/cria o cliente no Asaas (`customer_payment_id`).
- *  4. Cria a assinatura mensal recorrente com a forma escolhida.
- *  5. Persiste `subscription_id`/`plan_id` e libera o acesso quando a primeira
+ *  2. Valida os dados de faturamento (CPF/CNPJ com dígito verificador) e, no
+ *     cartão, os dados do titular.
+ *  3. Calcula o ciclo escolhido (mensal / semestral −5% / anual −10%) e aplica
+ *     o cupom de assinatura, quando informado.
+ *  4. Reaproveita/cria o cliente no Asaas (`customer_payment_id`).
+ *  5. Cria a assinatura recorrente com a forma e o ciclo escolhidos.
+ *  6. Persiste `subscription_id`/`plan_id` e libera o acesso quando a primeira
  *     cobrança já nasce paga (cartão aprovado).
- *  6. Devolve o QR Code Pix, o link do boleto ou o status do cartão.
+ *  7. Devolve o QR Code Pix, o link do boleto ou o status do cartão.
  *
  * Nenhum dado de cartão é gravado: ele só transita até o Asaas.
  */
@@ -406,6 +422,62 @@ export async function POST(request: Request) {
     }
   }
 
+  // ---- Ciclo de cobrança + cupom de assinatura -----------------------------
+  //
+  // O ciclo define o total do período (mensal, semestral −5% ou anual −10%) e o
+  // cupom incide sobre esse total. Todo o cálculo é refeito aqui: o valor que
+  // chega do navegador nunca é usado para cobrar.
+  if (body.cycle !== undefined && !isBillingCycleId(body.cycle)) {
+    return fail(
+      "Ciclo de cobrança inválido. Escolha mensal, semestral ou anual."
+    );
+  }
+
+  const billingCycle = computeBillingCyclePrice(
+    plan.priceCents,
+    isBillingCycleId(body.cycle) ? body.cycle : "monthly"
+  );
+
+  const requestedCouponCode = normalizeSubscriptionCouponCode(
+    typeof body.couponCode === "string" ? body.couponCode : ""
+  );
+
+  let coupon: SubscriptionCouponRecord | null = null;
+
+  if (requestedCouponCode) {
+    if (!isValidSubscriptionCouponCode(requestedCouponCode)) {
+      return fail("Código de cupom inválido.");
+    }
+
+    try {
+      coupon = await findSubscriptionCouponByCode(requestedCouponCode);
+    } catch (error) {
+      console.error("[billing/checkout] falha ao consultar o cupom", error);
+      return fail(
+        "Não foi possível validar o cupom agora. Remova o cupom ou tente novamente.",
+        500
+      );
+    }
+
+    if (!coupon) {
+      return fail("Cupom de desconto não encontrado.");
+    }
+
+    const couponError = subscriptionCouponEligibilityError(
+      coupon,
+      billingCycle.totalCents
+    );
+    if (couponError) return fail(couponError);
+  }
+
+  const quote = buildSubscriptionCouponQuote(billingCycle, coupon);
+
+  if (quote.totalCents <= 0) {
+    return fail(
+      "O desconto deste cupom zera o valor da assinatura. Remova o cupom para continuar."
+    );
+  }
+
   // Cliente no Asaas: reaproveita por e-mail/CPF-CNPJ quando já existe.
   let customerId: string;
   try {
@@ -425,15 +497,19 @@ export async function POST(request: Request) {
     );
   }
 
-  // Assinatura mensal (a primeira cobrança vence hoje).
+  // Assinatura no ciclo escolhido (a primeira cobrança vence hoje).
   let subscription: Awaited<ReturnType<typeof createAsaasSubscription>>;
   try {
     subscription = await createAsaasSubscription({
       customerId,
       billingType,
-      value: plan.priceCents / 100,
+      value: quote.totalCents / 100,
       nextDueDate: formatAsaasDate(),
-      description: `Assinatura ${plan.name}`,
+      cycle: billingCycle.asaasCycle,
+      description:
+        `Assinatura ${plan.name} — ${billingCycle.label} ` +
+        `(${billingCycle.durationLabel})` +
+        (coupon ? ` · cupom ${coupon.code}` : ""),
       externalReference: establishment.id,
       ...(billingType === "CREDIT_CARD" && creditCard && creditCardHolder
         ? {
@@ -506,12 +582,30 @@ export async function POST(request: Request) {
     );
   }
 
+  // Contabiliza o uso do cupom só depois de a assinatura estar vinculada à
+  // loja. Falha aqui não desfaz a contratação (o uso fica faltando no painel).
+  if (coupon) {
+    const consumed = await consumeSubscriptionCouponUsage(coupon.id);
+    if (!consumed) {
+      console.warn(
+        `[billing/checkout] cupom ${coupon.code} aplicado sem contabilizar o uso`
+      );
+    }
+  }
+
   const response: CheckoutResponse = {
     subscriptionId: subscription.id,
     customerId,
     billingType,
     paymentStatus: payment?.status ?? null,
     subscriptionStatus: nextStatus,
+    billingCycle: billingCycle.id,
+    cycleLabel: billingCycle.label,
+    durationLabel: billingCycle.durationLabel,
+    subtotalCents: quote.subtotalCents,
+    discountCents: quote.discountCents,
+    totalCents: quote.totalCents,
+    couponCode: quote.couponCode,
     pix: await buildPixInfo(payment),
     boleto: buildBoletoInfo(payment),
   };

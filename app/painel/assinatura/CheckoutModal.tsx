@@ -24,14 +24,20 @@ import {
   type CheckoutResponse,
   type CreditCardInput,
 } from "@/lib/billing";
+import {
+  normalizeSubscriptionCouponCode,
+  type SubscriptionCouponQuote,
+} from "@/lib/subscription-coupons";
+import { formatBRL, type BillingCyclePrice } from "@/lib/subscriptions";
 
 /**
  * Modal de contratação do Plano Profissional (2 passos).
  *
  *  1. Dados de faturamento (nome, e-mail, CPF/CNPJ e telefone);
- *  2. Forma de pagamento — Pix (QR Code + copia e cola), cartão de crédito ou
- *     boleto. Ao concluir, chama `POST /api/billing/checkout` e passa a
- *     consultar `GET /api/billing/status` até o Asaas confirmar o pagamento.
+ *  2. Pagamento — forma (Pix, cartão ou boleto), cupom de desconto e resumo do
+ *     período contratado (mensal, semestral −5% ou anual −10%). Ao concluir,
+ *     chama `POST /api/billing/checkout` e passa a consultar
+ *     `GET /api/billing/status` até o Asaas confirmar o pagamento.
  *
  * Dados de cartão vivem apenas no estado do componente: não são persistidos em
  * lugar nenhum (nem em `localStorage`).
@@ -40,8 +46,8 @@ import {
 interface CheckoutModalProps {
   /** Loja alvo; o servidor valida a permissão e ignora quando é admin. */
   establishmentId: string | null;
-  /** Valor mensal já formatado (ex.: "R$ 97,00"). */
-  amountLabel: string;
+  /** Período escolhido na tela de assinatura, já com os valores calculados. */
+  cyclePrice: BillingCyclePrice;
   planName: string;
   onClose: () => void;
   /** Chamado quando o pagamento é confirmado (relê a assinatura no painel). */
@@ -107,7 +113,7 @@ function formatDateOnly(value: string | null): string | null {
 
 export function CheckoutModal({
   establishmentId,
-  amountLabel,
+  cyclePrice,
   planName,
   onClose,
   onConfirmed,
@@ -135,6 +141,10 @@ export function CheckoutModal({
   const [isChecking, setIsChecking] = useState(false);
   const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
   const [pixCopied, setPixCopied] = useState(false);
+  const [couponInput, setCouponInput] = useState("");
+  const [coupon, setCoupon] = useState<SubscriptionCouponQuote | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+  const [isCouponChecking, setIsCouponChecking] = useState(false);
 
   // O callback pode mudar de identidade a cada render da página; o polling usa
   // a versão mais recente sem reiniciar o intervalo.
@@ -170,9 +180,72 @@ export function CheckoutModal({
     null;
   const lastCheckLabel = formatDateTime(lastCheckedAt);
 
+  // Resumo do período: o total do ciclo já embute o desconto de 5% (semestral)
+  // ou 10% (anual); o cupom incide sobre esse total.
+  const subtotalCents = cyclePrice.totalCents;
+  const couponDiscountCents = coupon?.discountCents ?? 0;
+  const totalCents = Math.max(0, subtotalCents - couponDiscountCents);
+  const totalLabel = formatBRL(totalCents);
+  const hasCycleDiscount = cyclePrice.discountCents > 0;
+
   /** Atualiza um campo de faturamento. */
   const updateCustomer = (field: keyof BillingCustomerInput, value: string) => {
     setCustomer((previous) => ({ ...previous, [field]: value }));
+  };
+
+  /**
+   * Valida o cupom digitado em `POST /api/billing/coupon` e guarda a prévia do
+   * desconto. O checkout recalcula tudo no servidor antes de cobrar.
+   */
+  const handleApplyCoupon = async () => {
+    const code = normalizeSubscriptionCouponCode(couponInput);
+    if (!code) {
+      setCouponError("Informe o código do cupom.");
+      return;
+    }
+
+    setIsCouponChecking(true);
+    setCouponError(null);
+
+    try {
+      const response = await fetch("/api/billing/coupon", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, cycle: cyclePrice.id }),
+      });
+
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: unknown;
+      };
+
+      if (!response.ok) {
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : "Não foi possível validar o cupom."
+        );
+      }
+
+      const quote = data as unknown as SubscriptionCouponQuote;
+      setCoupon(quote);
+      setCouponInput(quote.couponCode ?? code);
+    } catch (couponFailure) {
+      setCoupon(null);
+      setCouponError(
+        couponFailure instanceof Error
+          ? couponFailure.message
+          : "Não foi possível validar o cupom."
+      );
+    } finally {
+      setIsCouponChecking(false);
+    }
+  };
+
+  /** Remove o cupom aplicado (volta ao total do período). */
+  const handleRemoveCoupon = () => {
+    setCoupon(null);
+    setCouponInput("");
+    setCouponError(null);
   };
 
   /** Passo 1 → 2 (dados de faturamento validados no cliente). */
@@ -303,6 +376,8 @@ export function CheckoutModal({
         body: JSON.stringify({
           ...(establishmentId ? { establishment_id: establishmentId } : {}),
           billingType,
+          cycle: cyclePrice.id,
+          ...(coupon?.couponCode ? { couponCode: coupon.couponCode } : {}),
           customer,
           ...(creditCard ? { creditCard, creditCardHolderInfo: holder } : {}),
         }),
@@ -382,7 +457,8 @@ export function CheckoutModal({
                   : "Assinar plano"}
             </h2>
             <p className="mt-0.5 text-xs text-gray-500">
-              {planName} · {amountLabel} por mês
+              {planName} · Cobrança {cyclePrice.label.toLowerCase()} (
+              {cyclePrice.durationLabel})
             </p>
           </div>
           <button
@@ -918,6 +994,106 @@ export function CheckoutModal({
                 </p>
               )}
 
+              <div className="space-y-3 rounded-xl border border-gray-800 bg-gray-950/30 px-3 py-3">
+                <div>
+                  <label htmlFor="checkout-coupon" className={LABEL_CLASS}>
+                    Cupom de desconto
+                  </label>
+                  <div className="flex items-start gap-2">
+                    <input
+                      id="checkout-coupon"
+                      type="text"
+                      autoComplete="off"
+                      placeholder="Ex.: BEMVINDO10"
+                      value={couponInput}
+                      onChange={(event) => {
+                        setCouponInput(event.target.value.toUpperCase());
+                        setCouponError(null);
+                      }}
+                      disabled={
+                        Boolean(coupon) || isCouponChecking || isSubmitting
+                      }
+                      className={`${INPUT_CLASS} font-mono uppercase tracking-wide disabled:opacity-60`}
+                    />
+                    {coupon ? (
+                      <button
+                        type="button"
+                        onClick={handleRemoveCoupon}
+                        disabled={isSubmitting}
+                        className="shrink-0 rounded-xl border border-gray-700 px-3 py-2.5 text-xs font-bold text-gray-200 transition hover:bg-gray-800 disabled:opacity-60"
+                      >
+                        Remover
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleApplyCoupon()}
+                        disabled={isCouponChecking || isSubmitting}
+                        className="shrink-0 rounded-xl border border-yellow-400/60 bg-yellow-400/10 px-3 py-2.5 text-xs font-bold text-yellow-200 transition hover:bg-yellow-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isCouponChecking ? "Validando..." : "Aplicar"}
+                      </button>
+                    )}
+                  </div>
+
+                  {couponError && (
+                    <p
+                      role="alert"
+                      className="mt-1.5 text-xs font-medium text-red-400"
+                    >
+                      {couponError}
+                    </p>
+                  )}
+
+                  {coupon && (
+                    <p className="mt-1.5 text-xs font-medium text-emerald-400">
+                      Cupom {coupon.couponCode} aplicado
+                      {coupon.discountLabel
+                        ? ` (${coupon.discountLabel})`
+                        : ""}
+                      .
+                    </p>
+                  )}
+                </div>
+
+                <dl className="space-y-1.5 border-t border-gray-800 pt-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-gray-400">
+                      Plano {cyclePrice.label.toLowerCase()} (
+                      {cyclePrice.durationLabel})
+                    </dt>
+                    <dd className="flex items-baseline gap-2 font-semibold tabular-nums text-gray-200">
+                      {hasCycleDiscount && (
+                        <span className="text-xs font-medium text-gray-500 line-through">
+                          {cyclePrice.listLabel}
+                        </span>
+                      )}
+                      <span>{cyclePrice.totalLabel}</span>
+                    </dd>
+                  </div>
+
+                  {couponDiscountCents > 0 && (
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <dt className="text-gray-500">
+                        Cupom {coupon?.couponCode}
+                      </dt>
+                      <dd className="font-medium tabular-nums text-emerald-400">
+                        −{formatBRL(couponDiscountCents)}
+                      </dd>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between gap-3 border-t border-gray-800 pt-2">
+                    <dt className="text-sm font-semibold text-gray-200">
+                      Total {hasCycleDiscount ? "com desconto" : ""}
+                    </dt>
+                    <dd className="text-base font-bold tabular-nums text-yellow-300">
+                      {totalLabel}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
               {error && (
                 <p
                   role="alert"
@@ -962,7 +1138,7 @@ export function CheckoutModal({
                     ? "Gerar QR Code Pix"
                     : billingType === "BOLETO"
                       ? "Gerar boleto"
-                      : `Pagar ${amountLabel}`}
+                      : `Pagar ${totalLabel}`}
               </button>
             </div>
           </form>

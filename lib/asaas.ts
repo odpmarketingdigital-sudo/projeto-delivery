@@ -15,6 +15,7 @@
  */
 
 import { onlyDigits, type BillingType } from "./billing";
+import type { AsaasSubscriptionCycle } from "./subscriptions";
 
 /** URL do Sandbox quando `ASAAS_API_URL` não está configurada. */
 const DEFAULT_API_URL = "https://sandbox.asaas.com/api/v3";
@@ -307,10 +308,15 @@ export async function findOrCreateAsaasCustomer(
 export interface CreateSubscriptionInput {
   customerId: string;
   billingType: BillingType;
-  /** Valor mensal em reais (ex.: 97). */
+  /**
+   * Valor cobrado em cada ciclo, em reais (ex.: 97 no mensal, 553 no
+   * semestral com 5% de desconto, 1047,60 no anual com 10%).
+   */
   value: number;
   /** Primeiro vencimento no formato `YYYY-MM-DD`. */
   nextDueDate: string;
+  /** Ciclo de cobrança da assinatura (padrão `MONTHLY`). */
+  cycle?: AsaasSubscriptionCycle;
   description?: string;
   externalReference?: string;
   /** Obrigatório quando `billingType === "CREDIT_CARD"`. */
@@ -335,11 +341,15 @@ export interface CreateSubscriptionInput {
 }
 
 /**
- * Cria a assinatura mensal recorrente no Asaas.
+ * Cria a assinatura recorrente no Asaas.
  *
  * Pix e boleto são gerados automaticamente pelo Asaas a cada ciclo; no cartão
  * o próprio Asaas reexecuta a cobrança. A primeira cobrança nasce para
  * `nextDueDate` (hoje, no fluxo do checkout).
+ *
+ * `cycle` define a periodicidade (`MONTHLY`, `SEMIANNUAL` ou `YEARLY`) e
+ * `value` é o total cobrado em cada ciclo — que já inclui o desconto do ciclo
+ * (5% semestral / 10% anual) e o eventual cupom aplicado no checkout.
  *
  * A documentação separa o endpoint de cartão (`POST /subscriptions/`) do
  * genérico (`POST /subscriptions`), por isso a barra final condicional.
@@ -352,7 +362,7 @@ export async function createAsaasSubscription(
     billingType: input.billingType,
     value: Number(input.value.toFixed(2)),
     nextDueDate: input.nextDueDate,
-    cycle: "MONTHLY",
+    cycle: input.cycle ?? "MONTHLY",
     description: input.description,
     externalReference: input.externalReference,
   };

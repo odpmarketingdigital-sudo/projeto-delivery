@@ -375,6 +375,15 @@ export default function AdminEstabelecimentosPage() {
               >
                 Preço do plano →
               </Link>
+              <span aria-hidden="true" className="text-gray-700">
+                |
+              </span>
+              <Link
+                href="/painel/admin/cupons"
+                className="text-gray-400 transition hover:text-white"
+              >
+                Cupons de assinatura →
+              </Link>
             </div>
           </div>
 
