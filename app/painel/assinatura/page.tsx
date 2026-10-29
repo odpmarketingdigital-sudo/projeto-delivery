@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { AdminHeader } from "@/app/painel/components/AdminHeader";
 import { useSubscription } from "@/app/painel/components/SubscriptionProvider";
+import type { BillingStatusResponse } from "@/lib/billing";
 import {
   IPEPPER_PRO_PLAN,
-  SUBSCRIPTION_STATUS_LABELS,
+  SUBSCRIPTION_CYCLE_LABELS,
   buildBillingCyclePrices,
+  formatDateBR,
+  getSubscriptionStatusLabel,
   type BillingCycleId,
 } from "@/lib/subscriptions";
 import { CheckoutModal } from "./CheckoutModal";
@@ -70,6 +73,8 @@ export default function AssinaturaPage() {
     daysRemaining,
     trialEndsAt,
     planId,
+    cycle,
+    expiresAt,
     isActive,
     isLoading,
     error,
@@ -80,6 +85,18 @@ export default function AssinaturaPage() {
 
   const [notice, setNotice] = useState<string | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+
+  // Ciclo e próxima renovação informados pelo gateway. O `SubscriptionProvider`
+  // já lê as colunas persistidas em `establishments`; esta consulta garante o
+  // dado atualizado do Asaas (inclusive para assinaturas antigas, sem as
+  // colunas de ciclo).
+  const [remoteCycle, setRemoteCycle] = useState<BillingCycleId | null>(null);
+  const [remoteRenewal, setRemoteRenewal] = useState<string | null>(null);
+  // `true` quando a loja tem assinatura no gateway (Asaas). Sem ela (ativação
+  // manual do Super Admin) a data de vencimento é o `trial_ends_at` estendido.
+  const [hasGatewaySubscription, setHasGatewaySubscription] = useState(false);
+  // `true` depois da primeira consulta ao status (evita exibir data provisória).
+  const [detailsLoaded, setDetailsLoaded] = useState(false);
 
   // Preço mensal vigente do plano (system_settings). O fallback local
   // (`IPEPPER_PRO_PLAN`) é usado até a resposta da API — se a rota falhar, ele
@@ -119,17 +136,85 @@ export default function AssinaturaPage() {
   const selectedCycle =
     cyclePrices.find((cycle) => cycle.id === cycleId) ?? cyclePrices[0];
 
+  /**
+   * Consulta `GET /api/billing/status` para ler ciclo e próxima renovação
+   * direto do gateway. Falha aqui não quebra a tela: o card segue com os dados
+   * persistidos no banco (lidos pelo `SubscriptionProvider`).
+   */
+  const loadSubscriptionDetails = useCallback(async () => {
+    if (!establishmentId) return;
+
+    try {
+      const response = await fetch(
+        `/api/billing/status?establishment_id=${encodeURIComponent(establishmentId)}`,
+        { cache: "no-store" }
+      );
+
+      if (!response.ok) return;
+
+      const data = (await response.json()) as BillingStatusResponse;
+
+      setHasGatewaySubscription(Boolean(data.subscription));
+      setDetailsLoaded(true);
+      if (!data.subscription) return;
+
+      setRemoteCycle(data.subscription.cycle);
+      setRemoteRenewal(data.subscription.nextDueDate);
+    } catch {
+      // Sem o gateway o card usa ciclo/vencimento lidos do banco.
+    }
+  }, [establishmentId]);
+
+  // Primeira leitura agendada para não disparar `setState` síncrono no efeito.
+  useEffect(() => {
+    if (isLoading || !establishmentId) return;
+
+    const timer = window.setTimeout(() => {
+      void loadSubscriptionDetails();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [isLoading, establishmentId, loadSubscriptionDetails]);
+
   // Callbacks estáveis: o modal os usa em efeitos (ESC, polling do pagamento).
   const closeCheckout = useCallback(() => setIsCheckoutOpen(false), []);
   const handleCheckoutConfirmed = useCallback(() => {
     void refresh();
-  }, [refresh]);
+    // Relê o ciclo/renovação: a assinatura recém-contratada pode trazer um
+    // ciclo diferente do que estava persistido.
+    void loadSubscriptionDetails();
+  }, [refresh, loadSubscriptionDetails]);
 
   const isTrialExpired = status === "trialing" && !isActive;
 
+  // Ciclo contratado: gateway → banco → desconhecido.
+  const activeCycle = remoteCycle ?? cycle;
+  // Próxima renovação: gateway → coluna `subscription_expires_at` → data paga
+  // estendida pelo Super Admin na ativação manual (loja sem assinatura no Asaas).
+  const renewalDate =
+    remoteRenewal ??
+    expiresAt ??
+    (detailsLoaded && !hasGatewaySubscription && status !== "trialing"
+      ? trialEndsAt
+      : null);
+
   const statusLabel = isTrialExpired
     ? "Período de Testes Expirado"
-    : SUBSCRIPTION_STATUS_LABELS[status];
+    : getSubscriptionStatusLabel(status, activeCycle);
+
+  const planLabel = (() => {
+    if (status === "active") {
+      return activeCycle
+        ? `${IPEPPER_PRO_PLAN.name} (${SUBSCRIPTION_CYCLE_LABELS[activeCycle]})`
+        : IPEPPER_PRO_PLAN.name;
+    }
+    if (planId) return planId;
+    return status === "trialing"
+      ? "Teste grátis (sem plano)"
+      : "Nenhum plano ativo";
+  })();
+
+  const renewalLabel = formatDateBR(renewalDate);
 
   const tone: StatusTone = isActive
     ? status === "active"
@@ -150,7 +235,7 @@ export default function AssinaturaPage() {
       return "O período de testes terminou. Ative o Plano Profissional para voltar a acessar pedidos, produtos, clientes e dashboard.";
     }
     if (status === "past_due") {
-      return "O pagamento da mensalidade não foi identificado. Regularize para liberar o painel novamente.";
+      return "O pagamento da assinatura não foi identificado. Regularize para liberar o painel novamente.";
     }
     return "A assinatura foi cancelada. Reative o Plano Profissional para voltar a usar todos os recursos.";
   })();
@@ -270,17 +355,15 @@ export default function AssinaturaPage() {
                       }`}
                     />
                   )}
-                  <DetailRow
-                    label="Plano"
-                    value={
-                      status === "active"
-                        ? IPEPPER_PRO_PLAN.name
-                        : planId ??
-                          (status === "trialing"
-                            ? "Teste grátis (sem plano)"
-                            : "Nenhum plano ativo")
-                    }
-                  />
+                  <DetailRow label="Plano" value={planLabel} />
+                  {(status === "active" || status === "past_due") && (
+                    <DetailRow
+                      label={
+                        status === "active" ? "Próxima renovação" : "Vencimento"
+                      }
+                      value={renewalLabel ?? "—"}
+                    />
+                  )}
                 </dl>
 
                 {!isActive && (

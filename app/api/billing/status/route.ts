@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import {
+  getAsaasSubscription,
   listSubscriptionPayments,
   type AsaasPayment,
+  type AsaasSubscription,
 } from "@/lib/asaas";
 import {
   isPaidPaymentStatus,
   type BillingStatusPayment,
   type BillingStatusResponse,
+  type BillingStatusSubscription,
 } from "@/lib/billing";
 import { createAdminClient } from "@/lib/supabase/server";
 import {
@@ -15,7 +18,12 @@ import {
   resolveMenuEstablishment,
 } from "@/lib/supabase/menuGuard";
 import {
+  asaasCycleToBillingCycleId,
+  getBillingCycle,
+  isBillingCycleId,
   isSubscriptionActive,
+  resolveRenewalDate,
+  type BillingCycleId,
   type SubscriptionStatus,
 } from "@/lib/subscriptions";
 
@@ -33,9 +41,12 @@ import {
  *  - 401/403/404/500 com `{ error }`.
  */
 
-/** Colunas necessárias (as de assinatura vêm da migração 20261110000012). */
-const ESTABLISHMENT_COLUMNS =
+/** Colunas de assinatura (migração 20261110000012). */
+const BASE_COLUMNS =
   "id, subscription_status, trial_ends_at, plan_id, subscription_id";
+
+/** Colunas de ciclo/vencimento da assinatura (migração 20261110000019). */
+const CYCLE_COLUMNS = `${BASE_COLUMNS}, subscription_cycle, subscription_expires_at`;
 
 /** Linha lida de `establishments`. */
 interface BillingStatusRow {
@@ -44,6 +55,15 @@ interface BillingStatusRow {
   trial_ends_at: string | null;
   plan_id: string | null;
   subscription_id: string | null;
+  /** Ausentes enquanto a migração 20261110000019 não rodar. */
+  subscription_cycle?: string | null;
+  subscription_expires_at?: string | null;
+}
+
+/** Extrai a parte `YYYY-MM-DD` de uma data/coluna `date`. */
+function toDateOnly(value: string | null | undefined): string | null {
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec((value ?? "").trim());
+  return match ? match[1] : null;
 }
 
 /** Erro HTTP padronizado (`{ error }`). */
@@ -104,11 +124,34 @@ export async function GET(request: Request) {
 
   const adminClient = createAdminClient();
 
-  const { data, error } = await adminClient
+  // 1) Leitura completa (status + ciclo/vencimento da assinatura).
+  const full = await adminClient
     .from("establishments")
-    .select(ESTABLISHMENT_COLUMNS)
+    .select(CYCLE_COLUMNS)
     .eq("id", resolved.id)
     .maybeSingle();
+
+  let data = full.data as BillingStatusRow | null;
+  let error = full.error;
+  // Migração 20261110000019 pendente: segue sem as colunas de ciclo e usa o
+  // gateway como fonte do ciclo/vencimento.
+  let cycleColumnsPending = false;
+
+  if (
+    error &&
+    /subscription_cycle|subscription_expires_at/i.test(error.message ?? "")
+  ) {
+    cycleColumnsPending = true;
+
+    const base = await adminClient
+      .from("establishments")
+      .select(BASE_COLUMNS)
+      .eq("id", resolved.id)
+      .maybeSingle();
+
+    data = base.data as BillingStatusRow | null;
+    error = base.error;
+  }
 
   const checkedAt = new Date().toISOString();
 
@@ -126,6 +169,7 @@ export async function GET(request: Request) {
         isActive: true,
         planId: null,
         trialEndsAt: null,
+        subscription: null,
         payment: null,
         schemaPending: true,
         checkedAt,
@@ -138,26 +182,101 @@ export async function GET(request: Request) {
     return fail("Não foi possível consultar a assinatura.", 500);
   }
 
-  const row = data as BillingStatusRow | null;
+  const row = data;
   if (!row) return fail("Estabelecimento não encontrado.", 404);
 
   const currentStatus: SubscriptionStatus = row.subscription_status ?? "trialing";
 
   // Gateway fora do ar não invalida a assinatura: devolve o estado do banco e
   // deixa o modal tentar de novo no próximo ciclo do polling.
+  //
+  // A assinatura é consultada em paralelo às cobranças para trazer o ciclo
+  // contratado e a próxima renovação (fonte da verdade do `nextDueDate`).
   let latest: AsaasPayment | null = null;
+  let gatewaySubscription: AsaasSubscription | null = null;
+
   if (row.subscription_id) {
-    try {
-      latest = pickLatestPayment(
-        await listSubscriptionPayments(row.subscription_id)
-      );
-    } catch (gatewayError) {
+    const [paymentsResult, subscriptionResult] = await Promise.allSettled([
+      listSubscriptionPayments(row.subscription_id),
+      getAsaasSubscription(row.subscription_id),
+    ]);
+
+    if (paymentsResult.status === "fulfilled") {
+      latest = pickLatestPayment(paymentsResult.value);
+    } else {
       console.error(
         "[billing/status] falha ao consultar as cobranças no Asaas",
-        gatewayError
+        paymentsResult.reason
+      );
+    }
+
+    if (subscriptionResult.status === "fulfilled") {
+      gatewaySubscription = subscriptionResult.value;
+    } else {
+      console.error(
+        "[billing/status] falha ao consultar a assinatura no Asaas",
+        subscriptionResult.reason
       );
     }
   }
+
+  // Ciclo contratado: o gateway manda; a coluna `subscription_cycle` cobre
+  // indisponibilidade do Asaas e bases com a migração 20261110000019 pendente.
+  const rawCycle = row.subscription_cycle;
+  const storedCycle: BillingCycleId | null = isBillingCycleId(rawCycle)
+    ? rawCycle
+    : null;
+  const subscriptionCycle =
+    asaasCycleToBillingCycleId(gatewaySubscription?.cycle) ?? storedCycle;
+
+  // Próxima renovação: calculada a partir do vencimento do gateway (ou da data
+  // persistida quando o Asaas está indisponível).
+  const storedExpiresAt = toDateOnly(row.subscription_expires_at);
+  const nextDueDate =
+    resolveRenewalDate(
+      gatewaySubscription?.nextDueDate,
+      getBillingCycle(subscriptionCycle).months
+    ) ?? storedExpiresAt;
+
+  // Reconcilia o banco com o gateway (ciclo/renovação) sem depender de webhook,
+  // para que o card continue correto no próximo carregamento mesmo offline.
+  if (
+    row.subscription_id &&
+    gatewaySubscription &&
+    !cycleColumnsPending &&
+    (subscriptionCycle !== storedCycle || nextDueDate !== storedExpiresAt)
+  ) {
+    const sync: Record<string, string> = {};
+    if (subscriptionCycle) sync.subscription_cycle = subscriptionCycle;
+    if (nextDueDate) sync.subscription_expires_at = nextDueDate;
+
+    if (Object.keys(sync).length > 0) {
+      const { error: syncError } = await adminClient
+        .from("establishments")
+        .update(sync)
+        .eq("id", row.id);
+
+      if (syncError) {
+        console.error(
+          "[billing/status] falha ao sincronizar ciclo/vencimento da assinatura",
+          syncError
+        );
+      }
+    }
+  }
+
+  const subscriptionInfo: BillingStatusSubscription | null = row.subscription_id
+    ? {
+        id: row.subscription_id,
+        cycle: subscriptionCycle,
+        nextDueDate,
+        value:
+          typeof gatewaySubscription?.value === "number"
+            ? gatewaySubscription.value
+            : null,
+        status: gatewaySubscription?.status ?? null,
+      }
+    : null;
 
   // Pagamento confirmado libera o acesso na hora; a assinatura só volta para
   // `past_due` quando a fatura em aberto já está vencida (`OVERDUE`).
@@ -194,6 +313,7 @@ export async function GET(request: Request) {
     }),
     planId: row.plan_id,
     trialEndsAt: row.trial_ends_at,
+    subscription: subscriptionInfo,
     payment: toStatusPayment(latest),
     schemaPending: false,
     checkedAt,

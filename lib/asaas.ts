@@ -403,6 +403,21 @@ export async function createAsaasSubscription(
   return asaasRequest<AsaasSubscription>(path, { method: "POST", body });
 }
 
+/**
+ * Recupera uma assinatura pelo ID.
+ *
+ * Usado pela tela de assinatura (`GET /api/billing/status`) para exibir o ciclo
+ * contratado (`cycle`) e a próxima renovação (`nextDueDate`) direto da fonte,
+ * inclusive para lojas contratadas antes das colunas de ciclo existirem.
+ */
+export async function getAsaasSubscription(
+  subscriptionId: string
+): Promise<AsaasSubscription> {
+  return asaasRequest<AsaasSubscription>(
+    `/subscriptions/${encodeURIComponent(subscriptionId)}`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Cobranças
 // ---------------------------------------------------------------------------

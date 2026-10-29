@@ -293,6 +293,20 @@ export interface BillingStatusPayment {
   paidAt: string | null;
 }
 
+/** Assinatura resumida devolvida pelo `GET /api/billing/status`. */
+export interface BillingStatusSubscription {
+  /** ID da assinatura no gateway. */
+  id: string;
+  /** Ciclo contratado no vocabulário interno (`monthly`/`semiannual`/`annual`). */
+  cycle: BillingCycleId | null;
+  /** Próximo vencimento/renovação (`YYYY-MM-DD`). */
+  nextDueDate: string | null;
+  /** Valor cobrado por ciclo, em reais (null quando indisponível). */
+  value: number | null;
+  /** Status da assinatura no gateway (`ACTIVE`, `EXPIRED`, `INACTIVE`). */
+  status: string | null;
+}
+
 /** Resposta do `GET /api/billing/status` (polling do modal). */
 export interface BillingStatusResponse {
   subscriptionStatus: SubscriptionStatus;
@@ -300,6 +314,8 @@ export interface BillingStatusResponse {
   isActive: boolean;
   planId: string | null;
   trialEndsAt: string | null;
+  /** Ciclo/renovação da assinatura (null enquanto não houver cobrança). */
+  subscription: BillingStatusSubscription | null;
   payment: BillingStatusPayment | null;
   /** As colunas de assinatura ainda não existem no banco. */
   schemaPending: boolean;

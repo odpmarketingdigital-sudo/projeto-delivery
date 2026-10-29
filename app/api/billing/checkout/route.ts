@@ -31,6 +31,7 @@ import {
   computeBillingCyclePrice,
   isBillingCycleId,
   isSubscriptionActive,
+  resolveRenewalDate,
   type SubscriptionStatus,
 } from "@/lib/subscriptions";
 import {
@@ -560,15 +561,49 @@ export async function POST(request: Request) {
       ? currentStatus
       : "past_due";
 
-  const { error: updateError } = await adminClient
+  // Ciclo e renovação exibidos no card "Situação da conta". A data parte do
+  // vencimento devolvido pelo Asaas (hoje, na criação) e avança o período pago
+  // (1, 6 ou 12 meses) para a próxima cobrança.
+  const renewalDate = resolveRenewalDate(
+    subscription.nextDueDate ?? formatAsaasDate(),
+    billingCycle.months
+  );
+
+  const subscriptionFields = {
+    customer_payment_id: customerId,
+    subscription_id: subscription.id,
+    plan_id: plan.id,
+    subscription_status: nextStatus,
+  };
+
+  const fullUpdate = await adminClient
     .from("establishments")
     .update({
-      customer_payment_id: customerId,
-      subscription_id: subscription.id,
-      plan_id: plan.id,
-      subscription_status: nextStatus,
+      ...subscriptionFields,
+      subscription_cycle: billingCycle.id,
+      ...(renewalDate ? { subscription_expires_at: renewalDate } : {}),
     })
     .eq("id", establishment.id);
+
+  let updateError = fullUpdate.error;
+
+  // Migração 20261110000019 pendente: salva o essencial e deixa ciclo/vencimento
+  // para o `GET /api/billing/status` (que lê esses dados do gateway).
+  if (
+    updateError &&
+    /subscription_cycle|subscription_expires_at/i.test(updateError.message ?? "")
+  ) {
+    console.warn(
+      "[billing/checkout] migração 20261110000019 pendente — ciclo/vencimento não salvos"
+    );
+
+    const fallback = await adminClient
+      .from("establishments")
+      .update(subscriptionFields)
+      .eq("id", establishment.id);
+
+    updateError = fallback.error;
+  }
 
   if (updateError) {
     console.error("[billing/checkout] falha ao salvar a assinatura", updateError);

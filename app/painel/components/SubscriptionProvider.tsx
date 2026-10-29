@@ -13,7 +13,9 @@ import { useAuth } from "@/context/AuthContext";
 import { createClient } from "@/lib/supabase/client";
 import {
   getTrialDaysRemaining,
+  isBillingCycleId,
   isSubscriptionActive,
+  type BillingCycleId,
   type SubscriptionStatus,
 } from "@/lib/subscriptions";
 
@@ -24,6 +26,12 @@ import {
  */
 const SUBSCRIPTION_COLUMNS =
   "id, name, subscription_status, trial_ends_at, plan_id";
+
+/**
+ * Colunas de ciclo/renovação (migração 20261110000019). São lidas junto das
+ * demais; quando ainda não existem, a leitura cai para `SUBSCRIPTION_COLUMNS`.
+ */
+const CYCLE_COLUMNS = `${SUBSCRIPTION_COLUMNS}, subscription_cycle, subscription_expires_at`;
 
 /** Colunas mínimas usadas quando a migração de assinaturas ainda não rodou. */
 const LEGACY_COLUMNS = "id, name";
@@ -38,6 +46,8 @@ interface EstablishmentSubscriptionRow {
   subscription_status?: SubscriptionStatus | null;
   trial_ends_at?: string | null;
   plan_id?: string | null;
+  subscription_cycle?: string | null;
+  subscription_expires_at?: string | null;
 }
 
 /** Situação da assinatura exposta ao painel. */
@@ -49,6 +59,10 @@ export interface PanelSubscription {
   /** Fim do trial em ISO 8601 (null fora do trial). */
   trialEndsAt: string | null;
   planId: string | null;
+  /** Ciclo contratado (null quando desconhecido ou base legada). */
+  cycle: BillingCycleId | null;
+  /** Fim do período pago / próxima renovação (`YYYY-MM-DD`). */
+  expiresAt: string | null;
   /** Dias restantes de trial (0 quando não é trial ou já expirou). */
   daysRemaining: number;
   /** Resultado de `isSubscriptionActive` para a loja de referência. */
@@ -77,6 +91,8 @@ const EMPTY_SNAPSHOT: SubscriptionSnapshot = {
   status: "active",
   trialEndsAt: null,
   planId: null,
+  cycle: null,
+  expiresAt: null,
   daysRemaining: 0,
   isActive: true,
   error: null,
@@ -107,6 +123,7 @@ function buildSnapshot(
 
   const status = row.subscription_status ?? "active";
   const trialEndsAt = row.trial_ends_at ?? null;
+  const rawCycle = row.subscription_cycle ?? null;
   const now = new Date();
 
   return {
@@ -115,6 +132,8 @@ function buildSnapshot(
     status,
     trialEndsAt,
     planId: row.plan_id ?? null,
+    cycle: isBillingCycleId(rawCycle) ? rawCycle : null,
+    expiresAt: row.subscription_expires_at ?? null,
     daysRemaining:
       status === "trialing" ? getTrialDaysRemaining(trialEndsAt, now) : 0,
     isActive: isSubscriptionActive(
@@ -162,6 +181,8 @@ function isSameSnapshot(
     a.status === b.status &&
     a.trialEndsAt === b.trialEndsAt &&
     a.planId === b.planId &&
+    a.cycle === b.cycle &&
+    a.expiresAt === b.expiresAt &&
     a.daysRemaining === b.daysRemaining &&
     a.isActive === b.isActive &&
     a.error === b.error &&
@@ -190,26 +211,55 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
 
   const fetchSubscription =
     useCallback(async (): Promise<SubscriptionSnapshot> => {
-      const base = supabase
-        .from("establishments")
-        .select(SUBSCRIPTION_COLUMNS)
-        .order("name", { ascending: true })
-        .limit(1);
+      const select = (columns: string) => {
+        const base = supabase
+          .from("establishments")
+          .select(columns)
+          .order("name", { ascending: true })
+          .limit(1);
 
-      const filtered = establishmentIdFromUrl
-        ? base.eq("id", establishmentIdFromUrl)
-        : base;
+        return establishmentIdFromUrl
+          ? base.eq("id", establishmentIdFromUrl)
+          : base;
+      };
 
-      const { data, error } = await filtered.maybeSingle();
+      // 1) Leitura completa (inclui ciclo contratado e próxima renovação).
+      const full = await select(CYCLE_COLUMNS).maybeSingle();
 
-      if (!error) {
-        return buildSnapshot(data as EstablishmentSubscriptionRow | null, false);
+      if (!full.error) {
+        return buildSnapshot(
+          full.data as EstablishmentSubscriptionRow | null,
+          false
+        );
       }
 
+      const message = full.error.message ?? "";
       const missingSubscriptionColumns =
-        /subscription_status|trial_ends_at|plan_id/i.test(error.message ?? "");
+        /subscription_status|trial_ends_at|plan_id/i.test(message);
+      const missingCycleColumns =
+        /subscription_cycle|subscription_expires_at/i.test(message);
 
-      if (!missingSubscriptionColumns) {
+      // 2) Migração 20261110000019 pendente: relê sem as colunas de ciclo (o
+      // restante do card continua funcionando com o status/plano).
+      if (missingCycleColumns && !missingSubscriptionColumns) {
+        const withoutCycle = await select(SUBSCRIPTION_COLUMNS).maybeSingle();
+
+        if (!withoutCycle.error) {
+          return buildSnapshot(
+            withoutCycle.data as EstablishmentSubscriptionRow | null,
+            false
+          );
+        }
+
+        // As colunas base também não existem → segue para o modo legado.
+        if (
+          !/subscription_status|trial_ends_at|plan_id/i.test(
+            withoutCycle.error.message ?? ""
+          )
+        ) {
+          return { ...EMPTY_SNAPSHOT, isActive: true, error: LOAD_ERROR };
+        }
+      } else if (!missingSubscriptionColumns) {
         // Erro genérico (rede, RLS, tabela ausente): avisa sem bloquear.
         return {
           ...EMPTY_SNAPSHOT,
@@ -218,21 +268,11 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
         };
       }
 
-      // Colunas novas ainda não existem: lê o básico e libera o painel.
-      const legacyBase = supabase
-        .from("establishments")
-        .select(LEGACY_COLUMNS)
-        .order("name", { ascending: true })
-        .limit(1);
-
-      const legacyFiltered = establishmentIdFromUrl
-        ? legacyBase.eq("id", establishmentIdFromUrl)
-        : legacyBase;
-
-      const { data: legacyData } = await legacyFiltered.maybeSingle();
+      // 3) Colunas de assinatura ainda não existem: lê o básico e libera.
+      const legacy = await select(LEGACY_COLUMNS).maybeSingle();
 
       return buildSnapshot(
-        legacyData as EstablishmentSubscriptionRow | null,
+        legacy.data as EstablishmentSubscriptionRow | null,
         true
       );
     }, [supabase, establishmentIdFromUrl]);

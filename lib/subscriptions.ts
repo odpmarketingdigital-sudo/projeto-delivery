@@ -56,6 +56,17 @@ export interface SubscriptionFields {
   customer_payment_id: string | null;
   /** Plano contratado. */
   plan_id: string | null;
+  /**
+   * Ciclo contratado (`monthly` | `semiannual` | `annual`).
+   * Coluna `subscription_cycle` (migração 20261110000019); ausente em bases
+   * legadas — nesse caso a tela cai no ciclo informado pelo gateway.
+   */
+  subscription_cycle?: BillingCycleId | null;
+  /**
+   * Fim do período pago / próxima renovação (`YYYY-MM-DD`).
+   * Coluna `subscription_expires_at` (migração 20261110000019).
+   */
+  subscription_expires_at?: string | null;
 }
 
 /**
@@ -163,7 +174,9 @@ export function isSubscriptionActive(
 /** Rótulos curtos de status para badges, banners e tela de assinatura. */
 export const SUBSCRIPTION_STATUS_LABELS: Record<SubscriptionStatus, string> = {
   trialing: "Período de Testes",
-  active: "Plano Mensal Ativo",
+  // `active` é dinâmico (mensal, semestral ou anual): a tela de assinatura usa
+  // `getSubscriptionStatusLabel` para montar o rótulo com o ciclo contratado.
+  active: "Plano Ativo",
   past_due: "Pagamento Pendente",
   canceled: "Assinatura Cancelada",
 };
@@ -486,5 +499,130 @@ export function buildBillingCyclePrices(
   return BILLING_CYCLES.map((cycle) =>
     computeBillingCyclePrice(monthlyCents, cycle.id)
   );
+}
+
+// ---------------------------------------------------------------------------
+// Ciclo contratado, renovação e datas exibidas no painel
+// ---------------------------------------------------------------------------
+
+/** Rótulos do ciclo contratado (ex.: "Plano Anual Ativo"). */
+export const SUBSCRIPTION_CYCLE_LABELS: Record<BillingCycleId, string> = {
+  monthly: "Mensal",
+  semiannual: "Semestral",
+  annual: "Anual",
+};
+
+/**
+ * Converte o `cycle` do Asaas (`MONTHLY` | `SEMIANNUAL` | `YEARLY`) no id
+ * interno do ciclo. Valores desconhecidos viram `null` (não presumimos ciclo).
+ */
+export function asaasCycleToBillingCycleId(
+  cycle: string | null | undefined
+): BillingCycleId | null {
+  switch ((cycle ?? "").trim().toUpperCase()) {
+    case "MONTHLY":
+      return "monthly";
+    case "SEMIANNUAL":
+      return "semiannual";
+    case "YEARLY":
+      return "annual";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Rótulo do status considerando o ciclo contratado.
+ *
+ * `active` vira "Plano Mensal Ativo", "Plano Semestral Ativo" ou
+ * "Plano Anual Ativo"; sem ciclo conhecido mantém o rótulo genérico
+ * ("Plano Ativo"). Os demais status usam o rótulo fixo.
+ */
+export function getSubscriptionStatusLabel(
+  status: SubscriptionStatus,
+  cycle: BillingCycleId | string | null | undefined
+): string {
+  if (status !== "active") return SUBSCRIPTION_STATUS_LABELS[status];
+  if (!isBillingCycleId(cycle)) return SUBSCRIPTION_STATUS_LABELS.active;
+
+  return `Plano ${SUBSCRIPTION_CYCLE_LABELS[cycle]} Ativo`;
+}
+
+/** Data de hoje (`YYYY-MM-DD`) no fuso de Brasília. */
+export function todayDateOnly(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+/**
+ * Soma meses a uma data `YYYY-MM-DD` sem deslocamento de fuso.
+ * Datas inválidas são devolvidas como recebidas.
+ */
+export function addMonthsToDateOnly(dateOnly: string, months: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateOnly.trim());
+  if (!match) return dateOnly;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const base = new Date(Date.UTC(year, month, 1));
+  base.setUTCMonth(base.getUTCMonth() + Math.trunc(months));
+
+  // Mantém o dia quando possível (31/01 + 1 mês → 28/02).
+  const lastDay = new Date(
+    Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0)
+  ).getUTCDate();
+  base.setUTCDate(Math.min(day, lastDay));
+
+  return base.toISOString().slice(0, 10);
+}
+
+/**
+ * Próxima renovação a partir do vencimento devolvido pelo gateway.
+ *
+ * O `nextDueDate` do Asaas é a data da próxima cobrança: enquanto a cobrança do
+ * período atual não é paga ele aponta para hoje — nesse caso a renovação é o
+ * fim do período contratado (`nextDueDate + months`). Quando já aponta para o
+ * futuro (cobrança do ciclo atual liquidada), ele mesmo é a renovação.
+ */
+export function resolveRenewalDate(
+  nextDueDate: string | null | undefined,
+  months: number,
+  today: string = todayDateOnly()
+): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec((nextDueDate ?? "").trim());
+  if (!match) return null;
+
+  const dueDate = match[0];
+  return dueDate > today ? dueDate : addMonthsToDateOnly(dueDate, months);
+}
+
+/**
+ * Formata uma data para `DD/MM/AAAA`.
+ *
+ * Aceita `YYYY-MM-DD` (vencimentos do Asaas e colunas `date`) e ISO 8601
+ * completo (timestamps do Supabase). Strings só com data NÃO passam por `Date`
+ * para não deslocar o dia pelo fuso do navegador/servidor.
+ */
+export function formatDateBR(value: string | null | undefined): string | null {
+  if (!value) return null;
+
+  const trimmed = value.trim();
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (dateOnly) return `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`;
+
+  const date = new Date(trimmed);
+  if (!Number.isFinite(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
 }
 
