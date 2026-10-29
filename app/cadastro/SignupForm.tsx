@@ -154,8 +154,11 @@ function FieldShell({
  *  1. Valida tudo no cliente (mesmas regras de `POST /api/signup`).
  *  2. Envia os dados para a rota de API, que cria a conta no Supabase Auth e o
  *     estabelecimento já em trial (30 dias).
- *  3. Faz o login automático (`signInWithPassword`) para gravar a sessão nos
- *     cookies e redireciona direto para `/painel`.
+ *  3. Se a rota indicar `email_confirmation_required`, NÃO faz login: envia o
+ *     usuário para `/confirmar-email`, onde ele pode reenviar o e-mail de
+ *     confirmação e só então acessar o painel.
+ *  4. Em projetos sem confirmação obrigatória, faz o login automático
+ *     (`signInWithPassword`) para gravar a sessão nos cookies e abre `/painel`.
  */
 export function SignupForm() {
   const router = useRouter();
@@ -239,6 +242,8 @@ export function SignupForm() {
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string;
         field?: Field;
+        /** `true` quando o Supabase exige a confirmação do e-mail antes do login. */
+        email_confirmation_required?: boolean;
       };
 
       if (!response.ok) {
@@ -257,7 +262,16 @@ export function SignupForm() {
         return;
       }
 
-      // Login automático: grava a sessão nos cookies e abre o painel.
+      // E-mail pendente de confirmação: NADA de login automático.
+      // O usuário vai para a tela que explica o passo e oferece o reenvio.
+      if (payload.email_confirmation_required) {
+        setIsSubmitting(false);
+        router.replace(`/confirmar-email?email=${encodeURIComponent(email)}`);
+        return;
+      }
+
+      // Projeto sem confirmação obrigatória: login automático (sessão nos
+      // cookies) e abertura do painel.
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password: form.password,
@@ -632,7 +646,7 @@ export function SignupForm() {
                     Criando sua conta...
                   </>
                 ) : (
-                  "Criar conta e acessar o painel"
+                  "Criar conta grátis"
                 )}
               </button>
 

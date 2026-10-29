@@ -67,6 +67,11 @@ apenas registrado no console (`[email/boas-vindas] …`) e o cadastro continua
 respondendo **201** — o lojista entra no painel e vê o trial ativo de qualquer
 forma.
 
+> **Confirmação de e-mail:** o acesso ao painel depende do clique no link de
+> confirmação enviado pelo **Supabase**, que é outro e-mail (independente deste).
+> Com a opção "Confirm email" ativa no projeto, o lojista só entra depois de
+> confirmar — ver [`docs/confirmacao-email.md`](./confirmacao-email.md).
+
 Resultados possíveis de `sendWelcomeEmail` (`lib/email/welcome.ts`):
 
 | `status` | Quando |

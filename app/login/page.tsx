@@ -21,6 +21,11 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  /**
+   * E-mail de uma conta que ainda não confirmou o endereço. Quando preenchido,
+   * a tela mostra o atalho para `/confirmar-email` (reenvio do link).
+   */
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
   /** Controla o modal de recuperação de senha ("Esqueci minha senha"). */
   const [isForgotOpen, setForgotOpen] = useState(false);
 
@@ -29,6 +34,7 @@ export default function LoginPage() {
     if (isSubmitting) return;
 
     setError(null);
+    setUnconfirmedEmail(null);
     setIsSubmitting(true);
 
     // 1) Autentica no Supabase Auth.
@@ -41,7 +47,26 @@ export default function LoginPage() {
 
     if (signInError || !data.user) {
       setIsSubmitting(false);
+
+      // Conta criada, mas sem o clique no link de confirmação: o GoTrue não
+      // devolve sessão. Oferece o atalho para a tela de reenvio.
+      if (signInError?.code === "email_not_confirmed") {
+        setUnconfirmedEmail(email.trim());
+        setError("Confirme o seu e-mail antes de acessar o painel.");
+        return;
+      }
+
       setError("E-mail ou senha incorretos.");
+      return;
+    }
+
+    // Defesa extra: sessão criada com e-mail pendente (possível em projetos
+    // com "Confirm email" desligado depois do cadastro). Encerra e avisa.
+    if (!(data.user.email_confirmed_at ?? data.user.confirmed_at)) {
+      await supabase.auth.signOut();
+      setIsSubmitting(false);
+      setUnconfirmedEmail(email.trim());
+      setError("Confirme o seu e-mail antes de acessar o painel.");
       return;
     }
 
@@ -171,6 +196,15 @@ export default function LoginPage() {
               >
                 {error}
               </p>
+            )}
+
+            {unconfirmedEmail && (
+              <Link
+                href={`/confirmar-email?email=${encodeURIComponent(unconfirmedEmail)}`}
+                className="inline-flex w-full items-center justify-center rounded-xl border border-yellow-400/40 bg-yellow-400/10 px-4 py-2.5 text-sm font-semibold text-yellow-300 transition hover:bg-yellow-400/20 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
+              >
+                Reenviar e-mail de confirmação
+              </Link>
             )}
 
             <button

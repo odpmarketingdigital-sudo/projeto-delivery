@@ -19,6 +19,8 @@ import { TrialBanner } from "./components/TrialBanner";
  * — que decide, no cliente, se:
  *  - ainda está carregando a sessão/perfil (isLoading);
  *  - o usuário não está autenticado → redireciona para /login;
+ *  - o e-mail ainda não foi confirmado (`email_confirmed_at` nulo) → leva para
+ *    `/confirmar-email` (o middleware repete a checagem no servidor);
  *  - a rota /painel/admin exige super_admin (senão, volta para /painel);
  *  - o super admin não opera loja: acessar a raiz `/painel` leva direto para
  *    a Dashboard SaaS (`/painel/admin`) — mesmo destino do pós-login;
@@ -44,6 +46,8 @@ export function PainelGuard({ children }: { children: ReactNode }) {
   // Raiz do painel = visão operacional de loja (Pedidos). O super admin não
   // opera loja, então essa rota é desviada para a Dashboard SaaS.
   const isStoreRoot = pathname === "/painel";
+  // Conta criada, mas com o e-mail ainda pendente de confirmação.
+  const isEmailUnconfirmed = currentUser?.emailConfirmed === false;
 
   // Redireciona no máximo uma vez por montagem (evita laços infinitos).
   const hasRedirectedRef = useRef(false);
@@ -73,6 +77,16 @@ export function PainelGuard({ children }: { children: ReactNode }) {
      */
     if (!isAuthenticated) return;
 
+    // E-mail pendente de confirmação: o painel não abre até o clique no link
+    // enviado pelo Supabase. O middleware já barra no servidor; esta checagem
+    // cobre a navegação client-side (sem novo request ao servidor).
+    if (isEmailUnconfirmed) {
+      if (hasRedirectedRef.current) return;
+      hasRedirectedRef.current = true;
+      router.replace("/confirmar-email");
+      return;
+    }
+
     // Proteção de role: apenas super_admin acessa /painel/admin.
     // Nunca navegar para a rota atual: no App Router isso ainda dispara uma
     // nova requisição (recarregando a página) e realimenta o efeito.
@@ -100,6 +114,7 @@ export function PainelGuard({ children }: { children: ReactNode }) {
     isAuthenticated,
     isAdminRoute,
     isStoreRoot,
+    isEmailUnconfirmed,
     pathname,
     currentUser,
     router,
@@ -142,6 +157,33 @@ export function PainelGuard({ children }: { children: ReactNode }) {
             className="mt-3 inline-block text-xs font-semibold text-gray-400 underline-offset-2 hover:text-gray-200 hover:underline"
           >
             Ir para a tela de login
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // 2.1) Conta com e-mail pendente de confirmação: bloqueia o conteúdo até o
+  //      efeito acima levar para `/confirmar-email`.
+  if (currentUser.emailConfirmed === false) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-950 px-4">
+        <div className="w-full max-w-md rounded-2xl border border-gray-800 bg-gray-900/60 p-6 text-center">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-yellow-400/15 text-2xl text-yellow-300">
+            ✉️
+          </span>
+          <h1 className="mt-4 text-lg font-bold text-white">
+            Confirme o seu e-mail
+          </h1>
+          <p className="mt-2 text-sm text-gray-400">
+            Por favor, confirme o seu e-mail antes de acessar o painel.
+            Redirecionando para a tela de confirmação...
+          </p>
+          <Link
+            href="/confirmar-email"
+            className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300"
+          >
+            Reenviar e-mail de confirmação
           </Link>
         </div>
       </div>

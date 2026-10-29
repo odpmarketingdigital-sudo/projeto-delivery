@@ -23,6 +23,17 @@ export interface AuthUser {
   email: string;
   role: AuthRole;
   establishment?: string;
+  /**
+   * Situação da confirmação de e-mail (`auth.users.email_confirmed_at`).
+   *
+   * - `true`  → e-mail confirmado, acesso ao painel liberado;
+   * - `false` → conta pendente (`email_confirmed_at` nulo): o painel deve
+   *   mandar o usuário para `/confirmar-email`;
+   * - `undefined` → não foi possível apurar (falha de rede em
+   *   `/api/auth/confirmation`). Nesse caso o guard não bloqueia pelo cliente e
+   *   o middleware, que usa `getUser()` no servidor, é quem decide.
+   */
+  emailConfirmed?: boolean;
 }
 
 interface AuthContextValue {
@@ -48,6 +59,50 @@ function metaString(user: User, key: string): string | undefined {
 }
 
 /**
+ * Situação da confirmação de e-mail do usuário.
+ *
+ * `getUser()` e o login devolvem o objeto completo do GoTrue
+ * (`email_confirmed_at` nulo quando a conta está pendente). Já os eventos de
+ * `onAuthStateChange` são montados a partir do JWT, que não carrega essa data —
+ * nesse caso devolvemos `undefined` (desconhecido) em vez de `false`, para não
+ * bloquear usuários já confirmados.
+ */
+function resolveEmailConfirmation(user: User): boolean | undefined {
+  const confirmedAt = user.email_confirmed_at ?? user.confirmed_at;
+  if (typeof confirmedAt === "string" && confirmedAt.length > 0) return true;
+  // Campo presente e vazio/nulo = o servidor informou que não há confirmação.
+  if ("email_confirmed_at" in user || "confirmed_at" in user) return false;
+  return undefined;
+}
+
+/**
+ * Pergunta ao servidor se o e-mail da sessão já foi confirmado.
+ *
+ * O GoTrue omite `email_confirmed_at` quando a conta está pendente, então no
+ * cliente o campo fica indistinguível de "não informado". `/api/auth/confirmation`
+ * responde com o usuário completo e é usado apenas nesse caso (contas
+ * pendentes), mantendo o custo de uma requisição extra desprezível.
+ */
+async function fetchEmailConfirmation(): Promise<boolean | undefined> {
+  try {
+    const response = await fetch("/api/auth/confirmation", {
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+
+    if (!response.ok) return undefined;
+
+    const payload = (await response.json()) as { email_confirmed?: boolean };
+    return typeof payload.email_confirmed === "boolean"
+      ? payload.email_confirmed
+      : undefined;
+  } catch {
+    // Falha de rede: mantém "desconhecido" (o middleware continua barrando).
+    return undefined;
+  }
+}
+
+/**
  * `true` quando os dois usuários têm exatamente os mesmos dados.
  *
  * Usado para preservar a referência do estado: o Supabase emite eventos de auth
@@ -63,7 +118,8 @@ function sameAuthUser(a: AuthUser | null, b: AuthUser): boolean {
     a.name === b.name &&
     a.email === b.email &&
     a.role === b.role &&
-    a.establishment === b.establishment
+    a.establishment === b.establishment &&
+    a.emailConfirmed === b.emailConfirmed
   );
 }
 
@@ -116,6 +172,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
+      // Eventos de auth (montados do JWT) não trazem `email_confirmed_at`:
+      // confirma no servidor quando o dado local é desconhecido.
+      let emailConfirmed = resolveEmailConfirmation(user);
+      if (emailConfirmed === undefined) {
+        emailConfirmed = await fetchEmailConfirmation();
+        if (!active) return;
+      }
+
       const nextUser: AuthUser = {
         id: data?.id ?? user.id,
         name: data?.name ?? metaString(user, "name") ?? "",
@@ -123,9 +187,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         role,
         establishment:
           data?.establishment ?? metaString(user, "establishment") ?? undefined,
+        emailConfirmed,
       };
       // Preserva a referência quando o perfil não mudou (ver `sameAuthUser`).
-      setCurrentUser((prev) => (sameAuthUser(prev, nextUser) ? prev : nextUser));
+      setCurrentUser((prev) => {
+        // Eventos de auth (montados do JWT) não trazem `email_confirmed_at`:
+        // mantém o que já foi apurado por `getUser()`/login para esse usuário.
+        const merged: AuthUser =
+          nextUser.emailConfirmed === undefined &&
+          prev?.id === nextUser.id &&
+          prev.emailConfirmed !== undefined
+            ? { ...nextUser, emailConfirmed: prev.emailConfirmed }
+            : nextUser;
+
+        return sameAuthUser(prev, merged) ? prev : merged;
+      });
       setIsLoading(false);
     }
 

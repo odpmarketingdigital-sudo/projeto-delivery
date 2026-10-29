@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAppUrl } from "@/lib/email/config";
 import { sendWelcomeEmailSafely } from "@/lib/email/welcome";
 import { createAdminClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/slug";
@@ -10,17 +11,24 @@ import { addTrialDays } from "@/lib/subscriptions";
  * Fluxo (tudo no servidor, com a service role key):
  *  1. Valida os dados do formulário de `/cadastro`.
  *  2. Garante que o slug do cardápio está livre (e não colide com rotas fixas).
- *  3. Cria a conta de acesso no Supabase Auth (`email_confirm: true`, para o
- *     login automático funcionar sem depender de e-mail de confirmação) com
- *     `user_metadata.role = 'admin'` — o trigger `handle_new_user` cria o perfil.
- *  4. Insere o estabelecimento já em trial: `subscription_status = 'trialing'`
+ *  3. Cria a conta de acesso no Supabase Auth com `user_metadata.role =
+ *     'admin'` — o trigger `handle_new_user` cria o perfil. A conta NÃO é
+ *     auto-confirmada: com a opção "Confirm email" ativa no projeto ela nasce
+ *     pendente (`email_confirmed_at` nulo) e o painel fica bloqueado até o
+ *     clique no link enviado por e-mail.
+ *  4. Dispara o e-mail de confirmação (`auth.resend`) somente quando a conta
+ *     ainda está pendente. Ver `docs/confirmacao-email.md`.
+ *  5. Insere o estabelecimento já em trial: `subscription_status = 'trialing'`
  *     e `trial_ends_at = now() + 30 dias`.
- *  5. Envia o e-mail de boas-vindas (Resend) — best effort: sem chave
+ *  6. Envia o e-mail de boas-vindas (Resend) — best effort: sem chave
  *     configurada ou com falha do provedor o cadastro segue normalmente,
  *     apenas registrando um aviso no log. Ver `docs/email-boas-vindas.md`.
  *
- * O login automático é feito pelo cliente (`signInWithPassword`) logo após o
- * 201, para que a sessão seja gravada nos cookies do navegador.
+ * Resposta 201: `{ establishment, email_confirmation_required }`.
+ *  - `email_confirmation_required: true` → o cliente NÃO faz login automático:
+ *    redireciona para `/confirmar-email` e aguarda a confirmação.
+ *  - `false` (projeto sem confirmação obrigatória) → o cliente faz
+ *    `signInWithPassword` e entra direto no painel, como antes.
  *
  * Rollback: se o insert em `establishments` falhar, a conta criada em
  * `auth.users` é removida, evitando um usuário órfão ocupando o e-mail.
@@ -229,6 +237,19 @@ export async function POST(request: Request) {
 
   const adminClient = createAdminClient();
 
+  /**
+   * Origem pública usada no `emailRedirectTo` do link de confirmação.
+   *
+   * Em produção o `request.url` já traz o domínio correto (inclusive atrás do
+   * proxy da Vercel); `NEXT_PUBLIC_APP_URL` fica como fallback.
+   */
+  let appOrigin = getAppUrl();
+  try {
+    appOrigin = new URL(request.url).origin;
+  } catch {
+    // Mantém `NEXT_PUBLIC_APP_URL`.
+  }
+
   const { data: slugOwner } = await adminClient
     .from("establishments")
     .select("id")
@@ -240,13 +261,16 @@ export async function POST(request: Request) {
     return fail(`O link "${slug}" já está em uso. Escolha outro.`, 409, "slug");
   }
 
-  // 4) Conta de acesso (Supabase Auth). `email_confirm: true` libera o login
-  //    imediato — o onboarding não depende de SMTP configurado.
+  // 4) Conta de acesso (Supabase Auth).
+  //
+  //    NÃO passamos `email_confirm: true`: isso confirmava o e-mail na criação
+  //    e anulava a opção "Confirm email" do projeto. Sem o parâmetro, o GoTrue
+  //    decide conforme a configuração — conta pendente quando a confirmação é
+  //    obrigatória, já confirmada quando o projeto dispensa o passo.
   const { data: created, error: createError } =
     await adminClient.auth.admin.createUser({
       email,
       password,
-      email_confirm: true,
       user_metadata: {
         name: ownerName,
         establishment: establishmentName,
@@ -277,6 +301,39 @@ export async function POST(request: Request) {
   }
 
   const userId = created.user.id;
+
+  /**
+   * Conta pendente de confirmação?
+   *
+   * O `admin.createUser` NÃO envia e-mail de confirmação (diferente do signup
+   * público). Por isso disparamos o `resend` explicitamente, apontando o link
+   * para `/auth/callback`, que troca o token pela sessão e abre o painel.
+   *
+   * Em projetos com "Confirm email" desligado o GoTrue já confirma o usuário na
+   * criação e nada é enviado — o cliente pode fazer o login automático.
+   */
+  const emailConfirmationRequired = !(
+    created.user.email_confirmed_at ?? created.user.confirmed_at
+  );
+
+  if (emailConfirmationRequired) {
+    const { error: confirmationError } = await adminClient.auth.resend({
+      type: "signup",
+      email,
+      options: {
+        emailRedirectTo: `${appOrigin}/auth/callback?next=/painel`,
+      },
+    });
+
+    if (confirmationError) {
+      // Best effort: sem SMTP configurado (ou com limite do provedor) o
+      // cadastro continua válido e a tela `/confirmar-email` permite reenviar.
+      console.warn(
+        "[api/signup] falha ao enviar o e-mail de confirmação:",
+        confirmationError.message
+      );
+    }
+  }
 
   // Garante a linha em `profiles` (o trigger já cria; upsert por segurança).
   await adminClient.from("profiles").upsert(
@@ -352,5 +409,11 @@ export async function POST(request: Request) {
     trialEndsAt: inserted.trial_ends_at,
   });
 
-  return NextResponse.json({ establishment: inserted }, { status: 201 });
+  return NextResponse.json(
+    {
+      establishment: inserted,
+      email_confirmation_required: emailConfirmationRequired,
+    },
+    { status: 201 }
+  );
 }
