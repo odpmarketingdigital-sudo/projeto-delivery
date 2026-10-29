@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getAppUrl } from "@/lib/email/config";
 import { sendWelcomeEmailSafely } from "@/lib/email/welcome";
+import {
+  buildEmailConfirmationRedirect,
+  getRequestOrigin,
+  resendSignupConfirmation,
+} from "@/lib/supabase/confirmation";
 import { createAdminClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/slug";
 import { addTrialDays } from "@/lib/subscriptions";
@@ -16,8 +21,8 @@ import { addTrialDays } from "@/lib/subscriptions";
  *     auto-confirmada: com a opção "Confirm email" ativa no projeto ela nasce
  *     pendente (`email_confirmed_at` nulo) e o painel fica bloqueado até o
  *     clique no link enviado por e-mail.
- *  4. Dispara o e-mail de confirmação (`auth.resend`) somente quando a conta
- *     ainda está pendente. Ver `docs/confirmacao-email.md`.
+ *  4. Dispara o e-mail de confirmação (`lib/supabase/confirmation.ts`) somente
+ *     quando a conta ainda está pendente. Ver `docs/confirmacao-email.md`.
  *  5. Insere o estabelecimento já em trial: `subscription_status = 'trialing'`
  *     e `trial_ends_at = now() + 30 dias`.
  *  6. Envia o e-mail de boas-vindas (Resend) — best effort: sem chave
@@ -243,12 +248,7 @@ export async function POST(request: Request) {
    * Em produção o `request.url` já traz o domínio correto (inclusive atrás do
    * proxy da Vercel); `NEXT_PUBLIC_APP_URL` fica como fallback.
    */
-  let appOrigin = getAppUrl();
-  try {
-    appOrigin = new URL(request.url).origin;
-  } catch {
-    // Mantém `NEXT_PUBLIC_APP_URL`.
-  }
+  const appOrigin = getRequestOrigin(request) ?? getAppUrl();
 
   const { data: slugOwner } = await adminClient
     .from("establishments")
@@ -317,20 +317,20 @@ export async function POST(request: Request) {
   );
 
   if (emailConfirmationRequired) {
-    const { error: confirmationError } = await adminClient.auth.resend({
-      type: "signup",
+    // Mesma função usada por `POST /api/auth/resend-confirmation`: cadastro e
+    // botão "Reenviar" têm exatamente o mesmo comportamento.
+    const confirmation = await resendSignupConfirmation(adminClient, {
       email,
-      options: {
-        emailRedirectTo: `${appOrigin}/auth/callback?next=/painel`,
-      },
+      emailRedirectTo: buildEmailConfirmationRedirect(appOrigin),
     });
 
-    if (confirmationError) {
+    if (!confirmation.ok) {
       // Best effort: sem SMTP configurado (ou com limite do provedor) o
       // cadastro continua válido e a tela `/confirmar-email` permite reenviar.
       console.warn(
         "[api/signup] falha ao enviar o e-mail de confirmação:",
-        confirmationError.message
+        confirmation.code,
+        confirmation.message
       );
     }
   }

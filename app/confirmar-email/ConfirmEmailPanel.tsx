@@ -4,12 +4,26 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import {
+  CONFIRMATION_RATE_LIMIT_MESSAGE,
+  CONFIRMATION_RESEND_COOLDOWN_SECONDS,
+} from "@/lib/supabase/confirmation";
 
 /** Validação simples de e-mail (mesmo padrão usado no cadastro/login). */
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /** `checking` enquanto o `getUser()` inicial não responde. */
 type SessionState = "checking" | "signed-in" | "signed-out";
+
+/** Corpo devolvido por `POST /api/auth/resend-confirmation`. */
+interface ResendConfirmationResponse {
+  ok?: boolean;
+  message?: string;
+  error?: string;
+  code?: string;
+  /** Segundos até poder pedir outro reenvio (200 e 429). */
+  retry_after?: number;
+}
 
 interface ConfirmEmailPanelProps {
   /** E-mail recebido por `?email=` (cadastro e redirects do middleware). */
@@ -27,8 +41,10 @@ interface ConfirmEmailPanelProps {
  *    `email_confirmed_at` está nulo.
  *
  * Ações disponíveis:
- *  1. **Reenviar** o e-mail de confirmação (`auth.resend`) para o endereço
- *     informado — o link aponta para `/auth/callback`, que abre o painel;
+ *  1. **Reenviar** o e-mail de confirmação via `POST /api/auth/resend-confirmation`
+ *     — o envio é feito no servidor (service role), que devolve mensagens já
+ *     traduzidas e trata o rate limit (429) com `retry_after`. O link recebido
+ *     aponta para `/auth/callback`, que abre o painel;
  *  2. **Já confirmei**: atualiza a sessão (`refreshSession`) e tenta entrar.
  *     Sem sessão neste navegador, encaminha para o login.
  */
@@ -49,6 +65,20 @@ export function ConfirmEmailPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
+  /** Segundos restantes até liberar novo reenvio (0 = liberado). */
+  const [cooldown, setCooldown] = useState(0);
+
+  // Contagem regressiva do cooldown devolvido pela rota (200 ou 429): mantém o
+  // botão bloqueado e mostra ao usuário quanto falta, sem novo clique.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+
+    const timer = setTimeout(() => {
+      setCooldown((previous) => (previous > 0 ? previous - 1 : 0));
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [cooldown]);
 
   // Descobre se há sessão ativa e se ela já está confirmada (ex.: link aberto
   // em outra aba). O cadastro novo chega aqui SEM sessão.
@@ -82,7 +112,7 @@ export function ConfirmEmailPanel({
 
   const handleResend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (isSending) return;
+    if (isSending || cooldown > 0) return;
 
     const cleanEmail = email.trim();
     setError(null);
@@ -95,46 +125,60 @@ export function ConfirmEmailPanel({
 
     setIsSending(true);
 
-    const { error: resendError } = await supabase.auth.resend({
-      type: "signup",
-      email: cleanEmail,
-      options: {
-        // O callback troca o token pela sessão e leva direto ao painel.
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=/painel`,
-      },
-    });
+    try {
+      // Envio no servidor: a rota classifica o erro do GoTrue e devolve a
+      // mensagem pronta — inclusive o 429 com `retry_after` em segundos.
+      const response = await fetch("/api/auth/resend-confirmation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
 
-    setIsSending(false);
+      const payload = (await response
+        .json()
+        .catch(() => null)) as ResendConfirmationResponse | null;
 
-    if (resendError) {
-      const code = resendError.code ?? "";
+      const retryAfter =
+        payload?.retry_after && payload.retry_after > 0
+          ? payload.retry_after
+          : CONFIRMATION_RESEND_COOLDOWN_SECONDS;
 
-      if (resendError.status === 429) {
-        setError(
-          "Muitas solicitações em pouco tempo. Aguarde alguns minutos e tente novamente."
+      if (response.ok) {
+        setNotice(
+          payload?.message ??
+            `Enviamos um novo link de confirmação para ${cleanEmail}. Confira a caixa de entrada e o spam.`
         );
+        setCooldown(retryAfter);
         return;
       }
 
-      if (
-        code === "email_already_confirmed" ||
-        /already confirmed/i.test(resendError.message)
-      ) {
+      // 429 = rate limit do Supabase (ou cooldown local). A mensagem vem do
+      // servidor: "Aguarde 1 minuto antes de solicitar um novo e-mail".
+      if (response.status === 429) {
+        setError(payload?.error ?? CONFIRMATION_RATE_LIMIT_MESSAGE);
+        setCooldown(retryAfter);
+        return;
+      }
+
+      if (response.status === 409 || payload?.code === "already_confirmed") {
         setError(
-          "Este e-mail já está confirmado. Faça login para acessar o painel."
+          payload?.error ??
+            "Este e-mail já está confirmado. Faça login para acessar o painel."
         );
         return;
       }
 
       setError(
-        "Não foi possível reenviar o e-mail agora. Confira o endereço informado e tente novamente."
+        payload?.error ??
+          "Não foi possível reenviar o e-mail agora. Confira o endereço informado e tente novamente."
       );
-      return;
+    } catch {
+      // Falha de rede/DNS: sem o `catch` o botão ficava preso em "Enviando..."
+      // e nenhuma mensagem aparecia para o usuário.
+      setError("Falha de conexão. Verifique sua internet e tente novamente.");
+    } finally {
+      setIsSending(false);
     }
-
-    setNotice(
-      `Enviamos um novo link de confirmação para ${cleanEmail}. Confira a caixa de entrada e o spam.`
-    );
   };
 
   const handleCheckConfirmation = async () => {
@@ -245,7 +289,7 @@ export function ConfirmEmailPanel({
 
           <button
             type="submit"
-            disabled={isSending}
+            disabled={isSending || cooldown > 0}
             className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-yellow-400 px-4 py-3 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-70"
           >
             {isSending ? (
@@ -272,6 +316,8 @@ export function ConfirmEmailPanel({
                 </svg>
                 Enviando...
               </>
+            ) : cooldown > 0 ? (
+              `Aguarde ${cooldown}s para reenviar`
             ) : (
               "Reenviar e-mail de confirmação"
             )}
