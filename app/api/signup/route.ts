@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sendWelcomeEmailSafely } from "@/lib/email/welcome";
 import { createAdminClient } from "@/lib/supabase/server";
 import { slugify } from "@/lib/slug";
 import { addTrialDays } from "@/lib/subscriptions";
@@ -14,6 +15,9 @@ import { addTrialDays } from "@/lib/subscriptions";
  *     `user_metadata.role = 'admin'` — o trigger `handle_new_user` cria o perfil.
  *  4. Insere o estabelecimento já em trial: `subscription_status = 'trialing'`
  *     e `trial_ends_at = now() + 30 dias`.
+ *  5. Envia o e-mail de boas-vindas (Resend) — best effort: sem chave
+ *     configurada ou com falha do provedor o cadastro segue normalmente,
+ *     apenas registrando um aviso no log. Ver `docs/email-boas-vindas.md`.
  *
  * O login automático é feito pelo cliente (`signInWithPassword`) logo após o
  * 201, para que a sessão seja gravada nos cookies do navegador.
@@ -334,6 +338,19 @@ export async function POST(request: Request) {
       insertError?.message ?? "Não foi possível salvar o estabelecimento."
     );
   }
+
+  // 6) E-mail de boas-vindas (Resend).
+  //    Best effort: a conta e a loja já existem, então uma falha do provedor é
+  //    apenas registrada no log (`console.warn`) — o cadastro responde 201 e o
+  //    usuário entra no painel normalmente. Sem `RESEND_API_KEY` o envio é
+  //    ignorado (ver docs/email-boas-vindas.md).
+  await sendWelcomeEmailSafely({
+    to: email,
+    ownerName,
+    establishmentName: inserted.name,
+    slug: inserted.slug,
+    trialEndsAt: inserted.trial_ends_at,
+  });
 
   return NextResponse.json({ establishment: inserted }, { status: 201 });
 }
