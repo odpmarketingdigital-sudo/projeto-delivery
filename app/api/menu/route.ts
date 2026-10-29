@@ -69,6 +69,12 @@ function mapEstablishment(row: EstablishmentRow): StorefrontInfo {
      * quando a loja marca `false` no painel (migração 20261110000016).
      */
     whatsapp_checkout_enabled: row.whatsapp_checkout_enabled !== false,
+    /**
+     * Modo catálogo (migração 20261110000017): desligado por padrão. Só entra
+     * em ação quando a loja marca `true` no painel — o fluxo de delivery segue
+     * exatamente igual nas demais lojas.
+     */
+    direct_whatsapp_checkout: row.direct_whatsapp_checkout === true,
     delivery_fee: delivery.delivery_fee,
     delivery_type: delivery.delivery_type,
     distance_base_km: delivery.distance_base_km,

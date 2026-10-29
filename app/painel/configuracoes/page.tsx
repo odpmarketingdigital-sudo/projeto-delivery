@@ -195,6 +195,9 @@ export default function ConfiguracoesIdentidade() {
   const [whatsappError, setWhatsappError] = useState<string | null>(null);
   const [whatsappSuccess, setWhatsappSuccess] = useState<string | null>(null);
   const [whatsappWarning, setWhatsappWarning] = useState<string | null>(null);
+  // Modo catálogo (migração 17): pedido/orçamento direto no WhatsApp, sem
+  // passar pelo checkout. Default `false` — o fluxo de delivery não muda.
+  const [directWhatsAppCheckout, setDirectWhatsAppCheckout] = useState(false);
 
   // Link público da loja: exibido apenas para leitura/cópia (o slug é definido
   // no cadastro do estabelecimento e não é editável por esta tela).
@@ -262,6 +265,8 @@ export default function ConfiguracoesIdentidade() {
         setLoadError(null);
         // Migração 20261110000016: ausência da coluna = recurso ativo.
         setWhatsappCheckoutEnabled(row.whatsapp_checkout_enabled !== false);
+        // Migração 17: modo catálogo desligado por padrão (ausência = false).
+        setDirectWhatsAppCheckout(row.direct_whatsapp_checkout === true);
         // Número usado pelo checkout: WhatsApp oficial com fallback ao telefone.
         setWhatsappValue(row.whatsapp ?? row.phone ?? "");
       });
@@ -775,6 +780,8 @@ export default function ConfiguracoesIdentidade() {
           // String vazia limpa o número cadastrado na loja.
           whatsapp,
           whatsapp_checkout_enabled: whatsappCheckoutEnabled,
+          // Migração 17: modo catálogo (pedido direto no WhatsApp).
+          direct_whatsapp_checkout: directWhatsAppCheckout,
         }),
       });
       const json = (await res.json().catch(() => ({}))) as {
@@ -800,7 +807,7 @@ export default function ConfiguracoesIdentidade() {
       setWhatsappSuccess(
         warning
           ? "Número salvo. A preferência de envio será gravada após criar a coluna pendente."
-          : "Telefone/WhatsApp e preferência de envio salvos."
+          : "Telefone/WhatsApp e preferências de envio salvos."
       );
     } catch (err) {
       setWhatsappError(
@@ -1518,6 +1525,55 @@ export default function ConfiguracoesIdentidade() {
             </button>
           </div>
 
+          {/* Modo catálogo (migração 17): sacola -> WhatsApp, sem checkout. */}
+          <div className="mt-3 flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-950/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p
+                id="direct-whatsapp-checkout-label"
+                className="text-sm font-medium text-gray-200"
+              >
+                Modo catálogo: enviar pedido/orçamento direto no WhatsApp
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                Com esta opção ativa, o botão da sacola abre o WhatsApp da loja
+                com o pedido e o cliente não passa pelo checkout. Produtos sem
+                preço aparecem como “Sob Consulta” e o valor é combinado no
+                atendimento.
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                {whatsappPreview
+                  ? `Pedido enviado para: ${whatsappPreview}`
+                  : "Cadastre um WhatsApp válido acima para que o botão funcione na sacola."}
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={directWhatsAppCheckout}
+              aria-labelledby="direct-whatsapp-checkout-label"
+              onClick={() => {
+                setDirectWhatsAppCheckout((prev) => !prev);
+                setWhatsappSuccess(null);
+                setWhatsappError(null);
+                setWhatsappWarning(null);
+              }}
+              disabled={!selectedId || isSavingWhatsApp}
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-yellow-400/40 disabled:cursor-not-allowed disabled:opacity-60 ${
+                directWhatsAppCheckout ? "bg-yellow-400" : "bg-gray-700"
+              }`}
+            >
+              <span className="sr-only">
+                {directWhatsAppCheckout ? "Desativar" : "Ativar"} envio direto do
+                pedido pelo WhatsApp
+              </span>
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                  directWhatsAppCheckout ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+
           {/*
            * Base sem a migração 16: o campo não vem no `select("*")`. Avisa o
            * lojista antes de ele tentar salvar (o PUT também devolve erro).
@@ -1529,6 +1585,16 @@ export default function ConfiguracoesIdentidade() {
                 no banco. Execute a migração{" "}
                 <code>20261110000016_add_whatsapp_checkout_setting.sql</code> no
                 SQL Editor do Supabase para que esta preferência seja gravada.
+              </p>
+            )}
+
+          {establishmentData &&
+            establishmentData.direct_whatsapp_checkout === undefined && (
+              <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-300">
+                A coluna <code>direct_whatsapp_checkout</code> ainda não existe
+                no banco. Execute a migração{" "}
+                <code>20261110000017_add_direct_whatsapp_checkout.sql</code> no
+                SQL Editor do Supabase para que o modo catálogo seja gravado.
               </p>
             )}
 
@@ -1560,7 +1626,7 @@ export default function ConfiguracoesIdentidade() {
                   Salvando...
                 </>
               ) : (
-                "Salvar WhatsApp"
+                "Salvar WhatsApp e envio"
               )}
             </button>
           </div>

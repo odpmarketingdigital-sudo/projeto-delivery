@@ -9,6 +9,11 @@ import type { StorefrontMenu } from "@/lib/types";
 import { describeNextOpening, isStoreOpen } from "@/lib/openingHours";
 import { formatCep, parseCep, type DeliveryQuote } from "@/lib/delivery";
 import {
+  buildCatalogWhatsAppUrl,
+  isCartItemPriceOnRequest,
+  isDirectWhatsAppCheckoutEnabled,
+} from "@/lib/catalogOrder";
+import {
   formatEstimatedDeliveryWindowLabel,
   normalizeEstimatedDeliveryWindow,
   parseEstimatedDeliveryWindow,
@@ -1167,6 +1172,122 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       </div>
     );
   }
+  // Modo catálogo: a loja não usa o checkout — o pedido/orçamento vai direto
+  // para o WhatsApp dela. Guarda defensiva para acessos por link antigo.
+  if (isDirectWhatsAppCheckoutEnabled(establishment)) {
+    const directUrl = buildCatalogWhatsAppUrl(establishment, {
+      items: checkoutItems.map((item) => {
+        const priceOnRequest = isCartItemPriceOnRequest(item);
+        return {
+          name: item.productName ?? "Item",
+          quantity: item.quantidade,
+          unit_price: priceOnRequest ? null : item.unitPrice,
+          line_total: priceOnRequest ? null : item.itemTotalPrice,
+          price_on_request: priceOnRequest,
+          addons: (item.selectedOptions ?? []).map((option) => ({
+            name: option.name,
+            price: priceOnRequest ? null : option.price,
+          })),
+          notes: item.notes ?? null,
+        };
+      }),
+      deliveryCep: deliveryCep || null,
+    });
+
+    return (
+      <div className="flex min-h-screen flex-col bg-gray-50 antialiased dark:bg-gray-950">
+        <header className="border-b border-gray-200/70 bg-white/90 px-4 py-3 backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-900/80 sm:px-6">
+          <div className="mx-auto flex max-w-2xl items-center gap-3">
+            <Link
+              href={backHref}
+              aria-label="Voltar ao cardápio"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 text-gray-600 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+            >
+              <svg
+                aria-hidden="true"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M15.75 19.5 8.25 12l7.5-7.5"
+                />
+              </svg>
+            </Link>
+            <p className="font-bold text-gray-900 dark:text-white">
+              Pedido pelo WhatsApp
+            </p>
+            <Image
+              src="/logotipo.svg"
+              alt="Ipepper"
+              width={323}
+              height={150}
+              unoptimized
+              className="ml-auto h-6 w-auto"
+            />
+          </div>
+        </header>
+
+        <main className="flex flex-1 items-center justify-center px-4 py-12">
+          <div className="w-full max-w-md rounded-2xl border border-gray-200/70 bg-white p-6 text-center shadow-sm dark:border-gray-700/60 dark:bg-gray-800/60">
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-600 dark:bg-green-400/15 dark:text-green-400">
+              <svg
+                aria-hidden="true"
+                className="h-7 w-7"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.8}
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M8.625 9.75h6.75m-6.75 3.75h4.5M21 12c0 4.142-4.03 7.5-9 7.5a10.6 10.6 0 0 1-2.28-.245L4.5 21l1.14-3.42A6.9 6.9 0 0 1 3 12c0-4.142 4.03-7.5 9-7.5s9 3.358 9 7.5Z"
+                />
+              </svg>
+            </span>
+            <h1 className="mt-4 text-lg font-bold text-gray-900 dark:text-white">
+              Esta loja recebe pedidos pelo WhatsApp
+            </h1>
+            <p className="mt-2 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+              Monte sua sacola no cardápio e envie o pedido direto para o
+              atendente — sem passar pelo checkout. Frete, pagamento e valores
+              (inclusive itens “Sob Consulta”) são combinados na conversa.
+            </p>
+            {directUrl ? (
+              <a
+                href={directUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-600 focus:ring-offset-2 dark:focus:ring-offset-gray-800"
+              >
+                Enviar pedido no WhatsApp
+              </a>
+            ) : (
+              <p
+                role="alert"
+                className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-relaxed text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
+              >
+                A loja ainda não cadastrou um WhatsApp válido para receber
+                pedidos.
+              </p>
+            )}
+            <Link
+              href={backHref}
+              className="mt-4 inline-block text-sm font-semibold text-gray-600 underline dark:text-gray-300"
+            >
+              Voltar ao cardápio
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   const inputClassName = (field: keyof DeliveryForm) =>
     `w-full rounded-xl border bg-white px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 transition focus:outline-none focus:ring-2 dark:bg-gray-900/60 dark:text-white dark:placeholder:text-gray-500 ${
       errors[field]

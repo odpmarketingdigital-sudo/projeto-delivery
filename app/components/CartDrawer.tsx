@@ -4,6 +4,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/context/CartContext";
 import { formatCep, parseCep, type DeliveryQuote } from "@/lib/delivery";
+import {
+  buildCatalogWhatsAppUrl,
+  isCartItemPriceOnRequest,
+  isDirectWhatsAppCheckoutEnabled,
+} from "@/lib/catalogOrder";
 import type { StorefrontInfo } from "@/lib/types";
 
 /** Resposta de `POST /api/delivery-quote` usada na sacola. */
@@ -75,6 +80,8 @@ export function CartDrawer({
 
   const [cepInput, setCepInput] = useState(() => formatCep(deliveryCep));
   const [lastSyncedCep, setLastSyncedCep] = useState(deliveryCep);
+  // Falha ao montar o link do WhatsApp (ex.: loja sem telefone cadastrado).
+  const [directError, setDirectError] = useState<string | null>(null);
 
   // O contexto pode hidratar depois da primeira renderização (localStorage).
   // Nesse caso, preenche o campo sem sobrescrever um valor já digitado.
@@ -223,6 +230,18 @@ export function CartDrawer({
     quoteReady &&
     !deliveryOutOfRange;
 
+  // Modo catálogo: a loja recebe o pedido/orçamento direto no WhatsApp e o
+  // cliente não passa pelo checkout. Ausência do campo = fluxo tradicional.
+  const directWhatsAppCheckout = isDirectWhatsAppCheckoutEnabled(establishment);
+  // Pelo menos um item "Sob Consulta": esconde os totais (o valor é combinado).
+  const hasPriceOnRequest = cartItems.some((item) =>
+    isCartItemPriceOnRequest(item)
+  );
+  // No envio direto o CEP/frete não bloqueia o pedido — só itens e loja aberta.
+  const canSendDirect =
+    establishment != null && itemCount > 0 && !storeClosed;
+  const canSubmit = directWhatsAppCheckout ? canSendDirect : canCheckout;
+
   const feeLabel =
     deliveryDistanceKm != null
       ? `Entrega (${formatKm(deliveryDistanceKm)} km)`
@@ -298,6 +317,44 @@ export function CartDrawer({
     if (!canCheckout) return;
     onClose();
     router.push(slug ? `/${slug}/checkout` : "/checkout");
+  };
+
+  /**
+   * Modo catálogo: monta o pedido/orçamento e abre o WhatsApp da loja. Nada é
+   * gravado em `orders` — o pedido existe apenas na conversa.
+   */
+  const handleSendDirect = () => {
+    if (!canSendDirect) return;
+
+    const url = buildCatalogWhatsAppUrl(establishment, {
+      items: cartItems.map((item) => {
+        const priceOnRequest = isCartItemPriceOnRequest(item);
+        return {
+          name: item.productName ?? "Item",
+          quantity: item.quantidade,
+          unit_price: priceOnRequest ? null : item.unitPrice,
+          line_total: priceOnRequest ? null : item.itemTotalPrice,
+          price_on_request: priceOnRequest,
+          addons: (item.selectedOptions ?? []).map((option) => ({
+            name: option.name,
+            price: priceOnRequest ? null : option.price,
+          })),
+          notes: item.notes ?? null,
+        };
+      }),
+      deliveryCep: cepDigits ?? null,
+    });
+
+    if (!url) {
+      setDirectError(
+        "Não foi possível abrir o WhatsApp. Confira o número cadastrado em Configurações da loja."
+      );
+      return;
+    }
+
+    setDirectError(null);
+    window.open(url, "_blank", "noopener,noreferrer");
+    onClose();
   };
 
   if (!open) return null;
@@ -390,9 +447,15 @@ export function CartDrawer({
                           </p>
                         )}
                       </div>
-                      <span className="shrink-0 text-sm font-bold tabular-nums text-gray-900 dark:text-white">
-                        {formatBRL(lineTotal)}
-                      </span>
+                      {isCartItemPriceOnRequest(item) ? (
+                        <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                          Sob consulta
+                        </span>
+                      ) : (
+                        <span className="shrink-0 text-sm font-bold tabular-nums text-gray-900 dark:text-white">
+                          {formatBRL(lineTotal)}
+                        </span>
+                      )}
                     </div>
 
                     <div className="mt-2.5 flex items-center justify-between">
@@ -546,28 +609,35 @@ export function CartDrawer({
             </p>
           )}
 
-          <dl className="space-y-1.5 text-sm">
-            <div className="flex items-center justify-between gap-3">
-              <dt className="text-gray-500 dark:text-gray-400">Subtotal</dt>
-              <dd className="font-semibold tabular-nums text-gray-900 dark:text-white">
-                {formatBRL(subtotal)}
-              </dd>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <dt className="text-gray-500 dark:text-gray-400">{feeLabel}</dt>
-              <dd className="font-semibold tabular-nums text-gray-900 dark:text-white">
-                {feeDisplay}
-              </dd>
-            </div>
-            <div className="flex items-center justify-between gap-3 border-t border-gray-200 pt-2 text-base dark:border-gray-700">
-              <dt className="font-bold text-gray-900 dark:text-white">Total</dt>
-              <dd className="font-bold tabular-nums text-gray-900 dark:text-white">
-                {totalDisplay}
-              </dd>
-            </div>
-          </dl>
+          {hasPriceOnRequest ? (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold leading-relaxed text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200">
+              Há itens “Sob Consulta” na sacola: o valor total será verificado
+              diretamente com o atendente via WhatsApp.
+            </p>
+          ) : (
+            <dl className="space-y-1.5 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-gray-500 dark:text-gray-400">Subtotal</dt>
+                <dd className="font-semibold tabular-nums text-gray-900 dark:text-white">
+                  {formatBRL(subtotal)}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="text-gray-500 dark:text-gray-400">{feeLabel}</dt>
+                <dd className="font-semibold tabular-nums text-gray-900 dark:text-white">
+                  {feeDisplay}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t border-gray-200 pt-2 text-base dark:border-gray-700">
+                <dt className="font-bold text-gray-900 dark:text-white">Total</dt>
+                <dd className="font-bold tabular-nums text-gray-900 dark:text-white">
+                  {totalDisplay}
+                </dd>
+              </div>
+            </dl>
+          )}
 
-          {checkoutHint && (
+          {checkoutHint && !directWhatsAppCheckout && (
             <p
               role={deliveryOutOfRange || quoteError ? "alert" : "status"}
               className={`mt-3 rounded-xl px-3 py-2 text-xs font-semibold leading-relaxed ${
@@ -582,12 +652,30 @@ export function CartDrawer({
 
           <button
             type="button"
-            onClick={handleCheckout}
-            disabled={!canCheckout}
+            onClick={directWhatsAppCheckout ? handleSendDirect : handleCheckout}
+            disabled={!canSubmit}
             className="mt-3 w-full rounded-xl bg-gray-900 px-4 py-3.5 text-sm font-bold text-white transition hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-400 disabled:text-gray-100 disabled:hover:bg-gray-400 dark:bg-yellow-400 dark:text-gray-950 dark:hover:bg-yellow-300 dark:focus:ring-yellow-400 dark:focus:ring-offset-gray-900 dark:disabled:bg-gray-700 dark:disabled:text-gray-400"
           >
-            Avançar para o Checkout
+            {directWhatsAppCheckout
+              ? "Enviar Pedido / Orçamento no WhatsApp"
+              : "Avançar para o Checkout"}
           </button>
+
+          {directWhatsAppCheckout && (
+            <p className="mt-2 text-center text-[11px] font-medium leading-relaxed text-gray-500 dark:text-gray-400">
+              O pedido abre direto na conversa com a loja. Frete, pagamento e
+              valores são combinados com o atendente.
+            </p>
+          )}
+
+          {directWhatsAppCheckout && directError && (
+            <p
+              role="alert"
+              className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold leading-relaxed text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300"
+            >
+              {directError}
+            </p>
+          )}
         </div>
       </aside>
     </div>

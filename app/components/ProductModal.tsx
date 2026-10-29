@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useCart } from "@/context/CartContext";
 import type { Product, ProductOption } from "@/lib/types";
+import { isPriceOnRequest } from "@/lib/catalogOrder";
 
 interface ProductModalProps {
   product: Product | null;
@@ -94,6 +95,8 @@ export function ProductModal({
   }, [selection, groups]);
 
   const basePrice = product?.preco ?? 0;
+  // Produto sem preço definido (0/nulo) = "Sob Consulta" no catálogo.
+  const priceOnRequest = isPriceOnRequest(product?.preco);
   const unitPrice = basePrice + selectedOptions.reduce((a, o) => a + o.price, 0);
   const totalPrice = unitPrice * quantity;
   const missingRequired = groups.filter((g) => g.required && (selection[g.id]?.length ?? 0) === 0);
@@ -145,7 +148,7 @@ export function ProductModal({
           </div>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
-          <div className="flex items-center justify-between text-sm"><span className="font-semibold uppercase tracking-wider text-xs text-gray-400">Preço base</span><span className="font-bold tabular-nums dark:text-white">{formatBRL(product.preco)}</span></div>
+          <div className="flex items-center justify-between text-sm"><span className="font-semibold uppercase tracking-wider text-xs text-gray-400">Preço base</span>{priceOnRequest ? <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold uppercase text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">Sob Consulta</span> : <span className="font-bold tabular-nums dark:text-white">{formatBRL(product.preco)}</span>}</div>
           {product.track_stock && (
             <div className="mt-1 flex items-center justify-between text-sm">
               <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">Estoque</span>
@@ -220,9 +223,12 @@ export function ProductModal({
             </div>
             <div className="mt-3 flex items-center justify-between border-t border-gray-200 pt-2.5 text-sm dark:border-gray-700">
               <span className="text-gray-500 dark:text-gray-400">
-                {quantity} {quantity === 1 ? "item" : "itens"} × {formatBRL(unitPrice)}
+                {quantity} {quantity === 1 ? "item" : "itens"} ×{" "}
+                {priceOnRequest ? "Sob consulta" : formatBRL(unitPrice)}
               </span>
-              <span className="font-bold tabular-nums text-gray-900 dark:text-white">{formatBRL(totalPrice)}</span>
+              <span className="font-bold tabular-nums text-gray-900 dark:text-white">
+                {priceOnRequest ? "Sob consulta" : formatBRL(totalPrice)}
+              </span>
             </div>
           </div>
           <div className="h-24" />
@@ -236,7 +242,9 @@ export function ProductModal({
           >
             {soldOut
               ? "Esgotado"
-              : `Adicionar ao Carrinho - ${formatBRL(totalPrice)}`}
+              : priceOnRequest
+                ? "Adicionar ao Carrinho · Sob Consulta"
+                : `Adicionar ao Carrinho - ${formatBRL(totalPrice)}`}
           </button>
         </div>
       </div>

@@ -55,6 +55,11 @@ export interface IdentityUpdate {
    */
   whatsapp_checkout_enabled?: boolean;
   /**
+   * Modo catálogo: envia o pedido/orçamento direto pelo WhatsApp da loja, sem
+   * passar pelo checkout (migração 20261110000017).
+   */
+  direct_whatsapp_checkout?: boolean;
+  /**
    * Telefone/WhatsApp da loja usado no resumo do pedido (coluna `whatsapp`,
    * migração 20261110000006). String vazia (ou `null`) limpa o campo.
    */
@@ -96,6 +101,12 @@ const WHATSAPP_CHECKOUT_FIELDS = ["whatsapp_checkout_enabled"] as const;
 const WHATSAPP_CHECKOUT_SQL =
   "alter table public.establishments add column if not exists whatsapp_checkout_enabled boolean not null default true;";
 
+/** Colunas da migração 20261110000017 (modo catálogo no WhatsApp). */
+const DIRECT_CHECKOUT_FIELDS = ["direct_whatsapp_checkout"] as const;
+
+const DIRECT_CHECKOUT_SQL =
+  "alter table public.establishments add column if not exists direct_whatsapp_checkout boolean not null default false;";
+
 function isMissingEstimateColumn(
   error: { code?: string | null; message?: string | null } | null
 ): boolean {
@@ -128,6 +139,20 @@ function isMissingWhatsAppCheckoutColumn(
 ): boolean {
   const message = error?.message ?? "";
   const mentionsColumn = WHATSAPP_CHECKOUT_FIELDS.some((field) =>
+    new RegExp(field, "i").test(message)
+  );
+  return (
+    mentionsColumn &&
+    (/does not exist/i.test(message) || /could not find/i.test(message))
+  );
+}
+
+/** Coluna `direct_whatsapp_checkout` ainda não migrada? */
+function isMissingDirectCheckoutColumn(
+  error: { code?: string | null; message?: string | null } | null
+): boolean {
+  const message = error?.message ?? "";
+  const mentionsColumn = DIRECT_CHECKOUT_FIELDS.some((field) =>
     new RegExp(field, "i").test(message)
   );
   return (
@@ -517,11 +542,22 @@ export async function PUT(request: Request) {
     updateFields.whatsapp_checkout_enabled = body.whatsapp_checkout_enabled;
   }
 
+  // ---- Modo catálogo: pedido direto no WhatsApp (migração 20261110000017) --
+  if (body.direct_whatsapp_checkout !== undefined) {
+    if (typeof body.direct_whatsapp_checkout !== "boolean") {
+      return NextResponse.json(
+        { error: "direct_whatsapp_checkout deve ser true ou false." },
+        { status: 400 }
+      );
+    }
+    updateFields.direct_whatsapp_checkout = body.direct_whatsapp_checkout;
+  }
+
   if (Object.keys(updateFields).length === 0) {
     return NextResponse.json(
       {
         error:
-          "Informe ao menos um campo: `name`, `description`, `whatsapp`, `opening_hours`, `logo_url`, `banner_url` ou configurações de entrega.",
+          "Informe ao menos um campo: `name`, `description`, `whatsapp`, `whatsapp_checkout_enabled`, `direct_whatsapp_checkout`, `opening_hours`, `logo_url`, `banner_url` ou configurações de entrega.",
       },
       { status: 400 }
     );
@@ -573,6 +609,9 @@ export async function PUT(request: Request) {
   const hasDelivery = DELIVERY_FIELDS.some((field) => field in updateFields);
   const hasEstimate = ESTIMATE_FIELDS.some((field) => field in updateFields);
   const hasWhatsAppCheckout = WHATSAPP_CHECKOUT_FIELDS.some(
+    (field) => field in updateFields
+  );
+  const hasDirectCheckout = DIRECT_CHECKOUT_FIELDS.some(
     (field) => field in updateFields
   );
   // Número da loja (coluna `whatsapp`, migração 20261110000006) — base legada
@@ -766,6 +805,39 @@ export async function PUT(request: Request) {
 
 
 
+  if (
+    updateError &&
+    hasDirectCheckout &&
+    isMissingDirectCheckoutColumn(updateError)
+  ) {
+    const rest: Record<string, unknown> = { ...currentFields };
+    for (const field of DIRECT_CHECKOUT_FIELDS) delete rest[field];
+
+    if (Object.keys(rest).length > 0) {
+      currentFields = rest;
+      ({ data: updated, error: updateError } = await runUpdate(
+        rest,
+        "description" in rest,
+        "opening_hours" in rest
+      ));
+      const directWarning =
+        "O modo catálogo (pedido direto no WhatsApp) ainda não foi gravado: a coluna da " +
+        "migração 20261110000017_add_direct_whatsapp_checkout.sql não existe. " +
+        `Execute no SQL Editor do Supabase: ${DIRECT_CHECKOUT_SQL}`;
+      warning = warning ? `${warning} ${directWarning}` : directWarning;
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            "A coluna do modo catálogo ainda não existe no banco. " +
+            "Execute a migração 20261110000017_add_direct_whatsapp_checkout.sql no SQL Editor do Supabase. " +
+            `SQL: ${DIRECT_CHECKOUT_SQL}`,
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   if (updateError || !updated) {
     const notFound = updateError?.code === "PGRST116";
     return NextResponse.json(
@@ -800,6 +872,7 @@ export async function PUT(request: Request) {
     ...DELIVERY_FIELDS,
     ...ESTIMATE_FIELDS,
     ...WHATSAPP_CHECKOUT_FIELDS,
+    ...DIRECT_CHECKOUT_FIELDS,
     // Telefone/WhatsApp da loja: fora do `select` base para não quebrar bases
     // legadas, então devolvemos o valor recém-validado junto do registro.
     "whatsapp",

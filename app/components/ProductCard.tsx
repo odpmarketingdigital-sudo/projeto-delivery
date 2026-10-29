@@ -1,6 +1,7 @@
 "use client";
 
 import type { Product } from "@/lib/types";
+import { isPriceOnRequest } from "@/lib/catalogOrder";
 
 interface ProductCardProps {
   product: Product;
@@ -21,7 +22,11 @@ export function ProductCard({
   onRemove,
   onSelect,
 }: ProductCardProps) {
-  const formattedPrice = `R$ ${product.preco.toFixed(2).replace(".", ",")}`;
+  // Produto sem preço definido (0/nulo) = "Sob Consulta" no catálogo.
+  const priceOnRequest = isPriceOnRequest(product.preco);
+  const formattedPrice = priceOnRequest
+    ? ""
+    : `R$ ${product.preco.toFixed(2).replace(".", ",")}`;
 
   // Estoque controlado e zerado => item esgotado na vitrine.
   const soldOut =
@@ -70,9 +75,15 @@ export function ProductCard({
 
         <div className="mt-auto flex flex-col gap-2 pt-3">
           <div className="flex items-end justify-between gap-2">
-            <span className="text-[15px] font-extrabold tabular-nums text-gray-900 sm:text-base dark:text-white">
-              {formattedPrice}
-            </span>
+            {priceOnRequest ? (
+              <span className="inline-flex items-center rounded-full border border-amber-400/50 bg-amber-400/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-300">
+                Sob Consulta
+              </span>
+            ) : (
+              <span className="text-[15px] font-extrabold tabular-nums text-gray-900 sm:text-base dark:text-white">
+                {formattedPrice}
+              </span>
+            )}
 
             {/* Quantidade já presente no carrinho */}
             {quantity > 0 && (

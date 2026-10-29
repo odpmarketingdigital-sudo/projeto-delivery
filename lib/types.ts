@@ -230,6 +230,13 @@ export interface Establishment {
    * Ausente em bases legadas — tratado como ativo (`!== false`).
    */
   whatsapp_checkout_enabled?: boolean | null;
+  /**
+   * Modo catálogo: quando true, a sacola envia o pedido/orçamento direto para o
+   * WhatsApp da loja e o checkout tradicional é ignorado (coluna
+   * `direct_whatsapp_checkout`, migração 20261110000017).
+   * Ausente em bases legadas — tratado como desligado (`=== true`).
+   */
+  direct_whatsapp_checkout?: boolean | null;
   status: "ativo" | "inativo";
   /**
    * Slug público usado na URL exclusiva do cardápio (rota `/[slug]`).
@@ -396,6 +403,13 @@ export interface StorefrontInfo {
    * Ausente/`undefined` = ativo (compatibilidade com bases legadas).
    */
   whatsapp_checkout_enabled?: boolean;
+  /**
+   * Modo catálogo (`establishments.direct_whatsapp_checkout`, migração
+   * 20261110000017). Quando `true`, a sacola envia o pedido/orçamento direto
+   * para o WhatsApp da loja, sem passar pelo checkout.
+   * Ausente = desligado.
+   */
+  direct_whatsapp_checkout?: boolean;
   /** Telefone de contato (fallback quando `whatsapp` não existe). */
   phone: string | null;
   /** Taxa de entrega padrão cobrada no checkout. */

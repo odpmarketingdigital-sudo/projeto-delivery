@@ -1,6 +1,7 @@
 "use client";
 
 import { useCart } from "@/context/CartContext";
+import { isCartItemPriceOnRequest } from "@/lib/catalogOrder";
 
 interface CartSummaryProps {
   /** Abre a sacola (drawer) onde o frete é calculado antes do checkout. */
@@ -52,6 +53,11 @@ export function CartSummary({
   }, 0);
 
   const hasItems = visibleItems.length > 0 && itemCount > 0;
+  // Item "Sob Consulta" (preço nulo/zero): o subtotal não é confiável, então a
+  // barra troca o valor pela mensagem de verificação com o atendente.
+  const hasPriceOnRequest = visibleItems.some((item) =>
+    isCartItemPriceOnRequest(item)
+  );
 
   if (!hasItems) return null;
 
@@ -70,13 +76,21 @@ export function CartSummary({
       <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-4">
         <div className="flex flex-col">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            Subtotal
+            {hasPriceOnRequest ? "Valores" : "Subtotal"}
           </span>
-          <span className="text-lg font-bold tabular-nums text-gray-900 dark:text-white">
-            {formatBRL(subtotal)}
-          </span>
+          {hasPriceOnRequest ? (
+            <span className="text-sm font-bold leading-tight text-amber-600 dark:text-amber-300">
+              Sob Consulta
+            </span>
+          ) : (
+            <span className="text-lg font-bold tabular-nums text-gray-900 dark:text-white">
+              {formatBRL(subtotal)}
+            </span>
+          )}
           <span className="text-[10px] font-medium text-gray-400">
-            Frete calculado na sacola
+            {hasPriceOnRequest
+              ? "Valor verificado no WhatsApp"
+              : "Frete calculado na sacola"}
           </span>
         </div>
 
