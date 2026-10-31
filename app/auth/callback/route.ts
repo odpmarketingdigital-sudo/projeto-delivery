@@ -7,6 +7,15 @@ import { createAdminClient, createClient } from "@/lib/supabase/server";
 const DEFAULT_RECOVERY_NEXT = "/nova-senha";
 /** Destino padrão dos links de confirmação de e-mail: o painel. */
 const DEFAULT_CONFIRMATION_NEXT = "/painel";
+/**
+ * Destino padrão do retorno do OAuth (Google): o painel.
+ *
+ * O Google volta como `?code=...` (PKCE) e sem `type`. Se o botão não enviar
+ * `next` — ou enviar um destino inválido — o usuário cai em `/painel`. Contas
+ * que ainda não têm loja passam antes por `ONBOARDING_NEXT`, que também conclui
+ * o fluxo em `/painel`.
+ */
+const DEFAULT_OAUTH_NEXT = "/painel";
 /** Onboarding quando a conta ainda não tem estabelecimento (ex.: Google). */
 const ONBOARDING_NEXT = "/completar-cadastro";
 /** Tela de origem do login com Google (mostra o aviso de falha). */
@@ -46,6 +55,24 @@ function safeNextPath(value: string | null, fallback: string): string {
 }
 
 /**
+ * Destinos que NÃO fazem sentido depois de autenticar: telas de entrada e o
+ * próprio callback. Se `next` apontar para um deles, usamos o fallback
+ * (`/painel`), evitando vaivém de redirects com o middleware.
+ */
+const NON_POST_AUTH_PREFIXES = [
+  "/login",
+  "/cadastro",
+  "/auth",
+  "/confirmar-email",
+];
+
+function isPostAuthDestination(value: string): boolean {
+  return !NON_POST_AUTH_PREFIXES.some(
+    (prefix) => value === prefix || value.startsWith(`${prefix}/`)
+  );
+}
+
+/**
  * GET /auth/callback
  *
  * Rota de retorno dos links enviados por e-mail:
@@ -75,10 +102,13 @@ function safeNextPath(value: string | null, fallback: string): string {
  *
  * **Login com Google (OAuth):** o botão de `/cadastro` chama
  * `signInWithOAuth({ redirectTo: "/auth/callback?next=/painel" })`, então o
- * retorno chega como `?code=...` (PKCE). Depois de trocar o código pela
- * sessão, a rota consulta `establishments`:
+ * retorno chega como `?code=...` (PKCE). O destino pós-login é SEMPRE o painel:
+ * `next` é usado quando é um caminho interno válido; caso contrário (ausente,
+ * externo ou uma tela de entrada) cai em `DEFAULT_OAUTH_NEXT` (`/painel`).
+ * Depois de trocar o código pela sessão, a rota consulta `establishments`:
  *  - conta **sem** loja (primeiro acesso pelo Google) → `/completar-cadastro`,
- *    onde o usuário informa os dados do estabelecimento;
+ *    onde o usuário informa os dados do estabelecimento (a tela conclui em
+ *    `/painel`);
  *  - conta **com** loja → `next` (painel).
  *
  * Se o usuário cancelar no Google, o provedor devolve `?error=access_denied`;
@@ -104,9 +134,24 @@ export async function GET(request: NextRequest) {
   const providerError = searchParams.get("error");
 
   const otpType = isEmailOtpType(type) ? type : null;
+  // OAuth (Google) e recuperação de senha usam PKCE: chegam com `code` e sem
+  // `type`. Só o fluxo por OTP (`token_hash` + `type`) identifica o tipo pela
+  // URL — por isso o `code` sem `type` tem fallback próprio (o painel).
+  const isCodeFlow = Boolean(code) && otpType === null;
+
   const fallbackNext =
-    otpType === "recovery" ? DEFAULT_RECOVERY_NEXT : DEFAULT_CONFIRMATION_NEXT;
-  const next = safeNextPath(searchParams.get("next"), fallbackNext);
+    otpType === "recovery"
+      ? DEFAULT_RECOVERY_NEXT
+      : isCodeFlow
+        ? DEFAULT_OAUTH_NEXT
+        : DEFAULT_CONFIRMATION_NEXT;
+
+  const requestedNext = searchParams.get("next");
+  // `next` só é aceito se for um caminho interno que faça sentido pós-login;
+  // caso contrário o usuário segue para o fallback (`/painel`).
+  const candidateNext =
+    requestedNext && isPostAuthDestination(requestedNext) ? requestedNext : null;
+  const next = safeNextPath(candidateNext, fallbackNext);
 
   // Cancelamento/erro devolvido pelo provedor OAuth (Google).
   if (providerError) {

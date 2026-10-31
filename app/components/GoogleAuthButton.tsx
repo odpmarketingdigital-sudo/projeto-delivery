@@ -36,24 +36,47 @@ function GoogleIcon() {
 }
 
 /**
+ * Destino padrão pós-OAuth (Google): o painel.
+ *
+ * É o mesmo fallback usado por `/auth/callback` quando `next` não vem na URL.
+ */
+const DEFAULT_POST_AUTH_NEXT = "/painel";
+
+/**
+ * Só aceita caminhos internos (`/painel`, `/painel/produtos`...).
+ *
+ * Um `next` externo (`https://...`, `//evil.com`) seria um open redirect;
+ * nesses casos voltamos ao padrão `/painel`. O `/auth/callback` revalida o
+ * valor no servidor antes de redirecionar.
+ */
+function normalizePostAuthNext(next: string): string {
+  const trimmed = next.trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) {
+    return DEFAULT_POST_AUTH_NEXT;
+  }
+  return trimmed;
+}
+
+/**
  * Botão "Continuar com Google" (OAuth pelo Supabase Auth).
  *
  * Quem trata o retorno é `app/auth/callback/route.ts`, que troca o `code` pela
  * sessão e decide o destino:
  *  - conta **sem** estabelecimento (primeiro acesso) → `/completar-cadastro`,
- *    onde o usuário informa loja, CPF/CNPJ, WhatsApp e link do cardápio;
+ *    onde o usuário informa loja, CPF/CNPJ, WhatsApp e link do cardápio (a tela
+ *    conclui em `/painel`);
  *  - conta **com** estabelecimento → `next` (padrão `/painel`).
  *
  * `redirectTo` precisa ser absoluto, então o `origin` é lido apenas no clique
  * (dentro do handler) — assim não há divergência entre SSR e hidratação.
  */
 export function GoogleAuthButton({
-  next = "/painel",
+  next = DEFAULT_POST_AUTH_NEXT,
   label = "Continuar com Google",
   theme = "dark",
   className = "",
 }: {
-  /** Destino pós-OAuth quando a conta já tem estabelecimento. */
+  /** Destino pós-OAuth quando a conta já tem estabelecimento (padrão `/painel`). */
   next?: string;
   label?: string;
   theme?: keyof typeof THEMES;
@@ -70,7 +93,7 @@ export function GoogleAuthButton({
     setIsLoading(true);
 
     const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
-      next
+      normalizePostAuthNext(next)
     )}`;
 
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
