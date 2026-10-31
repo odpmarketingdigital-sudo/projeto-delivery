@@ -64,28 +64,28 @@ export function OrderCard({
 
   return (
     <article
-      className={`flex flex-col rounded-xl border p-3.5 transition ${
+      className={`flex flex-col rounded-xl border p-3.5 shadow-sm transition ${
         isPending
-          ? "border-yellow-400/70 bg-yellow-400/5"
+          ? "border-amber-300 bg-amber-50"
           : isCancelled
-            ? "border-red-900/60 bg-gray-800/30 opacity-80"
-            : "border-gray-700/70 bg-gray-800/40"
+            ? "border-red-200 bg-slate-50 opacity-80"
+            : "border-slate-200 bg-white"
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
           <p
             className={`whitespace-nowrap text-base font-black tracking-tight ${
-              isPending ? "text-yellow-300" : "text-white"
+              isPending ? "text-amber-600" : "text-slate-900"
             }`}
           >
             {shortNumber}
           </p>
-          <p className="mt-0.5 whitespace-nowrap text-[11px] font-medium text-gray-400">
+          <p className="mt-0.5 whitespace-nowrap text-[11px] font-medium text-slate-600">
             {formatDateTime(order.created_at)}
           </p>
           {estimateLabel && !isCancelled && order.status !== "finalizado" && (
-            <p className="mt-1 text-[11px] font-bold text-yellow-300">
+            <p className="mt-1 text-[11px] font-bold text-amber-600">
               ⏱ Previsão: {estimateLabel}
             </p>
           )}
@@ -102,7 +102,7 @@ export function OrderCard({
       <button
         type="button"
         onClick={() => onOpen(order)}
-        className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-2 text-xs font-bold text-gray-200 transition hover:border-yellow-400/50 hover:text-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
+        className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800 transition hover:border-amber-300 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
       >
         Veja mais
         <svg
@@ -127,7 +127,7 @@ export function OrderCard({
           disabled={isBusy}
           aria-busy={isBusy}
           onClick={() => onAdvance(order, nextStatus)}
-          className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-yellow-400 px-3 py-2 text-xs font-black text-gray-950 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400/50 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-yellow-400 px-3 py-2 text-xs font-black text-slate-950 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isBusy ? "Atualizando…" : `Próxima etapa: ${nextActionLabel}`}
           {!isBusy && (

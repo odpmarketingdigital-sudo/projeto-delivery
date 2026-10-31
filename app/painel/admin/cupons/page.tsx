@@ -187,7 +187,7 @@ export default function AdminCuponsPage() {
   }, [coupons]);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="flex flex-1 flex-col text-slate-900">
       <AdminHeader establishmentId={null} isSuperAdmin={isSuperAdmin} />
 
       <main className="px-4 py-8 sm:px-6 lg:px-10">
@@ -196,25 +196,25 @@ export default function AdminCuponsPage() {
             <nav className="mb-3 flex flex-wrap items-center gap-3 text-sm font-semibold">
               <Link
                 href="/painel/admin"
-                className="text-gray-400 transition hover:text-white"
+                className="text-slate-600 transition hover:text-slate-900"
               >
                 ← Estabelecimentos
               </Link>
-              <span aria-hidden="true" className="text-gray-700">
+              <span aria-hidden="true" className="text-slate-600">
                 |
               </span>
               <Link
                 href="/painel/admin/assinantes"
-                className="text-gray-400 transition hover:text-white"
+                className="text-slate-600 transition hover:text-slate-900"
               >
                 Assinantes
               </Link>
-              <span aria-hidden="true" className="text-gray-700">
+              <span aria-hidden="true" className="text-slate-600">
                 |
               </span>
               <Link
                 href="/painel/admin/configuracoes"
-                className="text-yellow-300 transition hover:text-yellow-200"
+                className="text-amber-600 transition hover:text-amber-700"
               >
                 Preço do Plano
               </Link>
@@ -222,10 +222,10 @@ export default function AdminCuponsPage() {
 
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <h1 className="text-3xl font-bold tracking-tight text-white">
+                <h1 className="text-3xl font-bold tracking-tight text-slate-900">
                   Cupons de Assinatura
                 </h1>
-                <p className="mt-1 max-w-2xl text-sm text-gray-400">
+                <p className="mt-1 max-w-2xl text-sm text-slate-600">
                   Cupons globais aplicados no checkout do plano, sobre o total do
                   período (mensal, semestral −5% ou anual −10%).
                 </p>
@@ -238,7 +238,7 @@ export default function AdminCuponsPage() {
                   setIsFormOpen(true);
                 }}
                 disabled={schemaPending}
-                className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 + Novo cupom
               </button>
@@ -248,7 +248,7 @@ export default function AdminCuponsPage() {
           {schemaPending && (
             <div
               role="alert"
-              className="mb-5 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-100"
+              className="mb-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
             >
               A tabela <code className="font-mono">subscription_coupons</code>{" "}
               ainda não existe neste projeto. Rode a migração{" "}
@@ -262,7 +262,7 @@ export default function AdminCuponsPage() {
           {loadError && (
             <div
               role="alert"
-              className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
+              className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
             >
               {loadError}
             </div>
@@ -271,7 +271,7 @@ export default function AdminCuponsPage() {
           {actionError && (
             <div
               role="alert"
-              className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
+              className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
             >
               {actionError}
             </div>
@@ -280,7 +280,7 @@ export default function AdminCuponsPage() {
           {notice && (
             <div
               role="status"
-              className="mb-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200"
+              className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"
             >
               {notice}
             </div>
@@ -294,33 +294,33 @@ export default function AdminCuponsPage() {
             ].map((item) => (
               <div
                 key={item.label}
-                className="rounded-2xl border border-gray-800 bg-gray-900/50 px-4 py-3"
+                className="rounded-2xl border border-slate-200 bg-white px-4 py-3"
               >
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   {item.label}
                 </p>
-                <p className="mt-1 text-2xl font-bold text-white">{item.value}</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">{item.value}</p>
               </div>
             ))}
           </section>
 
-          <section className="overflow-hidden rounded-2xl border border-gray-800 bg-gray-900/50">
+          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
             {isLoading ? (
-              <p className="px-5 py-10 text-center text-sm text-gray-400">
+              <p className="px-5 py-10 text-center text-sm text-slate-600">
                 Carregando cupons...
               </p>
             ) : coupons.length === 0 ? (
               <div className="px-5 py-12 text-center">
-                <p className="text-sm font-semibold text-gray-200">
+                <p className="text-sm font-semibold text-slate-800">
                   Nenhum cupom de assinatura cadastrado.
                 </p>
-                <p className="mt-1 text-sm text-gray-500">
+                <p className="mt-1 text-sm text-slate-500">
                   Crie o primeiro cupom para oferecer descontos no checkout do
                   plano.
                 </p>
               </div>
             ) : (
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-slate-200">
                 {coupons.map((coupon) => {
                   const remaining = subscriptionCouponRemainingUsages(coupon);
                   const isBusy = pendingId === coupon.id;
@@ -331,28 +331,28 @@ export default function AdminCuponsPage() {
                       className="flex flex-wrap items-center gap-4 px-5 py-4"
                     >
                       <div className="min-w-[9rem] flex-1">
-                        <p className="font-mono text-sm font-bold tracking-wide text-white">
+                        <p className="font-mono text-sm font-bold tracking-wide text-slate-900">
                           {coupon.code}
                         </p>
-                        <p className="mt-1 text-xs text-gray-500">
+                        <p className="mt-1 text-xs text-slate-500">
                           Criado em {formatDate(coupon.created_at)}
                         </p>
                       </div>
 
                       <div className="min-w-[7rem]">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Desconto
                         </p>
-                        <p className="text-sm font-bold text-yellow-300">
+                        <p className="text-sm font-bold text-amber-600">
                           {subscriptionCouponDiscountLabel(coupon)}
                         </p>
                       </div>
 
                       <div className="min-w-[7rem]">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                           Usos
                         </p>
-                        <p className="text-sm text-gray-200">
+                        <p className="text-sm text-slate-800">
                           {toSubscriptionCouponNumber(coupon.used_count)}
                           {coupon.usage_limit == null
                             ? " / ilimitado"
@@ -366,8 +366,8 @@ export default function AdminCuponsPage() {
                       <span
                         className={`rounded-full px-2.5 py-1 text-xs font-bold ${
                           coupon.active
-                            ? "bg-emerald-500/15 text-emerald-300"
-                            : "bg-gray-700/40 text-gray-300"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-slate-200 text-slate-700"
                         }`}
                       >
                         {coupon.active ? "Ativo" : "Inativo"}
@@ -378,7 +378,7 @@ export default function AdminCuponsPage() {
                           type="button"
                           onClick={() => handleToggleActive(coupon)}
                           disabled={isBusy}
-                          className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-semibold text-gray-200 transition hover:bg-gray-800 disabled:opacity-50"
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800 transition hover:bg-slate-100 disabled:opacity-50"
                         >
                           {coupon.active ? "Desativar" : "Ativar"}
                         </button>
@@ -389,7 +389,7 @@ export default function AdminCuponsPage() {
                             setIsFormOpen(true);
                           }}
                           disabled={isBusy}
-                          className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-semibold text-gray-200 transition hover:bg-gray-800 disabled:opacity-50"
+                          className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-800 transition hover:bg-slate-100 disabled:opacity-50"
                         >
                           Editar
                         </button>
@@ -397,7 +397,7 @@ export default function AdminCuponsPage() {
                           type="button"
                           onClick={() => handleDelete(coupon)}
                           disabled={isBusy}
-                          className="rounded-lg border border-red-500/40 px-3 py-1.5 text-xs font-semibold text-red-300 transition hover:bg-red-500/10 disabled:opacity-50"
+                          className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
                         >
                           Excluir
                         </button>

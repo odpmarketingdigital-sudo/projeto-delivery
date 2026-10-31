@@ -126,16 +126,16 @@ export function CustomerHistoryModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="customer-history-title"
-        className="relative flex max-h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-gray-700 bg-gray-900 shadow-2xl sm:max-h-[90vh] sm:rounded-2xl"
+        className="relative flex max-h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-slate-300 bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl"
       >
-        <header className="flex items-start justify-between gap-3 border-b border-gray-800 px-4 py-4 sm:px-6">
+        <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-6">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-500">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
               Cliente
             </p>
             <h2
               id="customer-history-title"
-              className="text-xl font-black tracking-tight text-white"
+              className="text-xl font-black tracking-tight text-slate-900"
             >
               {summary.name}
             </h2>
@@ -144,12 +144,12 @@ export function CustomerHistoryModal({
                 href={phoneHref}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-0.5 inline-block text-xs tabular-nums text-emerald-300 hover:underline"
+                className="mt-0.5 inline-block text-xs tabular-nums text-emerald-700 hover:underline"
               >
                 {formatPhone(summary.phone)}
               </a>
             ) : (
-              <p className="mt-0.5 text-xs text-gray-500">Sem telefone</p>
+              <p className="mt-0.5 text-xs text-slate-500">Sem telefone</p>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -167,7 +167,7 @@ export function CustomerHistoryModal({
               type="button"
               onClick={onClose}
               aria-label="Fechar"
-              className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-700 text-lg leading-none text-gray-400 transition hover:bg-gray-800 hover:text-white"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 text-lg leading-none text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
             >
               ×
             </button>
@@ -176,59 +176,59 @@ export function CustomerHistoryModal({
 
         <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="rounded-xl border border-gray-800 bg-gray-800/30 p-3">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Faturamento
               </p>
-              <p className="mt-1 font-bold tabular-nums text-yellow-300">
+              <p className="mt-1 font-bold tabular-nums text-amber-600">
                 {formatBRL(summary.totalSpent)}
               </p>
             </div>
-            <div className="rounded-xl border border-gray-800 bg-gray-800/30 p-3">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Ticket médio
               </p>
-              <p className="mt-1 font-bold tabular-nums text-white">
+              <p className="mt-1 font-bold tabular-nums text-slate-900">
                 {formatBRL(summary.averageTicket)}
               </p>
             </div>
-            <div className="rounded-xl border border-gray-800 bg-gray-800/30 p-3">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Concluídos
               </p>
-              <p className="mt-1 font-bold tabular-nums text-white">
+              <p className="mt-1 font-bold tabular-nums text-slate-900">
                 {summary.completedOrders}
               </p>
             </div>
-            <div className="rounded-xl border border-gray-800 bg-gray-800/30 p-3">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 Pedidos válidos
               </p>
-              <p className="mt-1 font-bold tabular-nums text-white">
+              <p className="mt-1 font-bold tabular-nums text-slate-900">
                 {summary.totalOrders}
               </p>
             </div>
           </div>
 
-          <h3 className="mt-5 text-xs font-bold uppercase tracking-wider text-gray-500">
+          <h3 className="mt-5 text-xs font-bold uppercase tracking-wider text-slate-500">
             Histórico de pedidos
           </h3>
 
           {isLoading && (
-            <p className="mt-3 text-sm text-gray-400">Carregando histórico…</p>
+            <p className="mt-3 text-sm text-slate-600">Carregando histórico…</p>
           )}
 
           {error && (
             <p
               role="alert"
-              className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
+              className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600"
             >
               {error}
             </p>
           )}
 
           {!isLoading && !error && history && history.orders.length === 0 && (
-            <p className="mt-3 rounded-lg border border-dashed border-gray-700 px-3 py-6 text-center text-sm text-gray-500">
+            <p className="mt-3 rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-500">
               Nenhum pedido encontrado para este cliente.
             </p>
           )}
@@ -240,14 +240,14 @@ export function CustomerHistoryModal({
                 return (
                   <li
                     key={order.id}
-                    className="rounded-xl border border-gray-800 bg-gray-800/30 p-3.5"
+                    className="rounded-xl border border-slate-200 bg-slate-100 p-3.5"
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
-                        <p className="font-bold text-white">
+                        <p className="font-bold text-slate-900">
                           #{order.id.slice(0, 8).toUpperCase()}
                         </p>
-                        <p className="text-xs tabular-nums text-gray-400">
+                        <p className="text-xs tabular-nums text-slate-600">
                           {formatDateTime(order.created_at)}
                         </p>
                       </div>
@@ -260,34 +260,34 @@ export function CustomerHistoryModal({
                           />
                           {meta.label}
                         </span>
-                        <span className="font-bold tabular-nums text-yellow-300">
+                        <span className="font-bold tabular-nums text-amber-600">
                           {formatBRL(order.total)}
                         </span>
                       </div>
                     </div>
 
-                    <ul className="mt-2 divide-y divide-gray-800/80 border-t border-gray-800 pt-1">
+                    <ul className="mt-2 divide-y divide-slate-200 border-t border-slate-200 pt-1">
                       {order.items.map((item, index) => (
                         <li
                           key={`${order.id}-${index}`}
                           className="flex items-start justify-between gap-3 py-1.5 text-sm"
                         >
                           <div className="min-w-0">
-                            <p className="text-gray-200">
+                            <p className="text-slate-800">
                               {item.quantity}× {item.name}
                             </p>
                             {(item.addons?.length ?? 0) > 0 && (
-                              <p className="text-xs text-gray-500">
+                              <p className="text-xs text-slate-500">
                                 + {item.addons?.map((a) => a.name).join(", ")}
                               </p>
                             )}
                             {item.notes && (
-                              <p className="text-xs italic text-gray-500">
+                              <p className="text-xs italic text-slate-500">
                                 Obs: {item.notes}
                               </p>
                             )}
                           </div>
-                          <span className="shrink-0 tabular-nums text-gray-300">
+                          <span className="shrink-0 tabular-nums text-slate-700">
                             {formatBRL(item.line_total)}
                           </span>
                         </li>
@@ -295,7 +295,7 @@ export function CustomerHistoryModal({
                     </ul>
 
                     {order.coupon_code && (
-                      <p className="mt-2 text-xs font-semibold text-emerald-400">
+                      <p className="mt-2 text-xs font-semibold text-emerald-600">
                         Cupom {order.coupon_code}
                         {order.coupon_discount
                           ? ` · −${formatBRL(order.coupon_discount)}`

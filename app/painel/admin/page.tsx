@@ -15,13 +15,13 @@ const STATUS_META: Record<
 > = {
   ativo: {
     label: "Ativo",
-    badge: "bg-emerald-500/15 text-emerald-300 border-emerald-500/30",
+    badge: "bg-emerald-100 text-emerald-700 border-emerald-200",
     dot: "bg-emerald-400",
   },
   inativo: {
     label: "Inativo",
-    badge: "bg-gray-600/30 text-gray-400 border-gray-600/50",
-    dot: "bg-gray-500",
+    badge: "bg-slate-200 text-slate-600 border-slate-300",
+    dot: "bg-slate-400",
   },
 };
 
@@ -345,7 +345,7 @@ export default function AdminEstabelecimentosPage() {
     : EMPTY_FORM;
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="flex flex-1 flex-col text-slate-900">
       <AdminHeader establishmentId={null} isSuperAdmin={isSuperAdmin} />
 
       <main className="px-4 py-8 sm:px-6 lg:px-10">
@@ -353,34 +353,34 @@ export default function AdminEstabelecimentosPage() {
         {/* Cabeçalho */}
         <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-white">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
               Gestão de Estabelecimentos
             </h1>
-            <p className="mt-1 text-sm text-gray-400">
+            <p className="mt-1 text-sm text-slate-600">
               Cadastre, edite e controle os estabelecimentos da plataforma.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-3 text-sm font-semibold">
               <Link
                 href="/painel/admin/assinantes"
-                className="text-yellow-300 transition hover:text-yellow-200"
+                className="text-amber-600 transition hover:text-amber-700"
               >
                 Ver assinantes →
               </Link>
-              <span aria-hidden="true" className="text-gray-700">
+              <span aria-hidden="true" className="text-slate-600">
                 |
               </span>
               <Link
                 href="/painel/admin/configuracoes"
-                className="text-gray-400 transition hover:text-white"
+                className="text-slate-600 transition hover:text-slate-900"
               >
                 Preço do plano →
               </Link>
-              <span aria-hidden="true" className="text-gray-700">
+              <span aria-hidden="true" className="text-slate-600">
                 |
               </span>
               <Link
                 href="/painel/admin/cupons"
-                className="text-gray-400 transition hover:text-white"
+                className="text-slate-600 transition hover:text-slate-900"
               >
                 Cupons de assinatura →
               </Link>
@@ -390,7 +390,7 @@ export default function AdminEstabelecimentosPage() {
           <button
             type="button"
             onClick={openCreate}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400"
           >
             <svg
               aria-hidden="true"
@@ -415,7 +415,7 @@ export default function AdminEstabelecimentosPage() {
           <div className="relative flex-1">
             <svg
               aria-hidden="true"
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500"
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -432,7 +432,7 @@ export default function AdminEstabelecimentosPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por estabelecimento, responsável ou e-mail..."
-              className="w-full rounded-xl border border-gray-800 bg-gray-900/50 py-2.5 pl-10 pr-3 text-sm text-gray-100 placeholder-gray-500 outline-none transition focus:border-yellow-400/60"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 placeholder-gray-500 outline-none transition focus:border-amber-500"
             />
           </div>
 
@@ -440,7 +440,7 @@ export default function AdminEstabelecimentosPage() {
             aria-label="Filtrar por status"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
-            className="rounded-xl border border-gray-800 bg-gray-900/50 px-3 py-2.5 text-sm text-gray-200 outline-none transition focus:border-yellow-400/60 sm:w-48"
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-amber-500 sm:w-48"
           >
             {STATUS_FILTER_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
@@ -454,14 +454,14 @@ export default function AdminEstabelecimentosPage() {
         {actionError && (
           <div
             role="alert"
-            className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3"
+            className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3"
           >
-            <p className="text-sm font-medium text-red-400">{actionError}</p>
+            <p className="text-sm font-medium text-red-600">{actionError}</p>
             <button
               type="button"
               onClick={() => setActionError(null)}
               aria-label="Fechar aviso"
-              className="text-red-400 transition hover:text-red-300"
+              className="text-red-600 transition hover:text-red-600"
             >
               ✕
             </button>
@@ -478,29 +478,29 @@ export default function AdminEstabelecimentosPage() {
             {Array.from({ length: 5 }).map((_, i) => (
               <li
                 key={i}
-                className="h-16 animate-pulse rounded-2xl border border-gray-800 bg-gray-900/50"
+                className="h-16 animate-pulse rounded-2xl border border-slate-200 bg-white"
               />
             ))}
           </ul>
         ) : loadError ? (
           <div
             role="alert"
-            className="flex flex-col items-center gap-3 rounded-2xl border border-red-500/30 bg-red-500/5 px-6 py-12 text-center"
+            className="flex flex-col items-center gap-3 rounded-2xl border border-red-200 bg-red-50 px-6 py-12 text-center"
           >
-            <p className="text-sm font-medium text-red-400">{loadError}</p>
+            <p className="text-sm font-medium text-red-600">{loadError}</p>
             <button
               type="button"
               onClick={() => void refreshEstablishments()}
-              className="rounded-xl bg-red-500/15 px-4 py-2 text-sm font-semibold text-red-300 transition hover:bg-red-500/25"
+              className="rounded-xl bg-red-100 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-100"
             >
               Tentar novamente
             </button>
           </div>
         ) : filteredEstablishments.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-gray-800 bg-gray-900/30 px-6 py-12 text-center">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center">
             <svg
               aria-hidden="true"
-              className="h-10 w-10 text-gray-600"
+              className="h-10 w-10 text-slate-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -512,7 +512,7 @@ export default function AdminEstabelecimentosPage() {
                 d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <p className="text-sm font-medium text-gray-300">
+            <p className="text-sm font-medium text-slate-700">
               {search || statusFilter !== "todos"
                 ? "Nenhum estabelecimento encontrado para os filtros aplicados."
                 : "Nenhum estabelecimento cadastrado ainda."}
@@ -521,7 +521,7 @@ export default function AdminEstabelecimentosPage() {
               <button
                 type="button"
                 onClick={openCreate}
-                className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-bold text-gray-950 transition hover:bg-yellow-300"
+                className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-yellow-300"
               >
                 Cadastrar o primeiro estabelecimento
               </button>
@@ -530,9 +530,9 @@ export default function AdminEstabelecimentosPage() {
         ) : (
           <>
             {/* Tabela (desktop) */}
-            <div className="hidden overflow-hidden rounded-2xl border border-gray-800 bg-gray-900/50 md:block">
+            <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white md:block">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-gray-800 bg-gray-900/60 text-xs uppercase tracking-wide text-gray-500">
+                <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Estabelecimento</th>
                     <th className="px-5 py-3 font-semibold">Responsável</th>
@@ -549,20 +549,20 @@ export default function AdminEstabelecimentosPage() {
                     return (
                       <tr
                         key={est.id}
-                        className="border-b border-gray-800/60 transition last:border-0 hover:bg-gray-800/40"
+                        className="border-b border-slate-200 transition last:border-0 hover:bg-slate-100"
                       >
                         <td className="px-5 py-3.5">
-                          <p className="font-semibold text-gray-100">
+                          <p className="font-semibold text-slate-900">
                             {est.name}
                           </p>
                         </td>
-                        <td className="px-5 py-3.5 text-gray-300">
+                        <td className="px-5 py-3.5 text-slate-700">
                           {est.owner_name}
                         </td>
                         <td className="px-5 py-3.5">
-                          <span className="text-gray-400">{est.email}</span>
+                          <span className="text-slate-600">{est.email}</span>
                         </td>
-                        <td className="px-5 py-3.5 text-gray-400">
+                        <td className="px-5 py-3.5 text-slate-600">
                           {est.phone || "—"}
                         </td>
                         <td className="px-5 py-3.5">
@@ -580,7 +580,7 @@ export default function AdminEstabelecimentosPage() {
                             {meta.label}
                           </button>
                         </td>
-                        <td className="px-5 py-3.5 text-gray-400">
+                        <td className="px-5 py-3.5 text-slate-600">
                           {formatDate(est.created_at)}
                         </td>
                         <td className="px-5 py-3.5">
@@ -678,21 +678,21 @@ export default function AdminEstabelecimentosPage() {
                 return (
                   <li
                     key={est.id}
-                    className="rounded-2xl border border-gray-800 bg-gray-900/50 p-4"
+                    className="rounded-2xl border border-slate-200 bg-white p-4"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate font-semibold text-gray-100">
+                        <p className="truncate font-semibold text-slate-900">
                           {est.name}
                         </p>
-                        <p className="mt-0.5 truncate text-sm text-gray-400">
+                        <p className="mt-0.5 truncate text-sm text-slate-600">
                           {est.owner_name}
                         </p>
-                        <p className="mt-0.5 truncate text-xs text-gray-500">
+                        <p className="mt-0.5 truncate text-xs text-slate-500">
                           {est.email}
                         </p>
                         {est.phone && (
-                          <p className="mt-0.5 truncate text-xs text-gray-500">
+                          <p className="mt-0.5 truncate text-xs text-slate-500">
                             {est.phone}
                           </p>
                         )}
@@ -708,36 +708,36 @@ export default function AdminEstabelecimentosPage() {
                         {meta.label}
                       </button>
                     </div>
-                    <p className="mt-2 text-xs text-gray-500">
+                    <p className="mt-2 text-xs text-slate-500">
                       Cadastrado em {formatDate(est.created_at)}
                     </p>
-                    <div className="mt-3 flex items-center gap-2 border-t border-gray-800 pt-3">
+                    <div className="mt-3 flex items-center gap-2 border-t border-slate-200 pt-3">
                       <button
                         type="button"
                         onClick={() => void copyMenuLink(est)}
                         title={buildMenuLink(est)}
-                        className="flex-1 rounded-lg border border-gray-700 py-2 text-xs font-semibold text-gray-200 transition hover:bg-gray-800"
+                        className="flex-1 rounded-lg border border-slate-300 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100"
                       >
                         Copiar Link
                       </button>
                       <button
                         type="button"
                         onClick={() => openEdit(est)}
-                        className="flex-1 rounded-lg border border-gray-700 py-2 text-xs font-semibold text-gray-200 transition hover:bg-gray-800"
+                        className="flex-1 rounded-lg border border-slate-300 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100"
                       >
                         Editar
                       </button>
                       <button
                         type="button"
                         onClick={() => void copyAccess(est)}
-                        className="flex-1 rounded-lg border border-gray-700 py-2 text-xs font-semibold text-gray-200 transition hover:bg-gray-800"
+                        className="flex-1 rounded-lg border border-slate-300 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100"
                       >
                         Copiar Acesso
                       </button>
                       <button
                         type="button"
                         onClick={() => openDelete(est)}
-                        className="flex-1 rounded-lg border border-red-500/30 py-2 text-xs font-semibold text-red-400 transition hover:bg-red-500/10"
+                        className="flex-1 rounded-lg border border-red-200 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
                       >
                         Excluir
                       </button>
@@ -860,16 +860,16 @@ function FormModal({
   };
 
   const inputClass =
-    "w-full rounded-xl border border-gray-700 bg-gray-900/60 px-3.5 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none transition focus:border-yellow-400/60";
+    "w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-gray-500 outline-none transition focus:border-amber-500";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-gray-800 bg-gray-900 shadow-xl">
-        <div className="border-b border-gray-800 px-5 py-4">
-          <h2 className="text-lg font-bold text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-lg font-bold text-slate-900">
             {isEditing ? "Editar estabelecimento" : "Novo estabelecimento"}
           </h2>
-          <p className="mt-0.5 text-xs text-gray-500">
+          <p className="mt-0.5 text-xs text-slate-500">
             {isEditing
               ? "Ajuste a loja, o responsável e o status."
               : "Será criada também a conta de acesso no Supabase Auth."}
@@ -880,7 +880,7 @@ function FormModal({
           <div>
             <label
               htmlFor="est-name"
-              className="mb-1.5 block text-sm font-semibold text-gray-200"
+              className="mb-1.5 block text-sm font-semibold text-slate-800"
             >
               Nome da loja
             </label>
@@ -897,7 +897,7 @@ function FormModal({
           <div>
             <label
               htmlFor="est-owner"
-              className="mb-1.5 block text-sm font-semibold text-gray-200"
+              className="mb-1.5 block text-sm font-semibold text-slate-800"
             >
               Responsável (dono)
             </label>
@@ -913,7 +913,7 @@ function FormModal({
           <div>
             <label
               htmlFor="est-email"
-              className="mb-1.5 block text-sm font-semibold text-gray-200"
+              className="mb-1.5 block text-sm font-semibold text-slate-800"
             >
               E-mail de contato
             </label>
@@ -929,7 +929,7 @@ function FormModal({
               }`}
             />
             {isEditing && (
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 O e-mail de login não é alterado nesta edição.
               </p>
             )}
@@ -938,7 +938,7 @@ function FormModal({
           <div>
             <label
               htmlFor="est-phone"
-              className="mb-1.5 block text-sm font-semibold text-gray-200"
+              className="mb-1.5 block text-sm font-semibold text-slate-800"
             >
               Telefone
             </label>
@@ -955,7 +955,7 @@ function FormModal({
           <div>
             <label
               htmlFor="est-password"
-              className="mb-1.5 block text-sm font-semibold text-gray-200"
+              className="mb-1.5 block text-sm font-semibold text-slate-800"
             >
               {isEditing ? "Nova senha (opcional)" : "Senha de acesso"}
             </label>
@@ -975,13 +975,13 @@ function FormModal({
               <button
                 type="button"
                 onClick={() => set({ password: generatePassword() })}
-                className="shrink-0 rounded-xl border border-gray-700 px-3 text-sm font-semibold text-gray-200 transition hover:bg-gray-800"
+                className="shrink-0 rounded-xl border border-slate-300 px-3 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
               >
                 Gerar
               </button>
             </div>
             {isEditing && (
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 Informe apenas se quiser redefinir a senha da conta de acesso.
               </p>
             )}
@@ -990,7 +990,7 @@ function FormModal({
           <div>
             <label
               htmlFor="est-status"
-              className="mb-1.5 block text-sm font-semibold text-gray-200"
+              className="mb-1.5 block text-sm font-semibold text-slate-800"
             >
               Status
             </label>
@@ -1008,24 +1008,24 @@ function FormModal({
           </div>
 
           {error && (
-            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400">
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600">
               {error}
             </p>
           )}
 
-          <div className="flex items-center justify-end gap-3 border-t border-gray-800 pt-4">
+          <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {isSubmitting ? (
                 <>
@@ -1092,32 +1092,32 @@ function DeleteConfirmModal({
   }, [onCancel, isDeleting]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-red-500/30 bg-gray-900 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-red-200 bg-white shadow-xl">
         <div className="px-5 py-5">
-          <h2 className="text-lg font-bold text-white">
+          <h2 className="text-lg font-bold text-slate-900">
             Excluir estabelecimento
           </h2>
-          <p className="mt-2 text-sm text-gray-400">
+          <p className="mt-2 text-sm text-slate-600">
             A loja{" "}
-            <span className="font-semibold text-gray-200">
+            <span className="font-semibold text-slate-800">
               {establishment.name}
             </span>{" "}
             e a conta de acesso vinculada ({establishment.email}) serão
             removidas permanentemente.
           </p>
           {error && (
-            <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400">
+            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600">
               {error}
             </p>
           )}
         </div>
-        <div className="flex items-center justify-end gap-3 border-t border-gray-800 px-5 py-4">
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4">
           <button
             type="button"
             onClick={onCancel}
             disabled={isDeleting}
-            className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Cancelar
           </button>
@@ -1181,8 +1181,8 @@ function ActionIcon({
       title={label}
       className={`rounded-lg p-2 transition ${
         danger
-          ? "text-gray-500 hover:bg-red-500/10 hover:text-red-400"
-          : "text-gray-500 hover:bg-gray-800 hover:text-yellow-300"
+          ? "text-slate-500 hover:bg-red-50 hover:text-red-600"
+          : "text-slate-500 hover:bg-slate-100 hover:text-amber-700"
       }`}
     >
       {children}

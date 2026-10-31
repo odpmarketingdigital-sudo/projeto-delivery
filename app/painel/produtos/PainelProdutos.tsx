@@ -203,17 +203,17 @@ export function PainelProdutos() {
   }, []);
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-950">
+    <div className="flex flex-1 flex-col">
       <AdminHeader establishmentId={establishmentId} isSuperAdmin={isSuperAdmin} />
 
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 p-4 sm:p-6 lg:p-8">
         {/* Título + seletor de estabelecimento (apenas super admin alterna) */}
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
               Cardápio do Estabelecimento
             </h1>
-            <p className="mt-1 text-sm text-gray-400">
+            <p className="mt-1 text-sm text-slate-600">
               Crie categorias, adicione itens e pause produtos esgotados.
             </p>
           </div>
@@ -223,7 +223,7 @@ export function PainelProdutos() {
             <div>
               <label
                 htmlFor="estabelecimento"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
               >
                 Estabelecimento
               </label>
@@ -233,7 +233,7 @@ export function PainelProdutos() {
                   value={establishmentId ?? ""}
                   onChange={(e) => select(e.target.value)}
                   disabled={isLoadingEstablishments || establishments.length === 0}
-                  className="min-w-56 rounded-xl border border-gray-800 bg-gray-900/50 px-3 py-2.5 text-sm text-gray-200 outline-none transition focus:border-yellow-400/60 disabled:opacity-60"
+                  className="min-w-56 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-amber-500 disabled:opacity-60"
                 >
                   {establishments.map((est) => (
                     <option key={est.id} value={est.id}>
@@ -242,7 +242,7 @@ export function PainelProdutos() {
                   ))}
                 </select>
               ) : (
-                <p className="min-w-56 rounded-xl border border-gray-800 bg-gray-900/50 px-3 py-2.5 text-sm text-gray-300">
+                <p className="min-w-56 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700">
                   {establishments[0]?.name ?? "—"}
                 </p>
               )}
@@ -252,7 +252,7 @@ export function PainelProdutos() {
               type="button"
               onClick={() => setIsCategoriesModalOpen(true)}
               disabled={!establishmentId}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Categorias
             </button>
@@ -260,7 +260,7 @@ export function PainelProdutos() {
               type="button"
               onClick={openCreate}
               disabled={!establishmentId}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-70"
             >
               <svg
                 aria-hidden="true"
@@ -281,9 +281,9 @@ export function PainelProdutos() {
         {(establishmentError || menuError) && (
           <div
             role="alert"
-            className="flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3"
+            className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3"
           >
-            <p className="text-sm font-medium text-red-400">
+            <p className="text-sm font-medium text-red-600">
               {establishmentError ?? menuError}
             </p>
             <button
@@ -292,7 +292,7 @@ export function PainelProdutos() {
                 setMenuError(null);
                 void fetchMenu();
               }}
-              className="shrink-0 rounded-lg border border-red-500/30 px-3 py-1 text-xs font-semibold text-red-300 transition hover:bg-red-500/20"
+              className="shrink-0 rounded-lg border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-100"
             >
               Tentar novamente
             </button>
@@ -311,8 +311,8 @@ export function PainelProdutos() {
               onClick={() => setCategoryFilter("todas")}
               className={`rounded-full border px-4 py-1.5 text-sm font-semibold transition ${
                 categoryFilter === "todas"
-                  ? "border-yellow-400/40 bg-yellow-400/15 text-yellow-300"
-                  : "border-gray-700 text-gray-300 hover:border-yellow-400/50 hover:text-white"
+                  ? "border-amber-300 bg-amber-100 text-amber-600"
+                  : "border-slate-300 text-slate-700 hover:border-amber-300 hover:text-slate-900"
               }`}
             >
               Todas
@@ -324,12 +324,12 @@ export function PainelProdutos() {
                 onClick={() => setCategoryFilter(cat.id)}
                 className={`rounded-full border px-4 py-1.5 text-sm font-semibold transition ${
                   categoryFilter === cat.id
-                    ? "border-yellow-400/40 bg-yellow-400/15 text-yellow-300"
-                    : "border-gray-700 text-gray-300 hover:border-yellow-400/50 hover:text-white"
+                    ? "border-amber-300 bg-amber-100 text-amber-600"
+                    : "border-slate-300 text-slate-700 hover:border-amber-300 hover:text-slate-900"
                 }`}
               >
                 {cat.name}
-                <span className="ml-1.5 text-xs font-normal tabular-nums text-gray-500">
+                <span className="ml-1.5 text-xs font-normal tabular-nums text-slate-500">
                   {products.filter((p) => p.category_id === cat.id).length}
                 </span>
               </button>
@@ -339,7 +339,7 @@ export function PainelProdutos() {
           <div className="relative sm:max-w-xs">
             <svg
               aria-hidden="true"
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500"
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -352,7 +352,7 @@ export function PainelProdutos() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Buscar produto..."
-              className="w-full rounded-xl border border-gray-800 bg-gray-900/50 py-2.5 pl-10 pr-3 text-sm text-gray-100 placeholder-gray-500 outline-none transition focus:border-yellow-400/60"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 placeholder-gray-500 outline-none transition focus:border-amber-500"
             />
           </div>
         </div>
@@ -363,15 +363,15 @@ export function PainelProdutos() {
             {Array.from({ length: 5 }).map((_, i) => (
               <li
                 key={i}
-                className="h-16 animate-pulse rounded-2xl border border-gray-800 bg-gray-900/50"
+                className="h-16 animate-pulse rounded-2xl border border-slate-200 bg-white"
               />
             ))}
           </ul>
         ) : filteredProducts.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-gray-800 bg-gray-900/30 px-6 py-12 text-center">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center">
             <svg
               aria-hidden="true"
-              className="h-10 w-10 text-gray-600"
+              className="h-10 w-10 text-slate-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -379,7 +379,7 @@ export function PainelProdutos() {
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p className="text-sm font-medium text-gray-300">
+            <p className="text-sm font-medium text-slate-700">
               {query || categoryFilter !== "todas"
                 ? "Nenhum produto encontrado para os filtros aplicados."
                 : "Nenhum produto cadastrado ainda."}
@@ -389,7 +389,7 @@ export function PainelProdutos() {
                 type="button"
                 onClick={openCreate}
                 disabled={!establishmentId}
-                className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-bold text-gray-950 transition hover:bg-yellow-300 disabled:opacity-50"
+                className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-yellow-300 disabled:opacity-50"
               >
                 Cadastrar o primeiro produto
               </button>
@@ -398,9 +398,9 @@ export function PainelProdutos() {
         ) : (
           <>
             {/* Tabela (desktop) */}
-            <div className="hidden overflow-hidden rounded-2xl border border-gray-800 bg-gray-900/50 md:block">
+            <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white md:block">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-gray-800 bg-gray-900/60 text-xs uppercase tracking-wide text-gray-500">
+                <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-5 py-3 font-semibold">Produto</th>
                     <th className="px-5 py-3 font-semibold">Categoria</th>
@@ -409,7 +409,7 @@ export function PainelProdutos() {
                     <th className="px-5 py-3 text-right font-semibold">Ações</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800">
+                <tbody className="divide-y divide-slate-200">
                   {filteredProducts.map((product) => (
                     <ProductRow
                       key={product.id}
@@ -433,10 +433,10 @@ export function PainelProdutos() {
               {filteredProducts.map((product) => (
                 <li
                   key={product.id}
-                  className="rounded-2xl border border-gray-800 bg-gray-900/50 p-4"
+                  className="rounded-2xl border border-slate-200 bg-white p-4"
                 >
                   <div className="flex items-start gap-3">
-                    <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-gray-800">
+                    <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={product.image_url || "/window.svg"}
@@ -445,13 +445,13 @@ export function PainelProdutos() {
                       />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold text-gray-100">
+                      <p className="truncate font-semibold text-slate-900">
                         {product.name}
                       </p>
-                      <p className="mt-0.5 text-xs text-gray-400">
+                      <p className="mt-0.5 text-xs text-slate-600">
                         {getCategoryName(product)}
                       </p>
-                      <p className="mt-1 text-sm font-bold tabular-nums text-yellow-300">
+                      <p className="mt-1 text-sm font-bold tabular-nums text-amber-600">
                         {formatBRL(product.price)}
                       </p>
                     </div>
@@ -460,16 +460,16 @@ export function PainelProdutos() {
                       onToggle={(next) => void handleToggleActive(product, next)}
                     />
                   </div>
-                  <div className="mt-3 flex items-center gap-2 border-t border-gray-800 pt-3">
+                  <div className="mt-3 flex items-center gap-2 border-t border-slate-200 pt-3">
                     <button
                       type="button"
                       onClick={() => openAddons(product)}
-                      className="flex-1 rounded-lg border border-gray-700 py-2 text-xs font-semibold text-gray-200 transition hover:bg-gray-800"
+                      className="flex-1 rounded-lg border border-slate-300 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100"
                     >
                       Adicionais
                       {addons.filter((a) => a.product_id === product.id && a.is_active)
                         .length > 0 && (
-                        <span className="ml-1.5 tabular-nums text-gray-500">
+                        <span className="ml-1.5 tabular-nums text-slate-500">
                           (
                           {addons.filter(
                             (a) => a.product_id === product.id && a.is_active
@@ -481,14 +481,14 @@ export function PainelProdutos() {
                     <button
                       type="button"
                       onClick={() => openEdit(product)}
-                      className="flex-1 rounded-lg border border-gray-700 py-2 text-xs font-semibold text-gray-200 transition hover:bg-gray-800"
+                      className="flex-1 rounded-lg border border-slate-300 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100"
                     >
                       Editar
                     </button>
                     <button
                       type="button"
                       onClick={() => openDelete(product)}
-                      className="flex-1 rounded-lg border border-red-500/30 py-2 text-xs font-semibold text-red-400 transition hover:bg-red-500/10"
+                      className="flex-1 rounded-lg border border-red-200 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
                     >
                       Excluir
                     </button>
@@ -576,13 +576,13 @@ function ActiveToggle({
       title={active ? "Pausar (esgotado)" : "Ativar (disponível)"}
       className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition hover:brightness-125 ${
         active
-          ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
-          : "border-gray-600/50 bg-gray-600/30 text-gray-400"
+          ? "border-emerald-200 bg-emerald-100 text-emerald-700"
+          : "border-slate-300 bg-slate-200 text-slate-600"
       }`}
     >
       <span
         className={`h-1.5 w-1.5 rounded-full ${
-          active ? "bg-emerald-400" : "bg-gray-500"
+          active ? "bg-emerald-400" : "bg-slate-400"
         }`}
       />
       {active ? "Disponível" : "Pausado"}
@@ -610,8 +610,8 @@ function ActionIcon({
       title={label}
       className={`rounded-lg p-2 transition ${
         danger
-          ? "text-red-400 hover:bg-red-500/10"
-          : "text-gray-400 hover:bg-gray-700/40 hover:text-gray-200"
+          ? "text-red-600 hover:bg-red-50"
+          : "text-slate-600 hover:bg-slate-200 hover:text-slate-800"
       }`}
     >
       {children}
@@ -642,10 +642,10 @@ function ProductRow({
   onToggle: (next: boolean) => void;
 }) {
   return (
-    <tr className="transition hover:bg-gray-900/40">
+    <tr className="transition hover:bg-slate-50">
       <td className="px-5 py-3">
         <div className="flex items-center gap-3">
-          <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-gray-800">
+          <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-slate-100">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={product.image_url || "/window.svg"}
@@ -654,9 +654,9 @@ function ProductRow({
             />
           </div>
           <div className="min-w-0">
-            <p className="truncate font-semibold text-gray-100">{product.name}</p>
+            <p className="truncate font-semibold text-slate-900">{product.name}</p>
             {product.description && (
-              <p className="max-w-xs truncate text-xs text-gray-500">
+              <p className="max-w-xs truncate text-xs text-slate-500">
                 {product.description}
               </p>
             )}
@@ -664,11 +664,11 @@ function ProductRow({
         </div>
       </td>
       <td className="px-5 py-3">
-        <span className="inline-flex rounded-full border border-gray-700 bg-gray-800/50 px-2.5 py-0.5 text-xs font-medium text-gray-300">
+        <span className="inline-flex rounded-full border border-slate-300 bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
           {categoryName}
         </span>
       </td>
-      <td className="px-5 py-3 font-bold tabular-nums text-yellow-300">
+      <td className="px-5 py-3 font-bold tabular-nums text-amber-600">
         {formatBRL(product.price)}
       </td>
       <td className="px-5 py-3">

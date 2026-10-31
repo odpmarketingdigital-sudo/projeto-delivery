@@ -317,20 +317,20 @@ export function OrderDetailsModal({
           role="dialog"
           aria-modal="true"
           aria-labelledby="order-details-title"
-          className="relative flex max-h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-gray-700 bg-gray-900 shadow-2xl sm:max-h-[90vh] sm:rounded-2xl"
+          className="relative flex max-h-[94dvh] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl border border-slate-300 bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl"
         >
-          <header className="flex items-start justify-between gap-3 border-b border-gray-800 px-4 py-4 sm:px-6">
+          <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-6">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-500">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
                 Pedido
               </p>
               <h2
                 id="order-details-title"
-                className="text-xl font-black tracking-tight text-white"
+                className="text-xl font-black tracking-tight text-slate-900"
               >
                 {shortNumber}
               </h2>
-              <p className="mt-0.5 text-xs text-gray-400">
+              <p className="mt-0.5 text-xs text-slate-600">
                 {formatDateTime(order.created_at)}
               </p>
             </div>
@@ -346,7 +346,7 @@ export function OrderDetailsModal({
                 onClick={onClose}
                 disabled={isBusy}
                 aria-label="Fechar"
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-700 text-lg leading-none text-gray-400 transition hover:bg-gray-800 hover:text-white disabled:opacity-50"
+                className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-300 text-lg leading-none text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50"
               >
                 ×
               </button>
@@ -355,11 +355,11 @@ export function OrderDetailsModal({
 
           <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <section className="rounded-xl border border-gray-800 bg-gray-800/30 p-3.5">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+              <section className="rounded-xl border border-slate-200 bg-slate-100 p-3.5">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
                   Cliente
                 </h3>
-                <p className="mt-2 font-semibold text-white">
+                <p className="mt-2 font-semibold text-slate-900">
                   {order.customer_name}
                 </p>
                 {order.customer_phone ? (
@@ -367,16 +367,16 @@ export function OrderDetailsModal({
                     href={phoneHref ?? "#"}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-0.5 inline-block text-sm text-yellow-300 hover:underline"
+                    className="mt-0.5 inline-block text-sm text-amber-600 hover:underline"
                   >
                     {order.customer_phone}
                   </a>
                 ) : (
-                  <p className="mt-0.5 text-sm text-gray-500">Sem telefone</p>
+                  <p className="mt-0.5 text-sm text-slate-500">Sem telefone</p>
                 )}
                 {order.notes && (
-                  <p className="mt-2 whitespace-pre-wrap rounded-lg bg-gray-900/70 px-2.5 py-2 text-xs text-gray-300">
-                    <span className="font-bold text-gray-200">
+                  <p className="mt-2 whitespace-pre-wrap rounded-lg bg-white px-2.5 py-2 text-xs text-slate-700">
+                    <span className="font-bold text-slate-800">
                       Observações:{" "}
                     </span>
                     {order.notes}
@@ -384,38 +384,38 @@ export function OrderDetailsModal({
                 )}
               </section>
 
-              <section className="rounded-xl border border-gray-800 bg-gray-800/30 p-3.5">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+              <section className="rounded-xl border border-slate-200 bg-slate-100 p-3.5">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
                   Entrega
                 </h3>
-                <span className="mt-2 inline-flex rounded-full bg-gray-700/60 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-200">
+                <span className="mt-2 inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-800">
                   {deliveryType}
                 </span>
                 {address ? (
-                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-gray-300">
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
                     {address}
                   </p>
                 ) : (
-                  <p className="mt-2 text-sm text-gray-500">
+                  <p className="mt-2 text-sm text-slate-500">
                     Retirada no balcão do estabelecimento.
                   </p>
                 )}
                 {estimateLabel || estimatedAtLabel ? (
-                  <div className="mt-2 rounded-lg border border-yellow-400/30 bg-yellow-400/10 px-2.5 py-2">
-                    <p className="text-xs font-semibold text-yellow-200">
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2">
+                    <p className="text-xs font-semibold text-amber-700">
                       Previsão:{" "}
                       <span className="font-bold">
                         {estimateLabel ?? "definida pela loja"}
                       </span>
                     </p>
                     {estimatedAtLabel && (
-                      <p className="mt-0.5 text-[11px] text-gray-300">
+                      <p className="mt-0.5 text-[11px] text-slate-700">
                         Horário previsto: {estimatedAtLabel}
                       </p>
                     )}
                   </div>
                 ) : (
-                  <p className="mt-2 text-xs text-gray-500">
+                  <p className="mt-2 text-xs text-slate-500">
                     Previsão de entrega não informada.
                   </p>
                 )}
@@ -423,12 +423,12 @@ export function OrderDetailsModal({
             </div>
 
             <section className="mt-5">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
                 Itens do pedido
               </h3>
-              <ul className="mt-2 divide-y divide-gray-800 rounded-xl border border-gray-800 bg-gray-800/20">
+              <ul className="mt-2 divide-y divide-slate-200 rounded-xl border border-slate-200 bg-slate-100">
                 {order.items.length === 0 ? (
-                  <li className="px-3.5 py-3 text-sm text-gray-500">
+                  <li className="px-3.5 py-3 text-sm text-slate-500">
                     Nenhum item registrado.
                   </li>
                 ) : (
@@ -439,10 +439,10 @@ export function OrderDetailsModal({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="font-semibold text-gray-100">
+                          <p className="font-semibold text-slate-900">
                             {item.quantity}× {item.name}
                           </p>
-                          <p className="mt-0.5 text-xs text-gray-400">
+                          <p className="mt-0.5 text-xs text-slate-600">
                             {formatBRL(item.unit_price)} / unidade
                           </p>
                           {item.addons && item.addons.length > 0 && (
@@ -450,7 +450,7 @@ export function OrderDetailsModal({
                               {item.addons.map((addon, addonIndex) => (
                                 <li
                                   key={`${addon.id}-${addonIndex}`}
-                                  className="flex justify-between gap-3 text-xs text-gray-400"
+                                  className="flex justify-between gap-3 text-xs text-slate-600"
                                 >
                                   <span>+ {addon.name}</span>
                                   <span className="tabular-nums">
@@ -461,12 +461,12 @@ export function OrderDetailsModal({
                             </ul>
                           )}
                           {item.notes && (
-                            <p className="mt-1.5 rounded-lg bg-yellow-400/10 px-2.5 py-1.5 text-xs text-yellow-200">
+                            <p className="mt-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700">
                               Obs.: {item.notes}
                             </p>
                           )}
                         </div>
-                        <span className="shrink-0 font-bold tabular-nums text-white">
+                        <span className="shrink-0 font-bold tabular-nums text-slate-900">
                           {formatBRL(item.line_total)}
                         </span>
                       </div>
@@ -476,41 +476,41 @@ export function OrderDetailsModal({
               </ul>
             </section>
 
-            <section className="mt-5 rounded-xl border border-gray-800 bg-gray-800/30 p-3.5">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+            <section className="mt-5 rounded-xl border border-slate-200 bg-slate-100 p-3.5">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
                 Resumo financeiro
               </h3>
               <dl className="mt-2 space-y-1.5 text-sm">
-                <div className="flex items-center justify-between gap-3 text-gray-400">
+                <div className="flex items-center justify-between gap-3 text-slate-600">
                   <dt>Subtotal</dt>
                   <dd className="tabular-nums">{formatBRL(order.subtotal)}</dd>
                 </div>
-                <div className="flex items-center justify-between gap-3 text-gray-400">
+                <div className="flex items-center justify-between gap-3 text-slate-600">
                   <dt>Taxa de entrega</dt>
                   <dd className="tabular-nums">
                     {formatBRL(order.delivery_fee)}
                   </dd>
                 </div>
-                <div className="flex items-center justify-between gap-3 text-gray-400">
+                <div className="flex items-center justify-between gap-3 text-slate-600">
                   <dt>Descontos</dt>
                   <dd className="tabular-nums">
                     {discount > 0 ? `- ${formatBRL(discount)}` : formatBRL(0)}
                   </dd>
                 </div>
-                <div className="flex items-center justify-between gap-3 border-t border-gray-700 pt-2 text-base font-black text-white">
+                <div className="flex items-center justify-between gap-3 border-t border-slate-300 pt-2 text-base font-black text-slate-900">
                   <dt>Total</dt>
                   <dd className="tabular-nums">{formatBRL(order.total)}</dd>
                 </div>
               </dl>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-800 pt-2 text-xs text-gray-400">
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-2 text-xs text-slate-600">
                 <span>
                   Pagamento:{" "}
-                  <span className="font-semibold text-gray-200">{payment}</span>
+                  <span className="font-semibold text-slate-800">{payment}</span>
                 </span>
                 {order.change_for && order.change_for > 0 && (
                   <span>
                     Troco para:{" "}
-                    <span className="font-semibold text-gray-200">
+                    <span className="font-semibold text-slate-800">
                       {formatBRL(order.change_for)}
                     </span>
                   </span>
@@ -519,27 +519,27 @@ export function OrderDetailsModal({
             </section>
 
             {order.status === "cancelado" && order.cancellation_reason && (
-              <section className="mt-5 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-red-300">
+              <section className="mt-5 rounded-xl border border-red-200 bg-red-50 p-3.5">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-red-600">
                   Motivo do cancelamento
                 </h3>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-red-200">
+                <p className="mt-1 whitespace-pre-wrap text-sm text-red-700">
                   {order.cancellation_reason}
                 </p>
               </section>
             )}
           </div>
 
-          <footer className="border-t border-gray-800 bg-gray-900/95 px-4 py-4 sm:px-6">
+          <footer className="border-t border-slate-200 bg-white px-4 py-4 sm:px-6">
             {cancelMode && canCancel ? (
               <div className="space-y-3">
                 <div>
                   <label
                     htmlFor="cancel-reason"
-                    className="mb-1.5 block text-sm font-semibold text-gray-200"
+                    className="mb-1.5 block text-sm font-semibold text-slate-800"
                   >
                     Motivo do cancelamento{" "}
-                    <span className="text-red-400">*</span>
+                    <span className="text-red-600">*</span>
                   </label>
                   <textarea
                     id="cancel-reason"
@@ -551,9 +551,9 @@ export function OrderDetailsModal({
                       setActionError(null);
                     }}
                     placeholder="Ex.: cliente solicitou o cancelamento / item indisponível."
-                    className="w-full resize-none rounded-xl border border-gray-700 bg-gray-950 px-3.5 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none transition focus:border-yellow-400/60 focus:ring-2 focus:ring-yellow-400/20"
+                    className="w-full resize-none rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-gray-500 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-yellow-400/20"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-slate-500">
                     Obrigatório — o cliente verá este motivo no acompanhamento
                     do pedido.
                   </p>
@@ -562,7 +562,7 @@ export function OrderDetailsModal({
                 {actionError && (
                   <p
                     role="alert"
-                    className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
+                    className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600"
                   >
                     {actionError}
                   </p>
@@ -576,7 +576,7 @@ export function OrderDetailsModal({
                       setActionError(null);
                     }}
                     disabled={isBusy}
-                    className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Voltar
                   </button>
@@ -595,7 +595,7 @@ export function OrderDetailsModal({
                 {actionError && (
                   <p
                     role="alert"
-                    className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
+                    className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600"
                   >
                     {actionError}
                   </p>
@@ -604,19 +604,19 @@ export function OrderDetailsModal({
                 {actionMessage && (
                   <p
                     role="status"
-                    className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200"
+                    className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
                   >
                     {actionMessage}
                   </p>
                 )}
 
-                <div className="rounded-xl border border-gray-800 bg-gray-800/30 p-3.5">
+                <div className="rounded-xl border border-slate-200 bg-slate-100 p-3.5">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-wider text-gray-400">
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-600">
                         Status do pedido
                       </p>
-                      <p className="mt-0.5 text-xs text-gray-500">
+                      <p className="mt-0.5 text-xs text-slate-500">
                         {isCancelled
                           ? "Pedido cancelado — escolha Pendente ou Em Preparo para reativar."
                           : "Avance, volte ou pule para qualquer etapa."}
@@ -634,7 +634,7 @@ export function OrderDetailsModal({
                             ? `Voltar para ${ORDER_STATUS_META[previousStatus].label}`
                             : undefined
                         }
-                        className="rounded-lg border border-gray-700 px-3 py-2 text-xs font-bold text-gray-200 transition hover:border-yellow-400/50 hover:text-yellow-300 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-800 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         ← Voltar
                       </button>
@@ -643,7 +643,7 @@ export function OrderDetailsModal({
                         value={order.status}
                         onChange={handleStatusSelect}
                         disabled={isBusy}
-                        className="rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm font-semibold text-gray-100 outline-none transition focus:border-yellow-400/60 focus:ring-2 focus:ring-yellow-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-900 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-yellow-400/20 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {ORDER_STATUS_OPTIONS.map((status) => (
                           <option
@@ -665,20 +665,20 @@ export function OrderDetailsModal({
                             ? `Avançar para ${ORDER_STATUS_META[nextStatus].label}`
                             : undefined
                         }
-                        className="rounded-lg border border-yellow-400/40 bg-yellow-400/10 px-3 py-2 text-xs font-bold text-yellow-200 transition hover:bg-yellow-400/20 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Avançar →
                       </button>
                     </div>
 
                     {!isCancelled && (
-                      <div className="mt-3 rounded-xl border border-yellow-400/20 bg-yellow-400/5 p-3">
+                      <div className="mt-3 rounded-xl border border-amber-400 bg-yellow-400/5 p-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-xs font-bold uppercase tracking-wider text-yellow-300">
+                          <p className="text-xs font-bold uppercase tracking-wider text-amber-600">
                             Previsão de entrega
                           </p>
                           {estimateLabel && (
-                            <span className="rounded-full bg-yellow-400/15 px-2 py-0.5 text-[11px] font-bold text-yellow-200">
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-700">
                               Atual: {estimateLabel}
                             </span>
                           )}
@@ -703,8 +703,8 @@ export function OrderDetailsModal({
                                 aria-pressed={isActive}
                                 className={`rounded-lg border px-2.5 py-1.5 text-xs font-bold transition disabled:cursor-not-allowed ${
                                   isActive
-                                    ? "border-yellow-400 bg-yellow-400 text-gray-950"
-                                    : "border-gray-700 text-gray-200 hover:border-yellow-400/50 hover:text-yellow-200 disabled:opacity-50"
+                                    ? "border-amber-400 bg-yellow-400 text-slate-950"
+                                    : "border-slate-300 text-slate-800 hover:border-amber-300 hover:text-amber-700 disabled:opacity-50"
                                 }`}
                               >
                                 {formatEstimatedDeliveryWindowLabel(option)}
@@ -712,7 +712,7 @@ export function OrderDetailsModal({
                             );
                           })}
                         </div>
-                        <p className="mt-1.5 text-[11px] text-gray-500">
+                        <p className="mt-1.5 text-[11px] text-slate-500">
                           Ao escolher, a previsão e o horário previsto são
                           recalculados a partir de agora.
                         </p>
@@ -725,7 +725,7 @@ export function OrderDetailsModal({
                   <div className="flex flex-wrap items-center gap-2">
                     <label
                       htmlFor="print-width"
-                      className="text-xs font-semibold uppercase tracking-wider text-gray-500"
+                      className="text-xs font-semibold uppercase tracking-wider text-slate-500"
                     >
                       Bobina
                     </label>
@@ -735,7 +735,7 @@ export function OrderDetailsModal({
                       onChange={(event) =>
                         setPrintWidth(event.target.value as "58" | "80")
                       }
-                      className="rounded-lg border border-gray-700 bg-gray-950 px-2.5 py-2 text-xs font-semibold text-gray-200 outline-none focus:border-yellow-400/60"
+                      className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-amber-500"
                     >
                       <option value="58">58 mm</option>
                       <option value="80">80 mm</option>
@@ -743,7 +743,7 @@ export function OrderDetailsModal({
                     <button
                       type="button"
                       onClick={() => window.print()}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-gray-700 px-3 py-2 text-xs font-bold text-gray-200 transition hover:border-yellow-400/50 hover:text-yellow-300"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-xs font-bold text-slate-800 transition hover:border-amber-300 hover:text-amber-700"
                     >
                       <svg
                         aria-hidden="true"
@@ -768,7 +768,7 @@ export function OrderDetailsModal({
                       type="button"
                       onClick={onClose}
                       disabled={isBusy}
-                      className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Fechar
                     </button>
@@ -782,7 +782,7 @@ export function OrderDetailsModal({
                           setActionMessage(null);
                         }}
                         disabled={isBusy}
-                        className="rounded-xl border border-red-500/40 px-4 py-2.5 text-sm font-bold text-red-300 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="rounded-xl border border-red-300 px-4 py-2.5 text-sm font-bold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         Cancelar Pedido
                       </button>
@@ -791,7 +791,7 @@ export function OrderDetailsModal({
                         type="button"
                         onClick={() => void applyStatus("pendente")}
                         disabled={isBusy}
-                        className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/20 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/20 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {isBusy ? "Reativando..." : "Reativar como Pendente"}
                       </button>

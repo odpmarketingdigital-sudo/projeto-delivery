@@ -58,8 +58,8 @@ type Step = "billing" | "payment";
 
 /** Classes compartilhadas dos campos (mesmo padrão dos demais modais). */
 const INPUT_CLASS =
-  "w-full rounded-xl border border-gray-700 bg-gray-950/60 px-3 py-2.5 text-sm text-gray-100 placeholder:text-gray-600 focus:border-yellow-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400/40";
-const LABEL_CLASS = "mb-1.5 block text-sm font-semibold text-gray-200";
+  "w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-500 focus:border-amber-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/40";
+const LABEL_CLASS = "mb-1.5 block text-sm font-semibold text-slate-800";
 
 /** Rótulos curtos exibidos nos botões de pagamento. */
 const PAYMENT_HINTS: Record<BillingType, string> = {
@@ -440,23 +440,23 @@ export function CheckoutModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-gray-950/80 backdrop-blur-sm sm:items-center sm:p-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-center sm:p-4">
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="checkout-title"
-        className="flex max-h-[100dvh] w-full flex-col rounded-t-2xl border border-gray-800 bg-gray-900 shadow-xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-2xl"
+        className="flex max-h-[100dvh] w-full flex-col rounded-t-2xl border border-slate-200 bg-white shadow-xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-2xl"
       >
-        <div className="flex items-start justify-between gap-3 border-b border-gray-800 px-5 py-4">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div className="min-w-0">
-            <h2 id="checkout-title" className="text-lg font-bold text-white">
+            <h2 id="checkout-title" className="text-lg font-bold text-slate-900">
               {isPaid
                 ? "Pagamento confirmado"
                 : result
                   ? "Finalize o pagamento"
                   : "Assinar plano"}
             </h2>
-            <p className="mt-0.5 text-xs text-gray-500">
+            <p className="mt-0.5 text-xs text-slate-500">
               {planName} · Cobrança {cyclePrice.label.toLowerCase()} (
               {cyclePrice.durationLabel})
             </p>
@@ -465,7 +465,7 @@ export function CheckoutModal({
             type="button"
             onClick={onClose}
             aria-label="Fechar"
-            className="-mr-1 -mt-1 rounded-lg p-1.5 text-gray-500 transition hover:bg-gray-800 hover:text-gray-200"
+            className="-mr-1 -mt-1 rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
           >
             <svg
               aria-hidden="true"
@@ -481,17 +481,17 @@ export function CheckoutModal({
         </div>
 
         {!result && (
-          <ol className="flex items-center gap-2 border-b border-gray-800 px-5 py-3 text-xs font-semibold">
+          <ol className="flex items-center gap-2 border-b border-slate-200 px-5 py-3 text-xs font-semibold">
             <li
               className={
-                step === "billing" ? "text-yellow-300" : "text-emerald-400"
+                step === "billing" ? "text-amber-600" : "text-emerald-600"
               }
             >
               1. Seus dados
             </li>
-            <span aria-hidden="true" className="h-px flex-1 bg-gray-800" />
+            <span aria-hidden="true" className="h-px flex-1 bg-slate-100" />
             <li
-              className={step === "payment" ? "text-yellow-300" : "text-gray-500"}
+              className={step === "payment" ? "text-amber-600" : "text-slate-500"}
             >
               2. Pagamento
             </li>
@@ -503,7 +503,7 @@ export function CheckoutModal({
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
               {isPaid ? (
                 <div className="space-y-3 py-6 text-center">
-                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
+                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
                     <svg
                       aria-hidden="true"
                       className="h-7 w-7"
@@ -515,10 +515,10 @@ export function CheckoutModal({
                       <path d="m5 13 4 4L19 7" />
                     </svg>
                   </div>
-                  <p className="text-base font-semibold text-white">
+                  <p className="text-base font-semibold text-slate-900">
                     Pagamento confirmado!
                   </p>
-                  <p className="mx-auto max-w-xs text-sm text-gray-400">
+                  <p className="mx-auto max-w-xs text-sm text-slate-600">
                     O {planName} está ativo e todos os recursos do painel foram
                     liberados.
                   </p>
@@ -556,7 +556,7 @@ export function CheckoutModal({
                         <button
                           type="button"
                           onClick={handleCopyPix}
-                          className="shrink-0 rounded-xl border border-gray-700 px-3 py-2.5 text-xs font-semibold text-gray-200 transition hover:bg-gray-800"
+                          className="shrink-0 rounded-xl border border-slate-300 px-3 py-2.5 text-xs font-semibold text-slate-800 transition hover:bg-slate-100"
                         >
                           {pixCopied ? "Copiado!" : "Copiar"}
                         </button>
@@ -564,7 +564,7 @@ export function CheckoutModal({
                     </div>
                   )}
 
-                  <div className="flex items-center gap-2 rounded-lg border border-yellow-400/25 bg-yellow-400/10 px-3 py-2 text-xs font-medium text-yellow-200">
+                  <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
                     <span
                       aria-hidden="true"
                       className="h-2 w-2 animate-pulse rounded-full bg-yellow-300"
@@ -572,7 +572,7 @@ export function CheckoutModal({
                     Aguardando a confirmação do Pix...
                   </div>
 
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-slate-500">
                     {pixExpiration
                       ? `O código é válido até ${pixExpiration}. `
                       : ""}
@@ -582,11 +582,11 @@ export function CheckoutModal({
                 </div>
               ) : result.boleto ? (
                 <div className="space-y-4">
-                  <div className="rounded-xl border border-gray-800 bg-gray-950/40 px-4 py-3">
-                    <p className="text-sm font-semibold text-gray-100">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <p className="text-sm font-semibold text-slate-900">
                       Boleto gerado
                     </p>
-                    <p className="mt-1 text-xs text-gray-400">
+                    <p className="mt-1 text-xs text-slate-600">
                       {boletoDueDate ? `Vencimento em ${boletoDueDate}. ` : ""}
                       A compensação bancária pode levar até 2 dias úteis; o
                       acesso é liberado automaticamente depois dela.
@@ -598,13 +598,13 @@ export function CheckoutModal({
                       href={boletoUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="block rounded-xl bg-yellow-400 px-4 py-2.5 text-center text-sm font-bold text-gray-950 transition hover:bg-yellow-300"
+                      className="block rounded-xl bg-yellow-400 px-4 py-2.5 text-center text-sm font-bold text-slate-950 transition hover:bg-yellow-300"
                     >
                       Abrir boleto
                     </a>
                   )}
 
-                  <div className="flex items-center gap-2 rounded-lg border border-yellow-400/25 bg-yellow-400/10 px-3 py-2 text-xs font-medium text-yellow-200">
+                  <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
                     <span
                       aria-hidden="true"
                       className="h-2 w-2 animate-pulse rounded-full bg-yellow-300"
@@ -616,9 +616,9 @@ export function CheckoutModal({
                 <div className="space-y-3 py-4 text-center">
                   <div
                     aria-hidden="true"
-                    className="mx-auto h-9 w-9 animate-spin rounded-full border-2 border-gray-700 border-t-yellow-400"
+                    className="mx-auto h-9 w-9 animate-spin rounded-full border-2 border-slate-300 border-t-yellow-400"
                   />
-                  <p className="text-sm font-semibold text-white">
+                  <p className="text-sm font-semibold text-slate-900">
                     {result.paymentStatus === "PENDING" ||
                     result.paymentStatus === "AWAITING_RISK_ANALYSIS"
                       ? "Pagamento em análise"
@@ -626,7 +626,7 @@ export function CheckoutModal({
                         ? "Validando o cartão"
                         : "Estamos gerando sua cobrança"}
                   </p>
-                  <p className="mx-auto max-w-xs text-xs text-gray-400">
+                  <p className="mx-auto max-w-xs text-xs text-slate-600">
                     Isso costuma levar poucos segundos. Esta tela é atualizada
                     automaticamente.
                   </p>
@@ -636,7 +636,7 @@ export function CheckoutModal({
               {error && (
                 <p
                   role="alert"
-                  className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400"
+                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600"
                 >
                   {error}
                 </p>
@@ -645,25 +645,25 @@ export function CheckoutModal({
               {notice && (
                 <p
                   role="status"
-                  className="rounded-lg border border-yellow-400/30 bg-yellow-400/10 px-3 py-2 text-sm font-medium text-yellow-200"
+                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700"
                 >
                   {notice}
                 </p>
               )}
 
               {!isPaid && lastCheckLabel && (
-                <p className="text-center text-[11px] text-gray-600">
+                <p className="text-center text-[11px] text-slate-500">
                   Última verificação: {lastCheckLabel}
                 </p>
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-gray-800 px-5 py-4">
+            <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4">
               {isPaid ? (
                 <button
                   type="button"
                   onClick={onClose}
-                  className="w-full rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300 sm:w-auto"
+                  className="w-full rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-yellow-300 sm:w-auto"
                 >
                   Ir para o painel
                 </button>
@@ -672,7 +672,7 @@ export function CheckoutModal({
                   <button
                     type="button"
                     onClick={onClose}
-                    className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800"
+                    className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
                   >
                     Fechar
                   </button>
@@ -680,7 +680,7 @@ export function CheckoutModal({
                     type="button"
                     onClick={handleManualCheck}
                     disabled={isChecking}
-                    className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isChecking ? "Verificando..." : "Já paguei"}
                   </button>
@@ -722,7 +722,7 @@ export function CheckoutModal({
                   onChange={(event) => updateCustomer("email", event.target.value)}
                   className={INPUT_CLASS}
                 />
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-slate-500">
                   A nota fiscal e os avisos de cobrança vão para este e-mail.
                 </p>
               </div>
@@ -771,24 +771,24 @@ export function CheckoutModal({
               {error && (
                 <p
                   role="alert"
-                  className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400"
+                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600"
                 >
                   {error}
                 </p>
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-gray-800 px-5 py-4">
+            <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800"
+                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
               >
                 Cancelar
               </button>
               <button
                 type="submit"
-                className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300"
+                className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-yellow-300"
               >
                 Continuar
               </button>
@@ -815,21 +815,21 @@ export function CheckoutModal({
                         }}
                         className={`rounded-xl border px-3 py-2.5 text-left transition ${
                           selected
-                            ? "border-yellow-400/70 bg-yellow-400/10"
-                            : "border-gray-700 bg-gray-950/40 hover:border-gray-600"
+                            ? "border-amber-400 bg-amber-50"
+                            : "border-slate-300 bg-slate-50 hover:border-slate-300"
                         }`}
                       >
                         <span className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold text-gray-100">
+                          <span className="text-sm font-semibold text-slate-900">
                             {BILLING_TYPE_LABELS[type]}
                           </span>
                           {selected && (
-                            <span className="rounded-full bg-yellow-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-gray-950">
+                            <span className="rounded-full bg-yellow-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-950">
                               Selecionado
                             </span>
                           )}
                         </span>
-                        <span className="mt-0.5 block text-xs text-gray-500">
+                        <span className="mt-0.5 block text-xs text-slate-500">
                           {PAYMENT_HINTS[type]}
                         </span>
                       </button>
@@ -926,8 +926,8 @@ export function CheckoutModal({
                     </div>
                   </div>
 
-                  <div className="space-y-3 rounded-xl border border-gray-800 bg-gray-950/30 px-3 py-3">
-                    <p className="text-xs font-semibold text-gray-300">
+                  <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <p className="text-xs font-semibold text-slate-700">
                       Endereço de cobrança do titular
                     </p>
                     <div className="grid grid-cols-2 gap-4">
@@ -980,21 +980,21 @@ export function CheckoutModal({
                         />
                       </div>
                     </div>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-slate-500">
                       Usados apenas na análise antifraude. Os dados do cartão não
                       são armazenados por nós.
                     </p>
                   </div>
                 </>
               ) : (
-                <p className="rounded-lg border border-gray-800 bg-gray-950/40 px-3 py-2.5 text-xs text-gray-400">
+                <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
                   {billingType === "PIX"
                     ? "Geramos um QR Code na hora. A confirmação costuma levar poucos segundos após o pagamento."
                     : "O boleto é emitido na hora. O acesso é liberado após a compensação bancária (até 2 dias úteis)."}
                 </p>
               )}
 
-              <div className="space-y-3 rounded-xl border border-gray-800 bg-gray-950/30 px-3 py-3">
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
                 <div>
                   <label htmlFor="checkout-coupon" className={LABEL_CLASS}>
                     Cupom de desconto
@@ -1020,7 +1020,7 @@ export function CheckoutModal({
                         type="button"
                         onClick={handleRemoveCoupon}
                         disabled={isSubmitting}
-                        className="shrink-0 rounded-xl border border-gray-700 px-3 py-2.5 text-xs font-bold text-gray-200 transition hover:bg-gray-800 disabled:opacity-60"
+                        className="shrink-0 rounded-xl border border-slate-300 px-3 py-2.5 text-xs font-bold text-slate-800 transition hover:bg-slate-100 disabled:opacity-60"
                       >
                         Remover
                       </button>
@@ -1029,7 +1029,7 @@ export function CheckoutModal({
                         type="button"
                         onClick={() => void handleApplyCoupon()}
                         disabled={isCouponChecking || isSubmitting}
-                        className="shrink-0 rounded-xl border border-yellow-400/60 bg-yellow-400/10 px-3 py-2.5 text-xs font-bold text-yellow-200 transition hover:bg-yellow-400/20 disabled:cursor-not-allowed disabled:opacity-60"
+                        className="shrink-0 rounded-xl border border-amber-400 bg-amber-50 px-3 py-2.5 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {isCouponChecking ? "Validando..." : "Aplicar"}
                       </button>
@@ -1039,14 +1039,14 @@ export function CheckoutModal({
                   {couponError && (
                     <p
                       role="alert"
-                      className="mt-1.5 text-xs font-medium text-red-400"
+                      className="mt-1.5 text-xs font-medium text-red-600"
                     >
                       {couponError}
                     </p>
                   )}
 
                   {coupon && (
-                    <p className="mt-1.5 text-xs font-medium text-emerald-400">
+                    <p className="mt-1.5 text-xs font-medium text-emerald-600">
                       Cupom {coupon.couponCode} aplicado
                       {coupon.discountLabel
                         ? ` (${coupon.discountLabel})`
@@ -1056,15 +1056,15 @@ export function CheckoutModal({
                   )}
                 </div>
 
-                <dl className="space-y-1.5 border-t border-gray-800 pt-3 text-sm">
+                <dl className="space-y-1.5 border-t border-slate-200 pt-3 text-sm">
                   <div className="flex items-center justify-between gap-3">
-                    <dt className="text-gray-400">
+                    <dt className="text-slate-600">
                       Plano {cyclePrice.label.toLowerCase()} (
                       {cyclePrice.durationLabel})
                     </dt>
-                    <dd className="flex items-baseline gap-2 font-semibold tabular-nums text-gray-200">
+                    <dd className="flex items-baseline gap-2 font-semibold tabular-nums text-slate-800">
                       {hasCycleDiscount && (
-                        <span className="text-xs font-medium text-gray-500 line-through">
+                        <span className="text-xs font-medium text-slate-500 line-through">
                           {cyclePrice.listLabel}
                         </span>
                       )}
@@ -1074,20 +1074,20 @@ export function CheckoutModal({
 
                   {couponDiscountCents > 0 && (
                     <div className="flex items-center justify-between gap-3 text-xs">
-                      <dt className="text-gray-500">
+                      <dt className="text-slate-500">
                         Cupom {coupon?.couponCode}
                       </dt>
-                      <dd className="font-medium tabular-nums text-emerald-400">
+                      <dd className="font-medium tabular-nums text-emerald-600">
                         −{formatBRL(couponDiscountCents)}
                       </dd>
                     </div>
                   )}
 
-                  <div className="flex items-center justify-between gap-3 border-t border-gray-800 pt-2">
-                    <dt className="text-sm font-semibold text-gray-200">
+                  <div className="flex items-center justify-between gap-3 border-t border-slate-200 pt-2">
+                    <dt className="text-sm font-semibold text-slate-800">
                       Total {hasCycleDiscount ? "com desconto" : ""}
                     </dt>
-                    <dd className="text-base font-bold tabular-nums text-yellow-300">
+                    <dd className="text-base font-bold tabular-nums text-amber-600">
                       {totalLabel}
                     </dd>
                   </div>
@@ -1097,7 +1097,7 @@ export function CheckoutModal({
               {error && (
                 <p
                   role="alert"
-                  className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400"
+                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600"
                 >
                   {error}
                 </p>
@@ -1106,14 +1106,14 @@ export function CheckoutModal({
               {notice && (
                 <p
                   role="status"
-                  className="rounded-lg border border-yellow-400/30 bg-yellow-400/10 px-3 py-2 text-sm font-medium text-yellow-200"
+                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700"
                 >
                   {notice}
                 </p>
               )}
             </div>
 
-            <div className="flex flex-col-reverse gap-3 border-t border-gray-800 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col-reverse gap-3 border-t border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
               <button
                 type="button"
                 onClick={() => {
@@ -1122,7 +1122,7 @@ export function CheckoutModal({
                   setNotice(null);
                 }}
                 disabled={isSubmitting}
-                className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 disabled:opacity-60"
+                className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:opacity-60"
               >
                 Voltar
               </button>
@@ -1130,7 +1130,7 @@ export function CheckoutModal({
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubmitting
                   ? "Processando..."

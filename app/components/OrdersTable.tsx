@@ -46,16 +46,16 @@ export function OrdersTable({
 }: OrdersTableProps) {
   if (orders.length === 0) {
     return (
-      <p className="rounded-xl border border-dashed border-gray-700 px-4 py-10 text-center text-sm text-gray-500">
+      <p className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">
         Nenhum pedido nesta data.
       </p>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-gray-700/60">
+    <div className="overflow-x-auto rounded-xl border border-slate-300">
       <table className="w-full min-w-[760px] text-left text-sm">
-        <thead className="bg-gray-800/70 text-[11px] uppercase tracking-wider text-gray-400">
+        <thead className="bg-slate-100 text-[11px] uppercase tracking-wider text-slate-600">
           <tr>
             <th scope="col" className="px-4 py-3 font-bold">
               Pedido
@@ -83,7 +83,7 @@ export function OrdersTable({
             </th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-800">
+        <tbody className="divide-y divide-slate-200">
           {orders.map((order) => {
             const meta = ORDER_STATUS_META[order.status];
             const shortNumber =
@@ -95,26 +95,26 @@ export function OrdersTable({
                 className={
                   order.status === "pendente"
                     ? "bg-yellow-400/5"
-                    : "hover:bg-gray-800/40"
+                    : "hover:bg-slate-100"
                 }
               >
-                <td className="whitespace-nowrap px-4 py-3 font-bold text-white">
+                <td className="whitespace-nowrap px-4 py-3 font-bold text-slate-900">
                   {shortNumber}
                 </td>
                 <td className="px-4 py-3">
-                  <p className="font-medium text-gray-200">
+                  <p className="font-medium text-slate-800">
                     {order.customer_name}
                   </p>
                   {order.customer_phone && (
-                    <p className="text-xs tabular-nums text-gray-500">
+                    <p className="text-xs tabular-nums text-slate-500">
                       {order.customer_phone}
                     </p>
                   )}
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 text-gray-300">
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
                   {itemsLabel(order)}
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 text-right font-bold tabular-nums text-yellow-300">
+                <td className="whitespace-nowrap px-4 py-3 text-right font-bold tabular-nums text-amber-600">
                   {formatBRL(order.total)}
                 </td>
                 <td className="px-4 py-3">
@@ -125,10 +125,10 @@ export function OrdersTable({
                     {meta.label}
                   </span>
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 text-gray-300">
+                <td className="whitespace-nowrap px-4 py-3 text-slate-700">
                   {order.estimated_delivery_time ?? "—"}
                 </td>
-                <td className="whitespace-nowrap px-4 py-3 tabular-nums text-gray-400">
+                <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
                   {formatTime(order.created_at)}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-right">
@@ -136,7 +136,7 @@ export function OrdersTable({
                     type="button"
                     onClick={() => onOpenOrder(order)}
                     aria-label={`Abrir detalhes do pedido ${shortNumber}`}
-                    className="rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-1.5 text-xs font-bold text-gray-200 transition hover:border-yellow-400/50 hover:text-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 transition hover:border-amber-300 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
                   >
                     Detalhes
                   </button>

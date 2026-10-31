@@ -69,7 +69,7 @@ function toFormState(editing: CouponRecord | null): CouponFormState {
 }
 
 const inputClass =
-  "w-full rounded-xl border border-gray-700 bg-gray-900/60 px-3.5 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none transition focus:border-yellow-400/60";
+  "w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-gray-500 outline-none transition focus:border-amber-500";
 
 /**
  * Modal "Novo cupom" / "Editar cupom".
@@ -189,13 +189,13 @@ export function CouponFormModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-gray-800 bg-gray-900 shadow-xl">
-        <div className="border-b border-gray-800 px-5 py-4">
-          <h2 className="text-lg font-bold text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-lg font-bold text-slate-900">
             {editing ? "Editar cupom" : "Novo cupom"}
           </h2>
-          <p className="mt-0.5 text-xs text-gray-500">
+          <p className="mt-0.5 text-xs text-slate-500">
             {editing
               ? "Atualize as regras e a disponibilidade do cupom."
               : "Crie um código de desconto para usar no checkout."}
@@ -209,7 +209,7 @@ export function CouponFormModal({
           <div>
             <label
               htmlFor="coupon-code"
-              className="mb-1.5 block text-sm font-semibold text-gray-200"
+              className="mb-1.5 block text-sm font-semibold text-slate-800"
             >
               Código
             </label>
@@ -225,7 +225,7 @@ export function CouponFormModal({
               }
               className={`${inputClass} uppercase tracking-wide placeholder:normal-case`}
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-slate-500">
               Salvo em caixa alta. Único por estabelecimento.
             </p>
           </div>
@@ -234,7 +234,7 @@ export function CouponFormModal({
             <div>
               <label
                 htmlFor="coupon-type"
-                className="mb-1.5 block text-sm font-semibold text-gray-200"
+                className="mb-1.5 block text-sm font-semibold text-slate-800"
               >
                 Tipo de desconto
               </label>
@@ -256,7 +256,7 @@ export function CouponFormModal({
             <div>
               <label
                 htmlFor="coupon-value"
-                className="mb-1.5 block text-sm font-semibold text-gray-200"
+                className="mb-1.5 block text-sm font-semibold text-slate-800"
               >
                 {form.discount_type === "percentage"
                   ? "Desconto (%)"
@@ -282,10 +282,10 @@ export function CouponFormModal({
             <div>
               <label
                 htmlFor="coupon-min"
-                className="mb-1.5 block text-sm font-semibold text-gray-200"
+                className="mb-1.5 block text-sm font-semibold text-slate-800"
               >
                 Pedido mínimo (R$){" "}
-                <span className="font-normal text-gray-500">(opcional)</span>
+                <span className="font-normal text-slate-500">(opcional)</span>
               </label>
               <input
                 id="coupon-min"
@@ -303,10 +303,10 @@ export function CouponFormModal({
             <div>
               <label
                 htmlFor="coupon-limit"
-                className="mb-1.5 block text-sm font-semibold text-gray-200"
+                className="mb-1.5 block text-sm font-semibold text-slate-800"
               >
                 Limite de usos{" "}
-                <span className="font-normal text-gray-500">(opcional)</span>
+                <span className="font-normal text-slate-500">(opcional)</span>
               </label>
               <input
                 id="coupon-limit"
@@ -324,7 +324,7 @@ export function CouponFormModal({
             </div>
           </div>
 
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-gray-800 bg-gray-900/40 p-3.5">
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3.5">
             <input
               type="checkbox"
               checked={form.active}
@@ -332,10 +332,10 @@ export function CouponFormModal({
               className="mt-0.5 h-4 w-4 accent-yellow-400"
             />
             <span>
-              <span className="block text-sm font-semibold text-gray-200">
+              <span className="block text-sm font-semibold text-slate-800">
                 Cupom ativo
               </span>
-              <span className="block text-xs text-gray-500">
+              <span className="block text-xs text-slate-500">
                 Desmarque para pausar o cupom sem excluí-lo.
               </span>
             </span>
@@ -344,25 +344,25 @@ export function CouponFormModal({
           {error && (
             <p
               role="alert"
-              className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400"
+              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600"
             >
               {error}
             </p>
           )}
 
-          <div className="flex items-center justify-end gap-3 border-t border-gray-800 pt-4">
+          <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-70"
+              className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {isSubmitting
                 ? "Salvando..."

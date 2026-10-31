@@ -130,7 +130,7 @@ export default function AdminConfiguracoesPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="flex flex-1 flex-col text-slate-900">
       <AdminHeader establishmentId={null} isSuperAdmin={isSuperAdmin} />
 
       <main className="px-4 py-8 sm:px-6 lg:px-10">
@@ -139,34 +139,34 @@ export default function AdminConfiguracoesPage() {
             <nav className="mb-3 flex flex-wrap items-center gap-3 text-sm font-semibold">
               <Link
                 href="/painel/admin"
-                className="text-gray-400 transition hover:text-white"
+                className="text-slate-600 transition hover:text-slate-900"
               >
                 ← Estabelecimentos
               </Link>
-              <span aria-hidden="true" className="text-gray-700">
+              <span aria-hidden="true" className="text-slate-600">
                 |
               </span>
               <Link
                 href="/painel/admin/assinantes"
-                className="text-yellow-300 transition hover:text-yellow-200"
+                className="text-amber-600 transition hover:text-amber-700"
               >
                 Assinantes
               </Link>
-              <span aria-hidden="true" className="text-gray-700">
+              <span aria-hidden="true" className="text-slate-600">
                 |
               </span>
               <Link
                 href="/painel/admin/cupons"
-                className="text-gray-400 transition hover:text-white"
+                className="text-slate-600 transition hover:text-slate-900"
               >
                 Cupons de assinatura
               </Link>
             </nav>
 
-            <h1 className="text-3xl font-bold tracking-tight text-white">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
               Configurações da Plataforma
             </h1>
-            <p className="mt-1 text-sm text-gray-400">
+            <p className="mt-1 text-sm text-slate-600">
               Parâmetros globais do SaaS. As alterações valem para todas as
               lojas e são aplicadas imediatamente no checkout.
             </p>
@@ -175,7 +175,7 @@ export default function AdminConfiguracoesPage() {
           {loadError && (
             <div
               role="alert"
-              className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
+              className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
             >
               {loadError}
             </div>
@@ -183,9 +183,9 @@ export default function AdminConfiguracoesPage() {
 
           <div className="grid gap-5 lg:grid-cols-5">
             {/* Formulário do preço ------------------------------------- */}
-            <section className="rounded-2xl border border-gray-800 bg-gray-900/50 p-5 sm:p-6 lg:col-span-3">
-              <h2 className="text-lg font-bold text-white">Plano Mensal</h2>
-              <p className="mt-1 text-sm text-gray-400">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 lg:col-span-3">
+              <h2 className="text-lg font-bold text-slate-900">Plano Mensal</h2>
+              <p className="mt-1 text-sm text-slate-600">
                 Preço cobrado na contratação do Plano Profissional.
               </p>
 
@@ -193,12 +193,12 @@ export default function AdminConfiguracoesPage() {
                 <div>
                   <label
                     htmlFor="plan-price"
-                    className="mb-1.5 block text-sm font-semibold text-gray-200"
+                    className="mb-1.5 block text-sm font-semibold text-slate-800"
                   >
                     Preço do Plano Mensal (R$)
                   </label>
-                  <div className="flex items-center gap-2 rounded-xl border border-gray-800 bg-gray-950/60 px-3 focus-within:border-yellow-400/60">
-                    <span className="text-sm font-semibold text-gray-500">
+                  <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-amber-500">
+                    <span className="text-sm font-semibold text-slate-500">
                       R$
                     </span>
                     <input
@@ -210,10 +210,10 @@ export default function AdminConfiguracoesPage() {
                       onChange={(event) => setPriceInput(event.target.value)}
                       disabled={isLoading || isSaving}
                       placeholder="97,00"
-                      className="w-full bg-transparent py-2.5 text-lg font-bold text-white outline-none placeholder:text-gray-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="w-full bg-transparent py-2.5 text-lg font-bold text-slate-900 outline-none placeholder:text-slate-500 disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </div>
-                  <p className="mt-1.5 text-xs text-gray-500">
+                  <p className="mt-1.5 text-xs text-slate-500">
                     Use vírgula para os centavos (ex.: 97,00). Mínimo{" "}
                     {formatBRL(MIN_PLAN_PRICE_CENTS)} e máximo{" "}
                     {formatBRL(MAX_PLAN_PRICE_CENTS)}.
@@ -223,7 +223,7 @@ export default function AdminConfiguracoesPage() {
                 {actionError && (
                   <p
                     role="alert"
-                    className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm font-medium text-red-200"
+                    className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
                   >
                     {actionError}
                   </p>
@@ -232,7 +232,7 @@ export default function AdminConfiguracoesPage() {
                 {notice && (
                   <p
                     role="status"
-                    className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-200"
+                    className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700"
                   >
                     {notice}
                   </p>
@@ -241,7 +241,7 @@ export default function AdminConfiguracoesPage() {
                 <button
                   type="submit"
                   disabled={isLoading || isSaving}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                 >
                   {isSaving ? "Salvando..." : "Salvar preço do plano"}
                 </button>
@@ -250,24 +250,24 @@ export default function AdminConfiguracoesPage() {
 
             {/* Resumo do valor vigente -------------------------------- */}
             <aside className="flex flex-col gap-4 lg:col-span-2">
-              <section className="rounded-2xl border border-yellow-400/30 bg-gradient-to-b from-gray-900 to-gray-950 p-5 sm:p-6">
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              <section className="rounded-2xl border border-amber-200 bg-gradient-to-b from-white to-slate-50 p-5 sm:p-6">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Preço vigente
                 </p>
-                <p className="mt-1 text-3xl font-extrabold text-white">
+                <p className="mt-1 text-3xl font-extrabold text-slate-900">
                   {current
                     ? current.priceLabel
                     : formatBRL(DEFAULT_PLAN_PRICE_CENTS)}
-                  <span className="ml-1 text-sm font-semibold text-gray-500">
+                  <span className="ml-1 text-sm font-semibold text-slate-500">
                     /mês
                   </span>
                 </p>
-                <p className="mt-3 inline-flex items-center rounded-full border border-gray-700 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-gray-300">
+                <p className="mt-3 inline-flex items-center rounded-full border border-slate-300 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-700">
                   {current?.source === "database"
                     ? "Salvo no banco"
                     : "Valor padrão (fallback)"}
                 </p>
-                <p className="mt-3 text-xs leading-relaxed text-gray-500">
+                <p className="mt-3 text-xs leading-relaxed text-slate-500">
                   O checkout e a tela de assinatura leem este valor em tempo de
                   execução. Assinaturas já criadas no Asaas mantêm o preço
                   contratado.
@@ -275,7 +275,7 @@ export default function AdminConfiguracoesPage() {
               </section>
 
               {current?.schemaPending && (
-                <p className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-3 text-xs leading-relaxed text-yellow-200">
+                <p className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-700">
                   A tabela <code className="font-mono">system_settings</code>{" "}
                   ainda não existe no banco. Execute a migração{" "}
                   <code className="font-mono">

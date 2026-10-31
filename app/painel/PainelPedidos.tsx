@@ -404,21 +404,21 @@ export function PainelPedidos() {
     establishments.find((e) => e.id === selectedId)?.name ?? "Estabelecimento";
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-950">
+    <div className="flex flex-1 flex-col">
       <AdminHeader establishmentId={selectedId} isSuperAdmin={isSuperAdmin} />
 
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 p-4 sm:p-6 lg:p-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold text-white">
+            <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
               Pedidos em tempo real
               {pendingCount > 0 && (
-                <span className="rounded-full bg-yellow-400 px-2.5 py-0.5 text-xs font-bold tabular-nums text-gray-950">
+                <span className="rounded-full bg-yellow-400 px-2.5 py-0.5 text-xs font-bold tabular-nums text-slate-950">
                   {pendingCount} novo{pendingCount > 1 ? "s" : ""}
                 </span>
               )}
             </h2>
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-slate-600">
               Pedidos de {formatDateBR(selectedDate)} · alterne entre Kanban e
               Lista e abra os detalhes para gerenciar o pedido.
             </p>
@@ -431,10 +431,10 @@ export function PainelPedidos() {
               onEnable={enableSound}
               onToggleMute={toggleMuted}
             />
-            <div className="flex items-center gap-2 rounded-lg border border-gray-700 bg-gray-900 px-2.5 py-1.5">
+            <div className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5">
               <label
                 htmlFor="orders-date"
-                className="text-xs font-semibold uppercase tracking-wider text-gray-500"
+                className="text-xs font-semibold uppercase tracking-wider text-slate-500"
               >
                 Data
               </label>
@@ -445,12 +445,12 @@ export function PainelPedidos() {
                 onChange={(e) =>
                   setSelectedDate(e.target.value || todayDateValue())
                 }
-                className="rounded-md border border-gray-700 bg-gray-950 px-2 py-1 text-sm text-white outline-none [color-scheme:dark] focus:border-yellow-400/60"
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm text-slate-900 outline-none [color-scheme:light] focus:border-amber-500"
               />
               <button
                 type="button"
                 onClick={() => setSelectedDate(todayDateValue())}
-                className="rounded-md px-2 py-1 text-xs font-bold text-yellow-300 transition hover:bg-yellow-400/10"
+                className="rounded-md px-2 py-1 text-xs font-bold text-amber-600 transition hover:bg-amber-50"
               >
                 Hoje
               </button>
@@ -458,7 +458,7 @@ export function PainelPedidos() {
             <div
               role="group"
               aria-label="Visualização dos pedidos"
-              className="inline-flex overflow-hidden rounded-lg border border-gray-700"
+              className="inline-flex overflow-hidden rounded-lg border border-slate-300"
             >
               <button
                 type="button"
@@ -466,8 +466,8 @@ export function PainelPedidos() {
                 aria-pressed={view === "kanban"}
                 className={`px-3 py-2 text-xs font-bold transition ${
                   view === "kanban"
-                    ? "bg-yellow-400 text-gray-950"
-                    : "text-gray-300 hover:bg-gray-800"
+                    ? "bg-yellow-400 text-slate-950"
+                    : "text-slate-700 hover:bg-slate-100"
                 }`}
               >
                 Kanban
@@ -478,8 +478,8 @@ export function PainelPedidos() {
                 aria-pressed={view === "lista"}
                 className={`px-3 py-2 text-xs font-bold transition ${
                   view === "lista"
-                    ? "bg-yellow-400 text-gray-950"
-                    : "text-gray-300 hover:bg-gray-800"
+                    ? "bg-yellow-400 text-slate-950"
+                    : "text-slate-700 hover:bg-slate-100"
                 }`}
               >
                 Lista
@@ -490,7 +490,7 @@ export function PainelPedidos() {
                 aria-label="Estabelecimento"
                 value={selectedId ?? ""}
                 onChange={(e) => select(e.target.value)}
-                className="rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-white"
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
               >
                 {establishments.map((e) => (
                   <option key={e.id} value={e.id}>
@@ -505,7 +505,7 @@ export function PainelPedidos() {
                 selectedId && fetchOrders(selectedId, selectedDate)
               }
               disabled={!selectedId || isLoading}
-              className="rounded-lg border border-gray-700 px-3 py-2 text-sm font-semibold text-gray-300 hover:border-yellow-400/50 hover:text-white disabled:opacity-50"
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-amber-300 hover:text-slate-900 disabled:opacity-50"
             >
               {isLoading ? "Atualizando…" : "Atualizar"}
             </button>
@@ -513,17 +513,17 @@ export function PainelPedidos() {
         </div>
 
         {feedback && (
-          <p className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+          <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
             {feedback}
           </p>
         )}
         {(error || estError) && (
-          <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {error ?? estError}
           </p>
         )}
         {(isLoadingEst || (isLoading && orders.length === 0)) && (
-          <p className="text-sm text-gray-400">Carregando pedidos…</p>
+          <p className="text-sm text-slate-600">Carregando pedidos…</p>
         )}
 
         <div className="grid grid-cols-1 gap-4 sm:gap-5 lg:grid-cols-2 xl:grid-cols-5">

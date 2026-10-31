@@ -74,17 +74,17 @@ function buildStoragePath(establishmentId: string, fileName: string): string {
 
 /**
  * Estilo compartilhado dos inputs de horário (`type="time"`).
- * `[color-scheme:dark]` mantém o seletor nativo legível no tema escuro.
+ * `[color-scheme:light]` mantém o seletor nativo legível no tema escuro.
  */
 const timeInputClass =
-  "w-[7.5rem] rounded-xl border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-gray-100 outline-none transition [color-scheme:dark] focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30 disabled:cursor-not-allowed disabled:opacity-40";
+  "w-[7.5rem] rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition [color-scheme:light] focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-40";
 
 const deliveryInputClass =
-  "w-full rounded-xl border border-gray-700 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 hover:border-gray-600 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30 disabled:cursor-not-allowed disabled:opacity-40";
+  "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-500 hover:border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-40";
 
 /** Input do telefone/WhatsApp da loja (contato usado no checkout). */
 const contactInputClass =
-  "w-full rounded-xl border border-gray-700 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 hover:border-gray-600 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30 disabled:cursor-not-allowed disabled:opacity-40";
+  "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-500 hover:border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-40";
 
 /**
  * Assinatura vazia para `useSyncExternalStore`: a origem do site só existe no
@@ -819,13 +819,13 @@ export default function ConfiguracoesIdentidade() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-950">
+    <div className="flex flex-1 flex-col">
       <AdminHeader
         establishmentId={selectedId}
         isSuperAdmin={isSuperAdmin}
         badge={
           saveSuccess ? (
-            <span className="rounded-full bg-green-400/15 px-3 py-1.5 text-sm font-semibold text-green-300">
+            <span className="rounded-full bg-green-100 px-3 py-1.5 text-sm font-semibold text-green-700">
               {saveSuccess}
             </span>
           ) : null
@@ -835,17 +835,17 @@ export default function ConfiguracoesIdentidade() {
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 p-4 sm:p-6 lg:p-8">
         {isLoading && (
           <div className="flex items-center justify-center py-12">
-            <span className="h-5 w-5 animate-spin rounded-full border-2 border-yellow-400 border-t-transparent" />
+            <span className="h-5 w-5 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
           </div>
         )}
 
         {/* Dados públicos da loja (nome, descrição e link exibidos na vitrine) */}
-        <section className="rounded-2xl border border-gray-800 bg-gray-900/40 p-5 sm:p-6">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
           <div className="flex items-center gap-2">
             <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-yellow-400" />
-            <h2 className="font-semibold text-white">Dados da Loja</h2>
+            <h2 className="font-semibold text-slate-900">Dados da Loja</h2>
           </div>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-slate-600">
             Nome, texto e link exibidos no cardápio público. O link abaixo é
             apenas informativo — ele é gerado no cadastro e não pode ser
             alterado por aqui.
@@ -854,7 +854,7 @@ export default function ConfiguracoesIdentidade() {
           <div className="mt-4 flex flex-col gap-4">
             {/* Link público: somente leitura + cópia (o slug não é editável). */}
             <div>
-              <span className="mb-1.5 block text-sm font-medium text-gray-300">
+              <span className="mb-1.5 block text-sm font-medium text-slate-700">
                 Link da loja
               </span>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -864,13 +864,13 @@ export default function ConfiguracoesIdentidade() {
                   value={storeLink}
                   aria-label="Link público da loja (somente leitura)"
                   onFocus={(e) => e.currentTarget.select()}
-                  className="w-full cursor-text rounded-xl border border-gray-800 bg-gray-950/60 px-3 py-2.5 text-sm text-gray-400 outline-none focus:border-gray-700"
+                  className="w-full cursor-text rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600 outline-none focus:border-slate-300"
                 />
                 <div className="flex shrink-0 items-center gap-2">
                   <button
                     type="button"
                     onClick={() => void handleCopyStoreLink()}
-                    className="rounded-xl border border-gray-700 px-3 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
+                    className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
                   >
                     {storeLinkCopied ? "Copiado!" : "Copiar"}
                   </button>
@@ -878,13 +878,13 @@ export default function ConfiguracoesIdentidade() {
                     href={storePath}
                     target="_blank"
                     rel="noreferrer"
-                    className="rounded-xl border border-gray-700 px-3 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
+                    className="rounded-xl border border-slate-300 px-3 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
                   >
                     Abrir
                   </a>
                 </div>
               </div>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 Endereço fixo do cardápio — não é possível editar o slug.
               </p>
             </div>
@@ -892,7 +892,7 @@ export default function ConfiguracoesIdentidade() {
             <div>
               <label
                 htmlFor="store-name"
-                className="mb-1.5 block text-sm font-medium text-gray-300"
+                className="mb-1.5 block text-sm font-medium text-slate-700"
               >
                 Nome do estabelecimento
               </label>
@@ -907,9 +907,9 @@ export default function ConfiguracoesIdentidade() {
                 }}
                 maxLength={80}
                 placeholder="Ex.: Burger Gourmet"
-                className="w-full rounded-xl border border-gray-700 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 hover:border-gray-600 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-500 hover:border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40"
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 {nameValue.trim().length}/80 caracteres
               </p>
             </div>
@@ -917,7 +917,7 @@ export default function ConfiguracoesIdentidade() {
             <div>
               <label
                 htmlFor="store-description"
-                className="mb-1.5 block text-sm font-medium text-gray-300"
+                className="mb-1.5 block text-sm font-medium text-slate-700"
               >
                 Texto abaixo do nome (descrição / slogan)
               </label>
@@ -932,24 +932,24 @@ export default function ConfiguracoesIdentidade() {
                 rows={2}
                 maxLength={200}
                 placeholder="Ex.: Artesanal na brasa · Entrega em 30 min"
-                className="w-full resize-y rounded-xl border border-gray-700 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 outline-none transition placeholder:text-gray-600 hover:border-gray-600 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400/30"
+                className="w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-500 hover:border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40"
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 Deixe vazio para exibir o badge “DELIVERY” padrão.{" "}
                 {descriptionValue.trim().length}/200 caracteres
               </p>
             </div>
           </div>
 
-          {infoError && <p className="mt-3 text-sm text-red-400">{infoError}</p>}
+          {infoError && <p className="mt-3 text-sm text-red-600">{infoError}</p>}
           {infoSuccess && (
-            <p className="mt-3 flex items-center gap-2 text-sm text-green-400">
+            <p className="mt-3 flex items-center gap-2 text-sm text-green-600">
               <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
               {infoSuccess}
             </p>
           )}
           {infoWarning && (
-            <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-300">
+            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
               {infoWarning}
             </p>
           )}
@@ -959,11 +959,11 @@ export default function ConfiguracoesIdentidade() {
               type="button"
               onClick={handleSaveInfo}
               disabled={isSavingInfo || !selectedId || !nameValue.trim()}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSavingInfo ? (
                 <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-950 border-t-transparent" />
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />
                   Salvando...
                 </>
               ) : (
@@ -976,21 +976,21 @@ export default function ConfiguracoesIdentidade() {
         {/* Horário de funcionamento (aberto/fechado na vitrine + validação na API) */}
         <section
           aria-labelledby="opening-hours-title"
-          className="rounded-2xl border border-gray-800 bg-gray-900/40 p-5 sm:p-6"
+          className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
         >
           <div className="flex items-center gap-2">
             <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-yellow-400" />
-            <h2 id="opening-hours-title" className="font-semibold text-white">
+            <h2 id="opening-hours-title" className="font-semibold text-slate-900">
               Horário de Funcionamento
             </h2>
           </div>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-slate-600">
             Ative os dias em que a loja abre e informe a abertura/fechamento.
             Fora desses horários a vitrine exibe &quot;Fechado no momento&quot; e
             os pedidos são bloqueados.
           </p>
 
-          <div className="mt-4 divide-y divide-gray-800 overflow-hidden rounded-xl border border-gray-800">
+          <div className="mt-4 divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200">
             {WEEKDAYS.map((day) => {
               const value = openingHours[day.key] ?? {
                 enabled: false,
@@ -1004,7 +1004,7 @@ export default function ConfiguracoesIdentidade() {
               return (
                 <div
                   key={day.key}
-                  className="flex flex-col gap-3 bg-gray-950/30 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 bg-slate-50 px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <label
                     htmlFor={enabledId}
@@ -1024,11 +1024,11 @@ export default function ConfiguracoesIdentidade() {
                         }));
                         setHoursSuccess(null);
                       }}
-                      className="h-4 w-4 cursor-pointer rounded border-gray-600 bg-gray-900 accent-yellow-400 focus:ring-2 focus:ring-yellow-400/40"
+                      className="h-4 w-4 cursor-pointer rounded border-slate-300 bg-white accent-yellow-400 focus:ring-2 focus:ring-amber-400/40"
                     />
                     <span
                       className={`text-sm font-medium ${
-                        value.enabled ? "text-gray-200" : "text-gray-500"
+                        value.enabled ? "text-slate-800" : "text-slate-500"
                       }`}
                     >
                       {day.label}
@@ -1057,7 +1057,7 @@ export default function ConfiguracoesIdentidade() {
                       }}
                       className={timeInputClass}
                     />
-                    <span className="text-xs font-medium text-gray-500">às</span>
+                    <span className="text-xs font-medium text-slate-500">às</span>
                     <label htmlFor={closeId} className="sr-only">
                       Fechamento de {day.label}
                     </label>
@@ -1076,7 +1076,7 @@ export default function ConfiguracoesIdentidade() {
                       className={timeInputClass}
                     />
                     {!value.enabled && (
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-600">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                         Fechado
                       </span>
                     )}
@@ -1086,14 +1086,14 @@ export default function ConfiguracoesIdentidade() {
             })}
           </div>
 
-          <p className="mt-2 text-xs text-gray-500">
+          <p className="mt-2 text-xs text-slate-500">
             Fechamento menor que a abertura indica virada de noite (ex.: 18:00 às
             02:00). Horários iguais significam funcionamento 24h naquele dia.
           </p>
 
-          {hoursError && <p className="mt-3 text-sm text-red-400">{hoursError}</p>}
+          {hoursError && <p className="mt-3 text-sm text-red-600">{hoursError}</p>}
           {hoursSuccess && (
-            <p className="mt-3 flex items-center gap-2 text-sm text-green-400">
+            <p className="mt-3 flex items-center gap-2 text-sm text-green-600">
               <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
               {hoursSuccess}
             </p>
@@ -1104,11 +1104,11 @@ export default function ConfiguracoesIdentidade() {
               type="button"
               onClick={handleSaveHours}
               disabled={isSavingHours || !selectedId}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSavingHours ? (
                 <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-950 border-t-transparent" />
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />
                   Salvando...
                 </>
               ) : (
@@ -1121,15 +1121,15 @@ export default function ConfiguracoesIdentidade() {
         {/* Entrega e frete: modelo fixo/por distância, raio e origem (CEP da loja) */}
         <section
           aria-labelledby="delivery-title"
-          className="rounded-2xl border border-gray-800 bg-gray-900/40 p-5 sm:p-6"
+          className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
         >
           <div className="flex items-center gap-2">
             <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-yellow-400" />
-            <h2 id="delivery-title" className="font-semibold text-white">
+            <h2 id="delivery-title" className="font-semibold text-slate-900">
               Entrega e Frete
             </h2>
           </div>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-slate-600">
             Defina como a taxa de entrega é calculada. No modelo por distância, a
             taxa base vale até a distância inclusa e cada km excedente é cobrado
             pelo valor adicional. O raio máximo vale para os dois modelos e o
@@ -1140,7 +1140,7 @@ export default function ConfiguracoesIdentidade() {
             <div>
               <label
                 htmlFor="delivery-type"
-                className="mb-1.5 block text-sm font-medium text-gray-300"
+                className="mb-1.5 block text-sm font-medium text-slate-700"
               >
                 Modelo de entrega
               </label>
@@ -1160,7 +1160,7 @@ export default function ConfiguracoesIdentidade() {
             <div>
               <label
                 htmlFor="delivery-fee"
-                className="mb-1.5 block text-sm font-medium text-gray-300"
+                className="mb-1.5 block text-sm font-medium text-slate-700"
               >
                 {deliveryForm.delivery_type === "distance"
                   ? "Taxa fixa de fallback (R$)"
@@ -1177,18 +1177,18 @@ export default function ConfiguracoesIdentidade() {
                 placeholder="0,00"
                 className={deliveryInputClass}
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 {deliveryForm.delivery_type === "distance"
                   ? "Usada quando não for possível calcular a distância até o cliente."
                   : "Valor cobrado em todos os pedidos de entrega."}
               </p>
             </div>
           </div>
-          <div className="mt-4 rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">
               Previsão de entrega
             </p>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-slate-500">
               Janela informada ao cliente no rastreio do pedido. O horário previsto
               é calculado a partir do tempo máximo.
             </p>
@@ -1196,7 +1196,7 @@ export default function ConfiguracoesIdentidade() {
               <div>
                 <label
                   htmlFor="estimated-delivery-min"
-                  className="mb-1.5 block text-sm font-medium text-gray-300"
+                  className="mb-1.5 block text-sm font-medium text-slate-700"
                 >
                   Tempo mínimo (min)
                 </label>
@@ -1221,7 +1221,7 @@ export default function ConfiguracoesIdentidade() {
               <div>
                 <label
                   htmlFor="estimated-delivery-max"
-                  className="mb-1.5 block text-sm font-medium text-gray-300"
+                  className="mb-1.5 block text-sm font-medium text-slate-700"
                 >
                   Tempo máximo (min)
                 </label>
@@ -1249,15 +1249,15 @@ export default function ConfiguracoesIdentidade() {
 
 
           {deliveryForm.delivery_type === "distance" && (
-            <div className="mt-4 rounded-xl border border-gray-800 bg-gray-950/40 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">
                 Cálculo por distância
               </p>
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div>
                   <label
                     htmlFor="distance-base-km"
-                    className="mb-1.5 block text-sm font-medium text-gray-300"
+                    className="mb-1.5 block text-sm font-medium text-slate-700"
                   >
                     Distância inclusa (km)
                   </label>
@@ -1276,7 +1276,7 @@ export default function ConfiguracoesIdentidade() {
                 <div>
                   <label
                     htmlFor="distance-base-fee"
-                    className="mb-1.5 block text-sm font-medium text-gray-300"
+                    className="mb-1.5 block text-sm font-medium text-slate-700"
                   >
                     Taxa base (R$)
                   </label>
@@ -1295,7 +1295,7 @@ export default function ConfiguracoesIdentidade() {
                 <div>
                   <label
                     htmlFor="distance-extra-km-fee"
-                    className="mb-1.5 block text-sm font-medium text-gray-300"
+                    className="mb-1.5 block text-sm font-medium text-slate-700"
                   >
                     Valor por km excedente (R$)
                   </label>
@@ -1312,7 +1312,7 @@ export default function ConfiguracoesIdentidade() {
                   />
                 </div>
               </div>
-              <p className="mt-2 text-xs text-gray-500">
+              <p className="mt-2 text-xs text-slate-500">
                 Exemplo: base de 3 km por R$ 5,00 + R$ 1,50/km excedente. Um pedido
                 a 5 km custa R$ 8,00.
               </p>
@@ -1322,7 +1322,7 @@ export default function ConfiguracoesIdentidade() {
             <div>
               <label
                 htmlFor="max-delivery-radius"
-                className="mb-1.5 block text-sm font-medium text-gray-300"
+                className="mb-1.5 block text-sm font-medium text-slate-700"
               >
                 Raio máximo de entrega (km)
               </label>
@@ -1337,7 +1337,7 @@ export default function ConfiguracoesIdentidade() {
                 placeholder="Sem limite"
                 className={deliveryInputClass}
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 Deixe vazio para não limitar. Endereços além do raio são
                 bloqueados no checkout.
               </p>
@@ -1346,7 +1346,7 @@ export default function ConfiguracoesIdentidade() {
             <div>
               <label
                 htmlFor="store-cep"
-                className="mb-1.5 block text-sm font-medium text-gray-300"
+                className="mb-1.5 block text-sm font-medium text-slate-700"
               >
                 CEP da loja (origem do cálculo)
               </label>
@@ -1367,13 +1367,13 @@ export default function ConfiguracoesIdentidade() {
                   type="button"
                   onClick={() => void handleLookupStoreCep()}
                   disabled={isGeocodingStore || !selectedId}
-                  className="shrink-0 rounded-xl border border-yellow-400/40 bg-yellow-400/10 px-4 py-2.5 text-sm font-semibold text-yellow-300 transition hover:bg-yellow-400/20 focus:outline-none focus:ring-2 focus:ring-yellow-400/40 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-600 transition hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isGeocodingStore ? "Buscando..." : "Buscar localização"}
                 </button>
               </div>
               {storeLocation ? (
-                <p className="mt-1.5 flex items-start gap-1.5 text-xs text-green-400">
+                <p className="mt-1.5 flex items-start gap-1.5 text-xs text-green-600">
                   <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-green-400" />
                   <span>
                     {storeLocation.label} · {storeLocation.latitude.toFixed(5)},{" "}
@@ -1381,7 +1381,7 @@ export default function ConfiguracoesIdentidade() {
                   </span>
                 </p>
               ) : (
-                <p className="mt-1.5 text-xs text-amber-400">
+                <p className="mt-1.5 text-xs text-amber-600">
                   Informe o CEP e clique em “Buscar localização” — as coordenadas
                   são necessárias para calcular a distância até o cliente.
                 </p>
@@ -1390,16 +1390,16 @@ export default function ConfiguracoesIdentidade() {
           </div>
 
           {deliveryError && (
-            <p className="mt-3 text-sm text-red-400">{deliveryError}</p>
+            <p className="mt-3 text-sm text-red-600">{deliveryError}</p>
           )}
           {deliverySuccess && (
-            <p className="mt-3 flex items-center gap-2 text-sm text-green-400">
+            <p className="mt-3 flex items-center gap-2 text-sm text-green-600">
               <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
               {deliverySuccess}
             </p>
           )}
           {deliveryWarning && (
-            <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-300">
+            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
               {deliveryWarning}
             </p>
           )}
@@ -1409,11 +1409,11 @@ export default function ConfiguracoesIdentidade() {
               type="button"
               onClick={() => void handleSaveDelivery()}
               disabled={isSavingDelivery || !selectedId}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSavingDelivery ? (
                 <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-950 border-t-transparent" />
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />
                   Salvando...
                 </>
               ) : (
@@ -1426,18 +1426,18 @@ export default function ConfiguracoesIdentidade() {
         {/* Envio do resumo do pedido no WhatsApp (migração 20261110000016) */}
         <section
           aria-labelledby="whatsapp-checkout-title"
-          className="rounded-2xl border border-gray-800 bg-gray-900/40 p-5 sm:p-6"
+          className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
         >
           <div className="flex items-center gap-2">
             <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-yellow-400" />
             <h2
               id="whatsapp-checkout-title"
-              className="font-semibold text-white"
+              className="font-semibold text-slate-900"
             >
               Pedidos no WhatsApp
             </h2>
           </div>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="mt-1 text-xs text-slate-600">
             O pedido continua sendo registrado no painel normalmente. Com esta
             opção ativa, o cliente vê ao finalizar o checkout um botão para
             enviar o resumo completo (itens, adicionais, endereço e valores)
@@ -1448,7 +1448,7 @@ export default function ConfiguracoesIdentidade() {
           <div className="mt-4">
             <label
               htmlFor="store-whatsapp"
-              className="mb-1.5 block text-sm font-medium text-gray-300"
+              className="mb-1.5 block text-sm font-medium text-slate-700"
             >
               Telefone / WhatsApp da loja
             </label>
@@ -1473,7 +1473,7 @@ export default function ConfiguracoesIdentidade() {
             <p
               id="store-whatsapp-hint"
               className={`mt-1 text-xs ${
-                whatsappInvalid ? "text-red-400" : "text-gray-500"
+                whatsappInvalid ? "text-red-600" : "text-slate-500"
               }`}
             >
               {whatsappInvalid
@@ -1482,16 +1482,16 @@ export default function ConfiguracoesIdentidade() {
             </p>
           </div>
 
-          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-950/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p
                 id="whatsapp-checkout-label"
-                className="text-sm font-medium text-gray-200"
+                className="text-sm font-medium text-slate-800"
               >
                 Enviar resumo do pedido para o WhatsApp do estabelecimento ao
                 finalizar
               </p>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 {whatsappPreview
                   ? `Número usado no checkout: ${whatsappPreview}`
                   : "Nenhum WhatsApp/telefone válido cadastrado — o botão não aparecerá no checkout até que um número seja cadastrado."}
@@ -1509,8 +1509,8 @@ export default function ConfiguracoesIdentidade() {
                 setWhatsappWarning(null);
               }}
               disabled={!selectedId || isSavingWhatsApp}
-              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-yellow-400/40 disabled:cursor-not-allowed disabled:opacity-60 ${
-                whatsappCheckoutEnabled ? "bg-yellow-400" : "bg-gray-700"
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-60 ${
+                whatsappCheckoutEnabled ? "bg-yellow-400" : "bg-slate-200"
               }`}
             >
               <span className="sr-only">
@@ -1526,21 +1526,21 @@ export default function ConfiguracoesIdentidade() {
           </div>
 
           {/* Modo catálogo (migração 17): sacola -> WhatsApp, sem checkout. */}
-          <div className="mt-3 flex flex-col gap-3 rounded-xl border border-gray-800 bg-gray-950/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-3 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p
                 id="direct-whatsapp-checkout-label"
-                className="text-sm font-medium text-gray-200"
+                className="text-sm font-medium text-slate-800"
               >
                 Modo catálogo: enviar pedido/orçamento direto no WhatsApp
               </p>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 Com esta opção ativa, o botão da sacola abre o WhatsApp da loja
                 com o pedido e o cliente não passa pelo checkout. Produtos sem
                 preço aparecem como “Sob Consulta” e o valor é combinado no
                 atendimento.
               </p>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 {whatsappPreview
                   ? `Pedido enviado para: ${whatsappPreview}`
                   : "Cadastre um WhatsApp válido acima para que o botão funcione na sacola."}
@@ -1558,8 +1558,8 @@ export default function ConfiguracoesIdentidade() {
                 setWhatsappWarning(null);
               }}
               disabled={!selectedId || isSavingWhatsApp}
-              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-yellow-400/40 disabled:cursor-not-allowed disabled:opacity-60 ${
-                directWhatsAppCheckout ? "bg-yellow-400" : "bg-gray-700"
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-60 ${
+                directWhatsAppCheckout ? "bg-yellow-400" : "bg-slate-200"
               }`}
             >
               <span className="sr-only">
@@ -1580,7 +1580,7 @@ export default function ConfiguracoesIdentidade() {
            */}
           {establishmentData &&
             establishmentData.whatsapp_checkout_enabled === undefined && (
-              <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-300">
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
                 A coluna <code>whatsapp_checkout_enabled</code> ainda não existe
                 no banco. Execute a migração{" "}
                 <code>20261110000016_add_whatsapp_checkout_setting.sql</code> no
@@ -1590,7 +1590,7 @@ export default function ConfiguracoesIdentidade() {
 
           {establishmentData &&
             establishmentData.direct_whatsapp_checkout === undefined && (
-              <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-300">
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
                 A coluna <code>direct_whatsapp_checkout</code> ainda não existe
                 no banco. Execute a migração{" "}
                 <code>20261110000017_add_direct_whatsapp_checkout.sql</code> no
@@ -1599,16 +1599,16 @@ export default function ConfiguracoesIdentidade() {
             )}
 
           {whatsappError && (
-            <p className="mt-3 text-sm text-red-400">{whatsappError}</p>
+            <p className="mt-3 text-sm text-red-600">{whatsappError}</p>
           )}
           {whatsappSuccess && (
-            <p className="mt-3 flex items-center gap-2 text-sm text-green-400">
+            <p className="mt-3 flex items-center gap-2 text-sm text-green-600">
               <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
               {whatsappSuccess}
             </p>
           )}
           {whatsappWarning && (
-            <p className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-300">
+            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
               {whatsappWarning}
             </p>
           )}
@@ -1618,11 +1618,11 @@ export default function ConfiguracoesIdentidade() {
               type="button"
               onClick={() => void handleSaveWhatsApp()}
               disabled={isSavingWhatsApp || !selectedId || whatsappInvalid}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSavingWhatsApp ? (
                 <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-950 border-t-transparent" />
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />
                   Salvando...
                 </>
               ) : (
@@ -1638,12 +1638,12 @@ export default function ConfiguracoesIdentidade() {
             const state = isLogo ? logo : banner;
             const currentUrl = isLogo ? establishmentData?.logo_url : establishmentData?.banner_url;
             return (
-              <section key={field.key} className="rounded-2xl border border-gray-800 bg-gray-900/40 p-5 sm:p-6">
+              <section key={field.key} className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
                 <div className="flex items-center gap-2">
                   <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-yellow-400" />
-                  <h2 className="font-semibold text-white">{field.label}</h2>
+                  <h2 className="font-semibold text-slate-900">{field.label}</h2>
                 </div>
-                <div className="mt-4 relative h-44 w-full overflow-hidden rounded-xl border border-gray-800 bg-gray-950">
+                <div className="mt-4 relative h-44 w-full overflow-hidden rounded-xl border border-slate-200 bg-white">
                   {/* Prévia instantânea (arquivo novo) tem prioridade sobre a imagem salva. */}
                   {(() => {
                     const previewSrc = state.previewUrl ?? currentUrl ?? null;
@@ -1657,26 +1657,26 @@ export default function ConfiguracoesIdentidade() {
                           className="h-full w-full object-contain"
                         />
                         {hasNewPreview ? (
-                          <div className="absolute right-2 top-2 flex items-center gap-1.5 rounded-full bg-yellow-400 px-2.5 py-1 text-[11px] font-semibold text-gray-950 shadow-md">
-                            <span className="h-1.5 w-1.5 rounded-full bg-gray-950/70" />
+                          <div className="absolute right-2 top-2 flex items-center gap-1.5 rounded-full bg-yellow-400 px-2.5 py-1 text-[11px] font-semibold text-slate-950 shadow-md">
+                            <span className="h-1.5 w-1.5 rounded-full bg-white" />
                             Novo · não salvo
                           </div>
                         ) : (
-                          <div className="absolute right-2 top-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] text-gray-300 ring-1 ring-white/10">
+                          <div className="absolute right-2 top-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] text-slate-900 ring-1 ring-white/10">
                             <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
                             Atual
                           </div>
                         )}
                         {state.status === "uploading" && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-gray-950/60">
-                            <span className="h-6 w-6 animate-spin rounded-full border-2 border-yellow-400 border-t-transparent" />
+                          <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
+                            <span className="h-6 w-6 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
                           </div>
                         )}
                       </>
                     ) : (
                       /* Estado vazio elegante: ícone discreto + texto auxiliar. */
                       <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center">
-                        <span className="rounded-xl border border-dashed border-gray-700 bg-gray-900/60 p-3">
+                        <span className="rounded-xl border border-dashed border-slate-300 bg-white p-3">
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
                             fill="none"
@@ -1684,7 +1684,7 @@ export default function ConfiguracoesIdentidade() {
                             strokeWidth={1.5}
                             stroke="currentColor"
                             aria-hidden="true"
-                            className="h-6 w-6 text-gray-600"
+                            className="h-6 w-6 text-slate-500"
                           >
                             <path
                               strokeLinecap="round"
@@ -1693,21 +1693,21 @@ export default function ConfiguracoesIdentidade() {
                             />
                           </svg>
                         </span>
-                        <p className="text-sm font-medium text-gray-500">{field.emptyText}</p>
-                        <p className="text-xs text-gray-600">{field.hint}</p>
+                        <p className="text-sm font-medium text-slate-500">{field.emptyText}</p>
+                        <p className="text-xs text-slate-500">{field.hint}</p>
                       </div>
                     );
                   })()}
                 </div>
 
                 <div className="mt-4">
-                  <label className="mb-1.5 block text-sm font-medium text-gray-300">
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
                     {state.status === "stored" ? "Alterar imagem" : "Enviar nova imagem"}
                   </label>
                   <input
                     type="file"
                     accept={ACCEPT_ATTR}
-                    className="w-full cursor-pointer rounded-xl border border-gray-700 bg-gray-950 px-3 py-2.5 text-sm text-gray-100 outline-none transition hover:border-gray-600 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-yellow-400/15 file:px-4 file:py-2.5 file:text-gray-950 hover:file:bg-yellow-400/20"
+                    className="w-full cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition hover:border-slate-300 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-amber-100 file:px-4 file:py-2.5 file:text-slate-950 hover:file:bg-amber-100"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       // Zera o input para permitir reselecionar o mesmo arquivo.
@@ -1715,18 +1715,18 @@ export default function ConfiguracoesIdentidade() {
                       if (file) void handleFile(field.key, file);
                     }}
                   />
-                  {state.error && <p className="mt-1.5 text-xs text-red-400">{state.error}</p>}
+                  {state.error && <p className="mt-1.5 text-xs text-red-600">{state.error}</p>}
                   {state.status === "uploading" && (
-                    <p className="mt-1.5 flex items-center gap-2 text-xs text-gray-400">
-                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-yellow-400 border-t-transparent" />
+                    <p className="mt-1.5 flex items-center gap-2 text-xs text-slate-600">
+                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
                       Enviando...
                     </p>
                   )}
                   {state.status === "stored" && state.url && (
-                    <p className="mt-1.5 flex items-center gap-2 text-xs text-green-400">
+                    <p className="mt-1.5 flex items-center gap-2 text-xs text-green-600">
                       <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
                       Pronto. Clique em {" "}
-                      <button type="button" className="font-semibold text-yellow-300 hover:underline" onClick={() => clearPreview(field.key)}>
+                      <button type="button" className="font-semibold text-amber-600 hover:underline" onClick={() => clearPreview(field.key)}>
                         retirar
                       </button>{" "}
                       e salvar.
@@ -1738,17 +1738,17 @@ export default function ConfiguracoesIdentidade() {
           })}
         </div>
 
-        {loadError && <p className="text-sm text-red-400">{loadError}</p>}
-        {saveError && <p className="text-sm text-red-400">{saveError}</p>}
+        {loadError && <p className="text-sm text-red-600">{loadError}</p>}
+        {saveError && <p className="text-sm text-red-600">{saveError}</p>}
 
         <div className="flex justify-end pt-2">
           <button
             type="button"
             onClick={handleSave}
             disabled={!hasStored || isSaving}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSaving ? (<><span className="h-4 w-4 animate-spin rounded-full border-2 border-gray-950 border-t-transparent" />Salvando...</>) : ("Salvar alterações")}
+            {isSaving ? (<><span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />Salvando...</>) : ("Salvar alterações")}
           </button>
         </div>
       </main>

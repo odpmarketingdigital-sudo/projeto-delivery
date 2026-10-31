@@ -62,20 +62,20 @@ export function TrialBanner({
     : "/painel/assinatura";
 
   return (
-    <div className="mx-auto w-full max-w-7xl px-4 pt-4 sm:px-6">
+    <div className="mx-auto w-full max-w-7xl px-4 pt-4 sm:px-6 lg:px-8">
       <div
         role="status"
         className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-4 py-3 text-sm ${
           urgent
-            ? "border-red-500/40 bg-red-500/10 text-red-100"
-            : "border-yellow-400/30 bg-yellow-400/10 text-yellow-100"
+            ? "border-red-300 bg-red-50 text-red-700"
+            : "border-amber-200 bg-amber-50 text-amber-800"
         }`}
       >
         <span
           className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${
             urgent
-              ? "bg-red-500/20 text-red-200"
-              : "bg-yellow-400/20 text-yellow-200"
+              ? "bg-red-100 text-red-700"
+              : "bg-amber-100 text-amber-700"
           }`}
         >
           <svg
@@ -103,10 +103,10 @@ export function TrialBanner({
 
         <Link
           href={href}
-          className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 ${
+          className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${
             urgent
               ? "bg-red-500 text-white hover:bg-red-400 focus-visible:ring-red-300"
-              : "bg-yellow-400 text-gray-950 hover:bg-yellow-300 focus-visible:ring-yellow-200"
+              : "bg-yellow-400 text-slate-950 hover:bg-yellow-300 focus-visible:ring-amber-400"
           }`}
         >
           Assinar Agora

@@ -112,16 +112,16 @@ export function PainelDashboard() {
   }, [data]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-950">
+    <div className="flex flex-1 flex-col">
       <AdminHeader establishmentId={selectedId} isSuperAdmin={isSuperAdmin} />
 
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 p-4 sm:p-6 lg:p-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
               Dashboard de Vendas
             </h1>
-            <p className="mt-1 text-sm text-gray-400">
+            <p className="mt-1 text-sm text-slate-600">
               Faturamento, ticket médio e evolução das vendas por período.
             </p>
           </div>
@@ -131,7 +131,7 @@ export function PainelDashboard() {
               <div>
                 <label
                   htmlFor="dashboard-establishment"
-                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500"
+                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500"
                 >
                   Estabelecimento
                 </label>
@@ -139,7 +139,7 @@ export function PainelDashboard() {
                   id="dashboard-establishment"
                   value={selectedId ?? ""}
                   onChange={(event) => select(event.target.value)}
-                  className="min-w-48 rounded-xl border border-gray-700 bg-gray-900 px-3 py-2.5 text-sm text-white"
+                  className="min-w-48 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900"
                 >
                   {establishments.map((establishment) => (
                     <option key={establishment.id} value={establishment.id}>
@@ -153,7 +153,7 @@ export function PainelDashboard() {
             <div>
               <label
                 htmlFor="dashboard-period"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500"
               >
                 Período
               </label>
@@ -163,7 +163,7 @@ export function PainelDashboard() {
                 onChange={(event) =>
                   handlePeriodChange(event.target.value as DashboardPeriod)
                 }
-                className="rounded-xl border border-gray-700 bg-gray-900 px-3 py-2.5 text-sm font-semibold text-white"
+                className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900"
               >
                 {PERIOD_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -176,7 +176,7 @@ export function PainelDashboard() {
             <div>
               <label
                 htmlFor="dashboard-value"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500"
               >
                 {period === "day" ? "Data" : period === "month" ? "Mês" : "Ano"}
               </label>
@@ -188,7 +188,7 @@ export function PainelDashboard() {
                   onChange={(event) =>
                     setValue(event.target.value || todayDateValue())
                   }
-                  className="rounded-xl border border-gray-700 bg-gray-900 px-3 py-2.5 text-sm text-white outline-none [color-scheme:dark] focus:border-yellow-400/60"
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none [color-scheme:light] focus:border-amber-500"
                 />
               )}
               {period === "month" && (
@@ -199,7 +199,7 @@ export function PainelDashboard() {
                   onChange={(event) =>
                     setValue(event.target.value || currentMonthValue())
                   }
-                  className="rounded-xl border border-gray-700 bg-gray-900 px-3 py-2.5 text-sm text-white outline-none [color-scheme:dark] focus:border-yellow-400/60"
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none [color-scheme:light] focus:border-amber-500"
                 />
               )}
               {period === "year" && (
@@ -207,7 +207,7 @@ export function PainelDashboard() {
                   id="dashboard-value"
                   value={value}
                   onChange={(event) => setValue(event.target.value)}
-                  className="rounded-xl border border-gray-700 bg-gray-900 px-3 py-2.5 text-sm text-white"
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900"
                 >
                   {yearOptions.map((year) => (
                     <option key={year} value={year}>
@@ -223,60 +223,60 @@ export function PainelDashboard() {
         {(error || estError) && (
           <p
             role="alert"
-            className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200"
+            className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
           >
             {error ?? estError}
           </p>
         )}
 
         {(isLoadingEst || isLoading) && (
-          <p className="text-sm text-gray-400">Carregando indicadores…</p>
+          <p className="text-sm text-slate-600">Carregando indicadores…</p>
         )}
 
         {!selectedId && !isLoadingEst && !estError && (
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-slate-600">
             Selecione um estabelecimento para visualizar o dashboard.
           </p>
         )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <article className="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+          <article className="rounded-2xl border border-slate-200 bg-white p-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Faturamento
             </p>
-            <p className="mt-2 text-2xl font-black tabular-nums text-yellow-300">
+            <p className="mt-2 text-2xl font-black tabular-nums text-amber-600">
               {formatBRL(data?.revenue ?? 0)}
             </p>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-slate-500">
               {periodLabel(period, value)} · pedidos não cancelados
             </p>
           </article>
 
-          <article className="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+          <article className="rounded-2xl border border-slate-200 bg-white p-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Pedidos
             </p>
-            <p className="mt-2 text-2xl font-black tabular-nums text-white">
+            <p className="mt-2 text-2xl font-black tabular-nums text-slate-900">
               {data?.orders ?? 0}
             </p>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-slate-500">
               Pedidos válidos no período
             </p>
           </article>
 
-          <article className="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+          <article className="rounded-2xl border border-slate-200 bg-white p-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Ticket médio
             </p>
-            <p className="mt-2 text-2xl font-black tabular-nums text-emerald-300">
+            <p className="mt-2 text-2xl font-black tabular-nums text-emerald-700">
               {formatBRL(data?.averageTicket ?? 0)}
             </p>
-            <p className="mt-1 text-xs text-gray-500">Faturamento ÷ pedidos</p>
+            <p className="mt-1 text-xs text-slate-500">Faturamento ÷ pedidos</p>
           </article>
         </div>
 
         {data && data.canceledOrders > 0 && (
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-slate-500">
             {data.canceledOrders} pedido
             {data.canceledOrders > 1 ? "s" : ""} cancelado
             {data.canceledOrders > 1 ? "s" : ""} não entra
@@ -284,43 +284,43 @@ export function PainelDashboard() {
           </p>
         )}
         <div className="grid gap-4 sm:grid-cols-2">
-          <article className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-300">
+          <article className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
               Dia de maior venda
             </p>
             {data?.topDay ? (
               <>
-                <p className="mt-2 text-xl font-black text-white">
+                <p className="mt-2 text-xl font-black text-slate-900">
                   {data.topDay.label}
                 </p>
-                <p className="mt-1 text-sm text-emerald-200">
+                <p className="mt-1 text-sm text-emerald-700">
                   {formatBRL(data.topDay.revenue)} · {data.topDay.orders} pedido
                   {data.topDay.orders > 1 ? "s" : ""}
                 </p>
               </>
             ) : (
-              <p className="mt-2 text-sm text-gray-400">
+              <p className="mt-2 text-sm text-slate-600">
                 Sem vendas no período selecionado.
               </p>
             )}
           </article>
 
-          <article className="rounded-2xl border border-gray-700 bg-gray-900/60 p-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+          <article className="rounded-2xl border border-slate-300 bg-white p-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">
               Dia de menor venda
             </p>
             {data?.bottomDay ? (
               <>
-                <p className="mt-2 text-xl font-black text-white">
+                <p className="mt-2 text-xl font-black text-slate-900">
                   {data.bottomDay.label}
                 </p>
-                <p className="mt-1 text-sm text-gray-400">
+                <p className="mt-1 text-sm text-slate-600">
                   {formatBRL(data.bottomDay.revenue)} · {data.bottomDay.orders}{" "}
                   pedido{data.bottomDay.orders > 1 ? "s" : ""}
                 </p>
               </>
             ) : (
-              <p className="mt-2 text-sm text-gray-400">
+              <p className="mt-2 text-sm text-slate-600">
                 Sem vendas no período selecionado.
               </p>
             )}
@@ -330,16 +330,16 @@ export function PainelDashboard() {
         {data?.topDay &&
           data?.bottomDay &&
           data.topDay.date === data.bottomDay.date && (
-            <p className="-mt-2 text-xs text-gray-500">
+            <p className="-mt-2 text-xs text-slate-500">
               Apenas um dia com vendas no período — maior e menor venda
               coincidem.
             </p>
           )}
-        <section className="rounded-2xl border border-gray-800 bg-gray-900/40 p-5">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <h2 className="font-semibold text-white">Evolução das vendas</h2>
-              <p className="mt-0.5 text-xs text-gray-500">
+              <h2 className="font-semibold text-slate-900">Evolução das vendas</h2>
+              <p className="mt-0.5 text-xs text-slate-500">
                 {period === "day"
                   ? "Faturamento por hora"
                   : period === "month"
@@ -347,7 +347,7 @@ export function PainelDashboard() {
                     : "Faturamento por mês"}
               </p>
             </div>
-            <span className="rounded-full border border-gray-700 px-3 py-1 text-xs font-semibold text-gray-300">
+            <span className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700">
               {periodLabel(period, value)}
             </span>
           </div>
@@ -376,12 +376,12 @@ export function PainelDashboard() {
                           className={`w-full rounded-t transition ${
                             point.revenue > 0
                               ? "bg-yellow-400 group-hover:bg-yellow-300"
-                              : "bg-gray-700"
+                              : "bg-slate-200"
                           }`}
                           style={{ height: `${height}%` }}
                         />
                       </div>
-                      <span className="whitespace-nowrap text-[9px] text-gray-500">
+                      <span className="whitespace-nowrap text-[9px] text-slate-500">
                         {point.label}
                       </span>
                     </div>
@@ -390,26 +390,26 @@ export function PainelDashboard() {
               </div>
             </div>
           ) : (
-            <p className="mt-4 rounded-xl border border-dashed border-gray-700 px-4 py-6 text-center text-sm text-gray-500">
+            <p className="mt-4 rounded-xl border border-dashed border-slate-300 px-4 py-6 text-center text-sm text-slate-500">
               Nenhuma venda registrada para {periodLabel(period, value)}.
             </p>
           )}
         </section>
-        <section className="rounded-2xl border border-gray-800 bg-gray-900/40 p-5">
+        <section className="rounded-2xl border border-slate-200 bg-white p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="font-semibold text-white">
+            <h2 className="font-semibold text-slate-900">
               Resumo por {period === "day" ? "hora" : period === "month" ? "dia" : "mês"}
             </h2>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-slate-500">
               {data?.orders ?? 0} pedido{(data?.orders ?? 0) === 1 ? "" : "s"} ·{" "}
               {formatBRL(data?.revenue ?? 0)}
             </span>
           </div>
 
           {data && data.series.length > 0 ? (
-            <div className="mt-3 max-h-72 overflow-auto rounded-xl border border-gray-800">
+            <div className="mt-3 max-h-72 overflow-auto rounded-xl border border-slate-200">
               <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 bg-gray-900 text-xs uppercase tracking-wider text-gray-500">
+                <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
                   <tr>
                     <th className="px-3.5 py-2.5 font-semibold">Período</th>
                     <th className="px-3.5 py-2.5 text-right font-semibold">
@@ -420,12 +420,12 @@ export function PainelDashboard() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800">
+                <tbody className="divide-y divide-slate-200">
                   {data.series.map((point) => (
                     <tr
                       key={point.key}
                       className={
-                        point.orders > 0 ? "text-gray-300" : "text-gray-600"
+                        point.orders > 0 ? "text-slate-700" : "text-slate-500"
                       }
                     >
                       <td className="px-3.5 py-2">{point.label}</td>
@@ -441,7 +441,7 @@ export function PainelDashboard() {
               </table>
             </div>
           ) : (
-            <p className="mt-3 text-sm text-gray-500">
+            <p className="mt-3 text-sm text-slate-500">
               Sem dados para o período selecionado.
             </p>
           )}

@@ -27,16 +27,16 @@ type StatusTone = "success" | "warning" | "danger";
 
 const TONE_STYLES: Record<StatusTone, { badge: string; title: string }> = {
   success: {
-    badge: "border-emerald-400/40 bg-emerald-400/10 text-emerald-300",
-    title: "text-emerald-300",
+    badge: "border-emerald-300 bg-emerald-50 text-emerald-700",
+    title: "text-emerald-700",
   },
   warning: {
-    badge: "border-yellow-400/40 bg-yellow-400/10 text-yellow-300",
-    title: "text-yellow-300",
+    badge: "border-amber-300 bg-amber-50 text-amber-600",
+    title: "text-amber-600",
   },
   danger: {
-    badge: "border-red-500/40 bg-red-500/10 text-red-300",
-    title: "text-red-300",
+    badge: "border-red-300 bg-red-50 text-red-600",
+    title: "text-red-600",
   },
 };
 
@@ -44,8 +44,8 @@ const TONE_STYLES: Record<StatusTone, { badge: string; title: string }> = {
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-3">
-      <dt className="shrink-0 text-gray-500">{label}</dt>
-      <dd className="min-w-0 truncate text-right font-medium text-gray-200">
+      <dt className="shrink-0 text-slate-500">{label}</dt>
+      <dd className="min-w-0 truncate text-right font-medium text-slate-800">
         {value}
       </dd>
     </div>
@@ -270,17 +270,17 @@ export default function AssinaturaPage() {
 
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 p-4 sm:p-6 lg:p-8">
         <div>
-          <h1 className="text-2xl font-bold text-white sm:text-3xl">
+          <h1 className="text-2xl font-bold text-slate-900 sm:text-3xl">
             Assinatura
           </h1>
-          <p className="mt-1 text-sm text-gray-400">
+          <p className="mt-1 text-sm text-slate-600">
             Acompanhe o período de testes e ative o Plano Profissional para
             manter o seu delivery no ar.
           </p>
         </div>
 
         {isSuperAdmin && (
-          <p className="rounded-xl border border-gray-700 bg-gray-900/60 px-4 py-3 text-sm text-gray-300">
+          <p className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-700">
             Você está logado como <strong>Super Admin</strong>. A assinatura é
             cobrada por loja — abra o painel de uma loja específica para
             gerenciar a cobrança dela.
@@ -288,7 +288,7 @@ export default function AssinaturaPage() {
         )}
 
         {isSchemaPending && (
-          <p className="rounded-xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-200">
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
             As colunas de assinatura ainda não existem no banco de dados.
             Execute a migração{" "}
             <code className="font-mono text-xs">
@@ -299,12 +299,12 @@ export default function AssinaturaPage() {
         )}
 
         {error && (
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">
             <span className="min-w-0 flex-1">{error}</span>
             <button
               type="button"
               onClick={() => void refresh()}
-              className="shrink-0 rounded-full border border-red-400/50 px-3 py-1 text-xs font-bold text-red-100 transition hover:bg-red-500/20"
+              className="shrink-0 rounded-full border border-red-300 px-3 py-1 text-xs font-bold text-red-700 transition hover:bg-red-100"
             >
               Tentar novamente
             </button>
@@ -313,9 +313,9 @@ export default function AssinaturaPage() {
 
         <div className="grid gap-5 lg:grid-cols-5">
           {/* Situação atual da conta ------------------------------------- */}
-          <section className="flex flex-col gap-3 rounded-2xl border border-gray-800 bg-gray-900/60 p-5 lg:col-span-2">
+          <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 lg:col-span-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-xs font-bold uppercase tracking-wide text-gray-500">
+              <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">
                 Situação da conta
               </h2>
               <span
@@ -326,7 +326,7 @@ export default function AssinaturaPage() {
             </div>
 
             {isLoading ? (
-              <p className="text-sm text-gray-400">
+              <p className="text-sm text-slate-600">
                 Carregando dados da assinatura...
               </p>
             ) : (
@@ -334,7 +334,7 @@ export default function AssinaturaPage() {
                 <p className={`text-lg font-bold ${TONE_STYLES[tone].title}`}>
                   {statusLabel}
                 </p>
-                <p className="text-sm text-gray-400">{description}</p>
+                <p className="text-sm text-slate-600">{description}</p>
 
                 <dl className="mt-1 space-y-2 text-sm">
                   <DetailRow
@@ -367,7 +367,7 @@ export default function AssinaturaPage() {
                 </dl>
 
                 {!isActive && (
-                  <p className="mt-auto rounded-xl border border-yellow-400/25 bg-yellow-400/10 px-3 py-2 text-xs font-medium text-yellow-200">
+                  <p className="mt-auto rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
                     Pedidos, produtos, clientes e dashboard ficam bloqueados até
                     a ativação. Apenas a tela de Configurações continua
                     liberada.
@@ -378,27 +378,27 @@ export default function AssinaturaPage() {
           </section>
 
           {/* Card do plano ---------------------------------------------- */}
-          <section className="relative flex flex-col gap-5 rounded-2xl border border-yellow-400/30 bg-gradient-to-b from-gray-900 via-gray-900 to-gray-950 p-5 sm:p-6 lg:col-span-3">
+          <section className="relative flex flex-col gap-5 rounded-2xl border border-amber-200 bg-gradient-to-b from-white via-white to-slate-50 p-5 sm:p-6 lg:col-span-3">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
-                <span className="inline-flex items-center rounded-full bg-yellow-400 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-gray-950">
+                <span className="inline-flex items-center rounded-full bg-yellow-400 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-slate-950">
                   Plano único
                 </span>
-                <h2 className="mt-2 text-xl font-bold text-white sm:text-2xl">
+                <h2 className="mt-2 text-xl font-bold text-slate-900 sm:text-2xl">
                   {IPEPPER_PRO_PLAN.name}
                 </h2>
-                <p className="mt-1 max-w-md text-sm text-gray-400">
+                <p className="mt-1 max-w-md text-sm text-slate-600">
                   {IPEPPER_PRO_PLAN.tagline}
                 </p>
               </div>
               <div className="shrink-0 text-left sm:text-right">
-                <p className="text-3xl font-extrabold text-white sm:text-4xl">
+                <p className="text-3xl font-extrabold text-slate-900 sm:text-4xl">
                   {selectedCycle.totalLabel}
                 </p>
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   por {selectedCycle.durationLabel}
                   {selectedCycle.discountPercent > 0 && (
-                    <span className="ml-2 rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+                    <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">
                       −{selectedCycle.discountPercent}%
                     </span>
                   )}
@@ -407,7 +407,7 @@ export default function AssinaturaPage() {
             </div>
 
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">
                 Forma de cobrança
               </h3>
               <div className="mt-2 grid gap-2 sm:grid-cols-3">
@@ -422,24 +422,24 @@ export default function AssinaturaPage() {
                       onClick={() => setCycleId(cycle.id)}
                       className={`rounded-xl border px-3 py-2.5 text-left transition ${
                         selected
-                          ? "border-yellow-400/70 bg-yellow-400/10"
-                          : "border-gray-700 bg-gray-950/40 hover:border-gray-600"
+                          ? "border-amber-400 bg-amber-50"
+                          : "border-slate-300 bg-slate-50 hover:border-slate-300"
                       }`}
                     >
                       <span className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold text-gray-100">
+                        <span className="text-sm font-semibold text-slate-900">
                           {cycle.label}
                         </span>
                         {cycle.discountPercent > 0 && (
-                          <span className="rounded-full bg-emerald-400/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300">
+                          <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">
                             −{cycle.discountPercent}%
                           </span>
                         )}
                       </span>
-                      <span className="mt-0.5 block text-sm font-bold tabular-nums text-white">
+                      <span className="mt-0.5 block text-sm font-bold tabular-nums text-slate-900">
                         {cycle.totalLabel}
                       </span>
-                      <span className="mt-0.5 block text-[11px] text-gray-500">
+                      <span className="mt-0.5 block text-[11px] text-slate-500">
                         {cycle.months === 1
                           ? "cobrança a cada mês"
                           : `equivale a ${cycle.monthlyEquivalentLabel}/mês`}
@@ -451,18 +451,18 @@ export default function AssinaturaPage() {
             </div>
 
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">
                 Recursos incluídos
               </h3>
               <ul className="mt-2 grid gap-2 sm:grid-cols-2">
                 {IPEPPER_PRO_PLAN.features.map((feature) => (
                   <li
                     key={feature}
-                    className="flex items-start gap-2 text-sm text-gray-300"
+                    className="flex items-start gap-2 text-sm text-slate-700"
                   >
                     <svg
                       aria-hidden="true"
-                      className="mt-0.5 h-4 w-4 shrink-0 text-yellow-400"
+                      className="mt-0.5 h-4 w-4 shrink-0 text-amber-600"
                       fill="none"
                       stroke="currentColor"
                       strokeWidth={2.5}
@@ -479,18 +479,18 @@ export default function AssinaturaPage() {
             </div>
 
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">
                 Formas de pagamento aceitas
               </h3>
               <ul className="mt-2 flex flex-wrap gap-2">
                 {IPEPPER_PRO_PLAN.paymentMethods.map((method) => (
                   <li
                     key={method.label}
-                    className="rounded-full border border-gray-700 bg-gray-950/60 px-3 py-1.5 text-xs font-semibold text-gray-200"
+                    className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-800"
                   >
                     {method.label}
                     {method.note && (
-                      <span className="ml-1 font-medium text-gray-500">
+                      <span className="ml-1 font-medium text-slate-500">
                         · {method.note}
                       </span>
                     )}
@@ -504,11 +504,11 @@ export default function AssinaturaPage() {
                 type="button"
                 onClick={handleSubscribe}
                 disabled={status === "active" || isLoading}
-                className="w-full rounded-xl bg-yellow-400 px-4 py-3 text-base font-extrabold text-gray-950 transition hover:bg-yellow-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-200 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-900 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-xl bg-yellow-400 px-4 py-3 text-base font-extrabold text-slate-950 transition hover:bg-yellow-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {status === "active" ? "Plano ativo" : "Assinar Agora"}
               </button>
-              <p className="text-center text-xs text-gray-500">
+              <p className="text-center text-xs text-slate-500">
                 {selectedCycle.label} · {selectedCycle.totalLabel} por{" "}
                 {selectedCycle.periodLabel} · pagamento seguro, com acesso
                 liberado após a confirmação.
@@ -518,7 +518,7 @@ export default function AssinaturaPage() {
             {notice && (
               <p
                 role="status"
-                className="rounded-xl border border-yellow-400/30 bg-yellow-400/10 px-3 py-2 text-sm font-medium text-yellow-200"
+                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700"
               >
                 {notice}
               </p>

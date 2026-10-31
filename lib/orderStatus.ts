@@ -3,7 +3,7 @@ import type { OrderStatus } from "@/lib/types";
 /** Metadados visuais de cada status de pedido no painel. */
 export interface OrderStatusMeta {
   label: string;
-  /** Classes do badge (fundo/texto/anel) no tema escuro do painel. */
+  /** Classes do badge (fundo/texto/anel) no tema claro do painel. */
   badgeClass: string;
   /** Cor do ponto indicador. */
   dotClass: string;
@@ -12,27 +12,27 @@ export interface OrderStatusMeta {
 export const ORDER_STATUS_META: Record<OrderStatus, OrderStatusMeta> = {
   pendente: {
     label: "Pendente",
-    badgeClass: "bg-yellow-400/15 text-yellow-300 ring-yellow-400/30",
+    badgeClass: "bg-amber-100 text-amber-700 ring-amber-200",
     dotClass: "bg-yellow-400",
   },
   preparando: {
     label: "Em Preparo",
-    badgeClass: "bg-sky-400/15 text-sky-300 ring-sky-400/30",
+    badgeClass: "bg-sky-100 text-sky-700 ring-sky-200",
     dotClass: "bg-sky-400",
   },
   entrega: {
     label: "Saiu para Entrega",
-    badgeClass: "bg-orange-400/15 text-orange-300 ring-orange-400/30",
+    badgeClass: "bg-orange-100 text-orange-700 ring-orange-200",
     dotClass: "bg-orange-400",
   },
   finalizado: {
     label: "Concluído",
-    badgeClass: "bg-emerald-400/15 text-emerald-300 ring-emerald-400/30",
+    badgeClass: "bg-emerald-100 text-emerald-700 ring-emerald-200",
     dotClass: "bg-emerald-500",
   },
   cancelado: {
     label: "Cancelado",
-    badgeClass: "bg-red-500/15 text-red-300 ring-red-500/30",
+    badgeClass: "bg-red-100 text-red-700 ring-red-200",
     dotClass: "bg-red-500",
   },
 };

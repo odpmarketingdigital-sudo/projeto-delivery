@@ -59,7 +59,7 @@ function toFormState(editing: MenuProduct | null): FormState {
 }
 
 const inputClass =
-  "w-full rounded-xl border border-gray-700 bg-gray-900/60 px-3.5 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none transition focus:border-yellow-400/60";
+  "w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-gray-500 outline-none transition focus:border-amber-500";
 
 /** Bucket do Supabase Storage onde as imagens de produto são enviadas. */
 const PRODUCTS_BUCKET = "products";
@@ -275,13 +275,13 @@ export function ProductFormModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-gray-800 bg-gray-900 shadow-xl">
-        <div className="border-b border-gray-800 px-5 py-4">
-          <h2 className="text-lg font-bold text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-lg font-bold text-slate-900">
             {editing ? "Editar produto" : "Novo produto"}
           </h2>
-          <p className="mt-0.5 text-xs text-gray-500">
+          <p className="mt-0.5 text-xs text-slate-500">
             {editing
               ? "Ajuste os dados e a disponibilidade do item."
               : "Adicione um item ao cardápio do estabelecimento."}
@@ -293,7 +293,7 @@ export function ProductFormModal({
           className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-4"
         >
           <div>
-            <label htmlFor="p-name" className="mb-1.5 block text-sm font-semibold text-gray-200">
+            <label htmlFor="p-name" className="mb-1.5 block text-sm font-semibold text-slate-800">
               Nome
             </label>
             <input
@@ -307,7 +307,7 @@ export function ProductFormModal({
           </div>
 
           <div>
-            <label htmlFor="p-category" className="mb-1.5 block text-sm font-semibold text-gray-200">
+            <label htmlFor="p-category" className="mb-1.5 block text-sm font-semibold text-slate-800">
               Categoria
             </label>
             <select
@@ -326,8 +326,8 @@ export function ProductFormModal({
           </div>
 
           <div>
-            <label htmlFor="p-desc" className="mb-1.5 block text-sm font-semibold text-gray-200">
-              Descrição <span className="font-normal text-gray-500">(opcional)</span>
+            <label htmlFor="p-desc" className="mb-1.5 block text-sm font-semibold text-slate-800">
+              Descrição <span className="font-normal text-slate-500">(opcional)</span>
             </label>
             <textarea
               id="p-desc"
@@ -342,7 +342,7 @@ export function ProductFormModal({
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label htmlFor="p-price" className="mb-1.5 block text-sm font-semibold text-gray-200">
+              <label htmlFor="p-price" className="mb-1.5 block text-sm font-semibold text-slate-800">
                 Preço (R$)
               </label>
               <input
@@ -355,7 +355,7 @@ export function ProductFormModal({
               />
             </div>
             <div>
-              <label htmlFor="p-status" className="mb-1.5 block text-sm font-semibold text-gray-200">
+              <label htmlFor="p-status" className="mb-1.5 block text-sm font-semibold text-slate-800">
                 Status
               </label>
               <select
@@ -371,16 +371,16 @@ export function ProductFormModal({
           </div>
 
           {/* Controle de estoque: desativado = ilimitado; ativado = quantidade. */}
-          <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-3.5">
+          <div className="rounded-xl border border-slate-200 bg-white p-3.5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p
                   id="p-track-stock-label"
-                  className="text-sm font-semibold text-gray-200"
+                  className="text-sm font-semibold text-slate-800"
                 >
                   Controlar estoque?
                 </p>
-                <p className="mt-0.5 text-xs text-gray-500">
+                <p className="mt-0.5 text-xs text-slate-500">
                   Desativado = estoque ilimitado. Ativado = o item fica
                   &quot;Esgotado&quot; na vitrine ao chegar a zero.
                 </p>
@@ -391,8 +391,8 @@ export function ProductFormModal({
                 aria-checked={form.track_stock}
                 aria-labelledby="p-track-stock-label"
                 onClick={() => set({ track_stock: !form.track_stock })}
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-yellow-400/50 ${
-                  form.track_stock ? "bg-yellow-400" : "bg-gray-700"
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
+                  form.track_stock ? "bg-yellow-400" : "bg-slate-200"
                 }`}
               >
                 <span
@@ -407,7 +407,7 @@ export function ProductFormModal({
               <div className="mt-3">
                 <label
                   htmlFor="p-stock"
-                  className="mb-1.5 block text-sm font-semibold text-gray-200"
+                  className="mb-1.5 block text-sm font-semibold text-slate-800"
                 >
                   Quantidade em estoque
                 </label>
@@ -427,7 +427,7 @@ export function ProductFormModal({
           </div>
 
           <div>
-            <label htmlFor="p-image-file" className="mb-1.5 block text-sm font-semibold text-gray-200">
+            <label htmlFor="p-image-file" className="mb-1.5 block text-sm font-semibold text-slate-800">
               Imagem do produto
             </label>
 
@@ -435,7 +435,7 @@ export function ProductFormModal({
             <div className="flex items-center gap-3">
               <label
                 htmlFor="p-image-file"
-                className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-xl border border-gray-700 bg-gray-900/60 px-3.5 py-2.5 text-sm font-semibold text-gray-200 transition hover:border-yellow-400/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex shrink-0 cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 transition hover:border-amber-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <svg
                   aria-hidden="true"
@@ -463,10 +463,10 @@ export function ProductFormModal({
               />
 
               {isUploading ? (
-                <span className="inline-flex items-center gap-2 text-xs text-gray-400">
+                <span className="inline-flex items-center gap-2 text-xs text-slate-600">
                   <svg
                     aria-hidden="true"
-                    className="h-4 w-4 animate-spin text-yellow-400"
+                    className="h-4 w-4 animate-spin text-amber-600"
                     fill="none"
                     viewBox="0 0 24 24"
                   >
@@ -487,7 +487,7 @@ export function ProductFormModal({
                   Enviando imagem...
                 </span>
               ) : (
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-slate-500">
                   PNG, JPG/JPEG ou WebP (até 5 MB)
                 </span>
               )}
@@ -495,7 +495,7 @@ export function ProductFormModal({
 
             {/* Alternativa: colar uma URL manualmente. */}
             <div className="mt-3">
-              <label htmlFor="p-image" className="mb-1.5 block text-xs font-medium text-gray-400">
+              <label htmlFor="p-image" className="mb-1.5 block text-xs font-medium text-slate-600">
                 ...ou cole a URL da imagem
               </label>
               <input
@@ -509,7 +509,7 @@ export function ProductFormModal({
 
             {form.image_url && (
               <div className="mt-2 flex items-center gap-3">
-                <div className="relative h-12 w-12 overflow-hidden rounded-lg bg-gray-800">
+                <div className="relative h-12 w-12 overflow-hidden rounded-lg bg-slate-100">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={form.image_url}
@@ -517,30 +517,30 @@ export function ProductFormModal({
                     className="h-full w-full object-cover"
                   />
                 </div>
-                <p className="text-xs text-gray-500">Pré-visualização da imagem.</p>
+                <p className="text-xs text-slate-500">Pré-visualização da imagem.</p>
               </div>
             )}
           </div>
 
           {error && (
-            <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400">
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600">
               {error}
             </p>
           )}
 
-          <div className="flex items-center justify-end gap-3 border-t border-gray-800 pt-4">
+          <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting || isUploading}
-              className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isSubmitting || isUploading}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-gray-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-200 disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {isSubmitting
                 ? "Salvando..."

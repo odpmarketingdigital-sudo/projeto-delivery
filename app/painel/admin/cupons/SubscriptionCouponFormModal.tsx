@@ -62,8 +62,8 @@ function toFormState(editing: SubscriptionCouponRecord | null): CouponFormState 
 }
 
 const inputClass =
-  "w-full rounded-xl border border-gray-700 bg-gray-900/60 px-3.5 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none transition focus:border-yellow-400/60";
-const labelClass = "mb-1.5 block text-sm font-semibold text-gray-200";
+  "w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-gray-500 outline-none transition focus:border-amber-500";
+const labelClass = "mb-1.5 block text-sm font-semibold text-slate-800";
 
 /**
  * Modal "Novo cupom de assinatura" / "Editar cupom de assinatura".
@@ -169,13 +169,13 @@ export function SubscriptionCouponFormModal({
   const usedCount = toSubscriptionCouponNumber(editing?.used_count ?? 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-gray-800 bg-gray-900 shadow-xl">
-        <div className="border-b border-gray-800 px-5 py-4">
-          <h2 className="text-lg font-bold text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-lg font-bold text-slate-900">
             {editing ? "Editar cupom de assinatura" : "Novo cupom de assinatura"}
           </h2>
-          <p className="mt-0.5 text-xs text-gray-500">
+          <p className="mt-0.5 text-xs text-slate-500">
             O desconto é aplicado sobre o total do período (mensal, semestral ou
             anual) no checkout da assinatura.
           </p>
@@ -198,7 +198,7 @@ export function SubscriptionCouponFormModal({
                 }
                 className={`${inputClass} font-mono uppercase tracking-wide`}
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 3 a 40 caracteres — letras, números, hífen ou sublinhado.
               </p>
             </div>
@@ -260,20 +260,20 @@ export function SubscriptionCouponFormModal({
                 onChange={(event) => set({ usageLimit: event.target.value })}
                 className={inputClass}
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-slate-500">
                 Deixe em branco para usos ilimitados.
                 {editing ? ` Já utilizado ${usedCount}×.` : ""}
               </p>
             </div>
 
-            <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2.5">
+            <label className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
               <input
                 type="checkbox"
                 checked={form.active}
                 onChange={(event) => set({ active: event.target.checked })}
-                className="h-4 w-4 rounded border-gray-600 bg-gray-900 text-yellow-400 focus:ring-yellow-400/40"
+                className="h-4 w-4 rounded border-slate-300 bg-white text-amber-600 focus:ring-amber-400/40"
               />
-              <span className="text-sm font-medium text-gray-200">
+              <span className="text-sm font-medium text-slate-800">
                 Cupom ativo (pode ser usado no checkout)
               </span>
             </label>
@@ -281,26 +281,26 @@ export function SubscriptionCouponFormModal({
             {error && (
               <p
                 role="alert"
-                className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400"
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600"
               >
                 {error}
               </p>
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-3 border-t border-gray-800 px-5 py-4">
+          <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 disabled:opacity-60"
+              className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:opacity-60"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSubmitting
                 ? "Salvando..."

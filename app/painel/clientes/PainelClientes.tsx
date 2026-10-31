@@ -150,16 +150,16 @@ export function PainelClientes() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-950">
+    <div className="flex flex-1 flex-col">
       <AdminHeader establishmentId={selectedId} isSuperAdmin={isSuperAdmin} />
 
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 p-4 sm:p-6 lg:p-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
               Clientes
             </h1>
-            <p className="mt-1 text-sm text-gray-400">
+            <p className="mt-1 text-sm text-slate-600">
               Clientes que já pediram na loja, com histórico e faturamento.
             </p>
           </div>
@@ -168,7 +168,7 @@ export function PainelClientes() {
             <div>
               <label
                 htmlFor="clientes-busca"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
               >
                 Buscar
               </label>
@@ -178,7 +178,7 @@ export function PainelClientes() {
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Nome ou telefone"
-                className="w-64 rounded-xl border border-gray-800 bg-gray-900/50 px-3 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none transition focus:border-yellow-400/60"
+                className="w-64 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder-gray-500 outline-none transition focus:border-amber-500"
               />
             </div>
 
@@ -186,7 +186,7 @@ export function PainelClientes() {
               <div>
                 <label
                   htmlFor="clientes-estabelecimento"
-                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500"
+                  className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
                 >
                   Estabelecimento
                 </label>
@@ -195,7 +195,7 @@ export function PainelClientes() {
                   value={selectedId ?? ""}
                   onChange={(e) => select(e.target.value)}
                   disabled={isLoadingEst || establishments.length === 0}
-                  className="min-w-56 rounded-xl border border-gray-800 bg-gray-900/50 px-3 py-2.5 text-sm text-gray-200 outline-none transition focus:border-yellow-400/60 disabled:opacity-60"
+                  className="min-w-56 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-amber-500 disabled:opacity-60"
                 >
                   {establishments.map((est) => (
                     <option key={est.id} value={est.id}>
@@ -210,7 +210,7 @@ export function PainelClientes() {
               type="button"
               onClick={() => void fetchCustomers()}
               disabled={!selectedId || isLoading}
-              className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isLoading ? "Atualizando…" : "Atualizar"}
             </button>
@@ -218,27 +218,27 @@ export function PainelClientes() {
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Clientes
             </p>
-            <p className="mt-1 text-2xl font-bold tabular-nums text-white">
+            <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
               {summary.customers}
             </p>
           </div>
-          <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Pedidos válidos
             </p>
-            <p className="mt-1 text-2xl font-bold tabular-nums text-white">
+            <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
               {summary.orders}
             </p>
           </div>
-          <div className="rounded-xl border border-gray-800 bg-gray-900/40 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Faturamento acumulado
             </p>
-            <p className="mt-1 text-2xl font-bold tabular-nums text-yellow-300">
+            <p className="mt-1 text-2xl font-bold tabular-nums text-amber-600">
               {formatBRL(summary.revenue)}
             </p>
           </div>
@@ -247,24 +247,24 @@ export function PainelClientes() {
         {(error || estError) && (
           <p
             role="alert"
-            className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300"
+            className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600"
           >
             {error ?? estError}
           </p>
         )}
 
         {isLoadingEst || (isLoading && customers.length === 0) ? (
-          <p className="text-sm text-gray-400">Carregando clientes…</p>
+          <p className="text-sm text-slate-600">Carregando clientes…</p>
         ) : filtered.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-gray-700 px-4 py-10 text-center text-sm text-gray-500">
+          <p className="rounded-xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">
             {customers.length === 0
               ? "Nenhum cliente com pedidos nesta loja ainda."
               : "Nenhum cliente encontrado para a busca."}
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-gray-700/60">
+          <div className="overflow-x-auto rounded-xl border border-slate-300">
             <table className="w-full min-w-[860px] text-left text-sm">
-              <thead className="bg-gray-800/70 text-[11px] uppercase tracking-wider text-gray-400">
+              <thead className="bg-slate-100 text-[11px] uppercase tracking-wider text-slate-600">
                 <tr>
                   <th scope="col" className="px-4 py-3 font-bold">
                     Nome
@@ -286,21 +286,21 @@ export function PainelClientes() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-800">
+              <tbody className="divide-y divide-slate-200">
                 {filtered.map((customer) => {
                   const href = whatsappHref(customer.phone);
                   return (
-                    <tr key={customer.key} className="hover:bg-gray-800/40">
+                    <tr key={customer.key} className="hover:bg-slate-100">
                       <td className="px-4 py-3">
                         <button
                           type="button"
                           onClick={() => setSelectedCustomer(customer)}
-                          className="rounded-md text-left font-semibold text-white transition hover:text-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
+                          className="rounded-md text-left font-semibold text-slate-900 transition hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
                         >
                           {customer.name}
                         </button>
                         {customer.canceledOrders > 0 && (
-                          <p className="text-xs text-red-300/80">
+                          <p className="text-xs text-red-600/80">
                             {customer.canceledOrders} cancelado
                             {customer.canceledOrders > 1 ? "s" : ""}
                           </p>
@@ -313,28 +313,28 @@ export function PainelClientes() {
                             target="_blank"
                             rel="noopener noreferrer"
                             title="Abrir conversa no WhatsApp"
-                            className="font-medium tabular-nums text-emerald-300 transition hover:text-emerald-200 hover:underline"
+                            className="font-medium tabular-nums text-emerald-700 transition hover:text-emerald-700 hover:underline"
                           >
                             {formatPhone(customer.phone)}
                           </a>
                         ) : (
-                          <span className="text-gray-500">—</span>
+                          <span className="text-slate-500">—</span>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-gray-300">
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-700">
                         {customer.totalOrders}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-right font-bold tabular-nums text-yellow-300">
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-bold tabular-nums text-amber-600">
                         {formatBRL(customer.totalSpent)}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-gray-400">
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
                         {formatDateTime(customer.lastOrderAt)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right">
                         <button
                           type="button"
                           onClick={() => setSelectedCustomer(customer)}
-                          className="rounded-lg border border-gray-700 bg-gray-900/60 px-3 py-1.5 text-xs font-bold text-gray-200 transition hover:border-yellow-400/50 hover:text-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-400/40"
+                          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 transition hover:border-amber-300 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
                         >
                           Ver histórico
                         </button>

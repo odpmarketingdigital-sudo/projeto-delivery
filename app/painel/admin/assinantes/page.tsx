@@ -69,22 +69,22 @@ const STATUS_BADGES: Record<
 > = {
   active: {
     label: "Ativo",
-    className: "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
+    className: "border-emerald-200 bg-emerald-100 text-emerald-700",
     dotClassName: "bg-emerald-400",
   },
   trialing: {
     label: "Em Teste",
-    className: "border-sky-500/40 bg-sky-500/15 text-sky-300",
+    className: "border-sky-300 bg-sky-100 text-sky-700",
     dotClassName: "bg-sky-400",
   },
   past_due: {
     label: "Inadimplente",
-    className: "border-yellow-400/40 bg-yellow-400/15 text-yellow-300",
+    className: "border-amber-300 bg-amber-100 text-amber-600",
     dotClassName: "bg-yellow-400",
   },
   canceled: {
     label: "Cancelado",
-    className: "border-red-500/40 bg-red-500/15 text-red-300",
+    className: "border-red-300 bg-red-100 text-red-600",
     dotClassName: "bg-red-400",
   },
 };
@@ -308,7 +308,7 @@ export default function AdminAssinantesPage() {
   const hasFilters = search.length > 0 || statusFilter !== "todos";
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="flex flex-1 flex-col text-slate-900">
       <AdminHeader establishmentId={null} isSuperAdmin={isSuperAdmin} />
 
       <main className="px-4 py-8 sm:px-6 lg:px-10">
@@ -318,34 +318,34 @@ export default function AdminAssinantesPage() {
               <nav className="mb-3 flex flex-wrap items-center gap-3 text-sm font-semibold">
                 <Link
                   href="/painel/admin"
-                  className="text-gray-400 transition hover:text-white"
+                  className="text-slate-600 transition hover:text-slate-900"
                 >
                   ← Estabelecimentos
                 </Link>
-                <span aria-hidden="true" className="text-gray-700">
+                <span aria-hidden="true" className="text-slate-600">
                   |
                 </span>
                 <Link
                   href="/painel/admin/configuracoes"
-                  className="text-yellow-300 transition hover:text-yellow-200"
+                  className="text-amber-600 transition hover:text-amber-700"
                 >
                   Preço do plano
                 </Link>
-                <span aria-hidden="true" className="text-gray-700">
+                <span aria-hidden="true" className="text-slate-600">
                   |
                 </span>
                 <Link
                   href="/painel/admin/cupons"
-                  className="text-gray-400 transition hover:text-white"
+                  className="text-slate-600 transition hover:text-slate-900"
                 >
                   Cupons de assinatura
                 </Link>
               </nav>
 
-              <h1 className="text-3xl font-bold tracking-tight text-white">
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900">
                 Assinantes
               </h1>
-              <p className="mt-1 max-w-2xl text-sm text-gray-400">
+              <p className="mt-1 max-w-2xl text-sm text-slate-600">
                 Acompanhe a cobrança de cada loja e libere, prorrogue ou bloqueie
                 o acesso manualmente (Pix direto, dinheiro ou cortesia).
               </p>
@@ -353,7 +353,7 @@ export default function AdminAssinantesPage() {
 
             <Link
               href="/painel/admin/configuracoes"
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-yellow-400/40 bg-yellow-400/10 px-4 py-2.5 text-sm font-bold text-yellow-200 transition hover:bg-yellow-400/20"
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-bold text-amber-700 transition hover:bg-amber-100"
             >
               Configurar preço
             </Link>
@@ -365,7 +365,7 @@ export default function AdminAssinantesPage() {
               <div className="relative flex-1">
                 <svg
                   aria-hidden="true"
-                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500"
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -383,12 +383,12 @@ export default function AdminAssinantesPage() {
                   onChange={(event) => setSearchInput(event.target.value)}
                   placeholder="Buscar por loja, responsável ou e-mail..."
                   aria-label="Buscar assinantes"
-                  className="w-full rounded-xl border border-gray-800 bg-gray-900/50 py-2.5 pl-10 pr-3 text-sm text-gray-100 placeholder-gray-500 outline-none transition focus:border-yellow-400/60"
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 placeholder-gray-500 outline-none transition focus:border-amber-500"
                 />
               </div>
               <button
                 type="submit"
-                className="shrink-0 rounded-xl bg-gray-800 px-4 py-2.5 text-sm font-bold text-gray-100 transition hover:bg-gray-700"
+                className="shrink-0 rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-bold text-slate-900 transition hover:bg-slate-200"
               >
                 Buscar
               </button>
@@ -400,7 +400,7 @@ export default function AdminAssinantesPage() {
               onChange={(event) =>
                 handleStatusChange(event.target.value as StatusFilter)
               }
-              className="rounded-xl border border-gray-800 bg-gray-900/50 px-3 py-2.5 text-sm text-gray-200 outline-none transition focus:border-yellow-400/60 lg:w-56"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-amber-500 lg:w-56"
             >
               {STATUS_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -413,7 +413,7 @@ export default function AdminAssinantesPage() {
               <button
                 type="button"
                 onClick={clearFilters}
-                className="shrink-0 rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-300 transition hover:bg-gray-800"
+                className="shrink-0 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
               >
                 Limpar filtros
               </button>
@@ -421,7 +421,7 @@ export default function AdminAssinantesPage() {
           </section>
 
           {schemaPending && (
-            <p className="mb-4 rounded-xl border border-yellow-400/30 bg-yellow-400/10 px-4 py-3 text-sm text-yellow-200">
+            <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
               As colunas de assinatura ainda não existem no banco. Execute a
               migração{" "}
               <code className="font-mono text-xs">
@@ -434,14 +434,14 @@ export default function AdminAssinantesPage() {
           {actionError && (
             <div
               role="alert"
-              className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3"
+              className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3"
             >
-              <p className="text-sm font-medium text-red-200">{actionError}</p>
+              <p className="text-sm font-medium text-red-700">{actionError}</p>
               <button
                 type="button"
                 onClick={() => setActionError(null)}
                 aria-label="Fechar aviso de erro"
-                className="text-red-300 transition hover:text-red-200"
+                className="text-red-600 transition hover:text-red-700"
               >
                 ✕
               </button>
@@ -451,14 +451,14 @@ export default function AdminAssinantesPage() {
           {notice && (
             <div
               role="status"
-              className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3"
+              className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3"
             >
-              <p className="text-sm font-medium text-emerald-200">{notice}</p>
+              <p className="text-sm font-medium text-emerald-700">{notice}</p>
               <button
                 type="button"
                 onClick={() => setNotice(null)}
                 aria-label="Fechar aviso"
-                className="text-emerald-300 transition hover:text-emerald-200"
+                className="text-emerald-700 transition hover:text-emerald-700"
               >
                 ✕
               </button>
@@ -470,29 +470,29 @@ export default function AdminAssinantesPage() {
               {Array.from({ length: 5 }).map((_, index) => (
                 <div
                   key={index}
-                  className="h-16 animate-pulse rounded-xl border border-gray-800 bg-gray-900/60"
+                  className="h-16 animate-pulse rounded-xl border border-slate-200 bg-white"
                 />
               ))}
             </div>
           ) : loadError ? (
-            <div className="rounded-2xl border border-red-500/30 bg-red-500/5 p-6 text-center">
-              <p className="text-sm font-semibold text-red-200">{loadError}</p>
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-center">
+              <p className="text-sm font-semibold text-red-700">{loadError}</p>
               <button
                 type="button"
                 onClick={() => setReloadKey((key) => key + 1)}
-                className="mt-4 rounded-xl border border-red-400/40 px-4 py-2 text-sm font-bold text-red-200 transition hover:bg-red-500/15"
+                className="mt-4 rounded-xl border border-red-300 px-4 py-2 text-sm font-bold text-red-700 transition hover:bg-red-100"
               >
                 Tentar novamente
               </button>
             </div>
           ) : rows.length === 0 ? (
-            <div className="rounded-2xl border border-gray-800 bg-gray-900/50 p-10 text-center">
-              <p className="text-base font-semibold text-white">
+            <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center">
+              <p className="text-base font-semibold text-slate-900">
                 {hasFilters
                   ? "Nenhum assinante encontrado"
                   : "Nenhuma loja cadastrada"}
               </p>
-              <p className="mt-1 text-sm text-gray-400">
+              <p className="mt-1 text-sm text-slate-600">
                 {hasFilters
                   ? "Ajuste a busca ou o filtro de status para ver outros resultados."
                   : "As lojas aparecem aqui assim que o cadastro é concluído."}
@@ -501,17 +501,17 @@ export default function AdminAssinantesPage() {
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="mt-4 rounded-xl border border-gray-700 px-4 py-2 text-sm font-semibold text-gray-200 transition hover:bg-gray-800"
+                  className="mt-4 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
                 >
                   Limpar filtros
                 </button>
               )}
             </div>
           ) : (
-            <div className="overflow-hidden rounded-2xl border border-gray-800 bg-gray-900/50">
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[860px] text-left text-sm">
-                  <thead className="border-b border-gray-800 bg-gray-900/80 text-xs uppercase tracking-wide text-gray-500">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                     <tr>
                       <th scope="col" className="px-4 py-3 font-semibold">
                         Loja
@@ -537,7 +537,7 @@ export default function AdminAssinantesPage() {
                     </tr>
                   </thead>
 
-                  <tbody className="divide-y divide-gray-800/80">
+                  <tbody className="divide-y divide-slate-200">
                     {rows.map((row) => {
                       const status = row.subscription_status;
                       const badge = status ? STATUS_BADGES[status] : null;
@@ -553,18 +553,18 @@ export default function AdminAssinantesPage() {
                       return (
                         <tr
                           key={row.id}
-                          className="align-top transition hover:bg-gray-900/70"
+                          className="align-top transition hover:bg-slate-50"
                         >
                           <td className="px-4 py-4">
-                            <p className="font-semibold text-white">
+                            <p className="font-semibold text-slate-900">
                               {row.name || "—"}
                             </p>
-                            <p className="mt-0.5 text-xs text-gray-500">
+                            <p className="mt-0.5 text-xs text-slate-500">
                               {row.email || "sem e-mail"}
                             </p>
                           </td>
 
-                          <td className="px-4 py-4 text-gray-300">
+                          <td className="px-4 py-4 text-slate-700">
                             {row.owner_name || "—"}
                           </td>
 
@@ -575,17 +575,17 @@ export default function AdminAssinantesPage() {
                                   href={wa}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="font-medium text-emerald-300 transition hover:text-emerald-200"
+                                  className="font-medium text-emerald-700 transition hover:text-emerald-700"
                                 >
                                   {phoneLabel}
                                 </a>
                               ) : (
-                                <span className="text-gray-300">
+                                <span className="text-slate-700">
                                   {phoneLabel}
                                 </span>
                               )
                             ) : (
-                              <span className="text-gray-600">—</span>
+                              <span className="text-slate-500">—</span>
                             )}
                           </td>
 
@@ -601,7 +601,7 @@ export default function AdminAssinantesPage() {
                                   />
                                   {badge.label}
                                 </span>
-                                <p className="mt-1.5 text-xs text-gray-500">
+                                <p className="mt-1.5 text-xs text-slate-500">
                                   {status === "trialing" &&
                                   remaining !== null &&
                                   remaining >= 0
@@ -618,17 +618,17 @@ export default function AdminAssinantesPage() {
                                 </p>
                               </>
                             ) : (
-                              <span className="inline-flex items-center rounded-full border border-gray-700 bg-gray-800/60 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                              <span className="inline-flex items-center rounded-full border border-slate-300 bg-slate-100 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-slate-600">
                                 Sem assinatura
                               </span>
                             )}
                           </td>
 
                           <td className="px-4 py-4">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                               {expiry.label}
                             </p>
-                            <p className="mt-0.5 font-semibold text-gray-200">
+                            <p className="mt-0.5 font-semibold text-slate-800">
                               {expiry.date ?? "—"}
                             </p>
                           </td>
@@ -640,7 +640,7 @@ export default function AdminAssinantesPage() {
                                 onClick={() => void runAction(row, "activate")}
                                 disabled={isRowPending}
                                 title={`Ativar assinatura por ${MANUAL_ACTIVATION_DAYS} dias (pagamento direto/cortesia)`}
-                                className="rounded-lg bg-emerald-500/15 px-2.5 py-1.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="rounded-lg bg-emerald-100 px-2.5 py-1.5 text-xs font-bold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 {isPending("activate")
                                   ? "Ativando..."
@@ -654,7 +654,7 @@ export default function AdminAssinantesPage() {
                                 }
                                 disabled={isRowPending}
                                 title={`Prorrogar o período de testes por ${TRIAL_EXTENSION_DAYS} dias`}
-                                className="rounded-lg bg-sky-500/15 px-2.5 py-1.5 text-xs font-bold text-sky-300 transition hover:bg-sky-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="rounded-lg bg-sky-100 px-2.5 py-1.5 text-xs font-bold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 {isPending("extend_trial")
                                   ? "Prorrogando..."
@@ -666,7 +666,7 @@ export default function AdminAssinantesPage() {
                                 onClick={() => setCancelTarget(row)}
                                 disabled={isRowPending}
                                 title="Bloquear o acesso da loja imediatamente"
-                                className="rounded-lg bg-red-500/15 px-2.5 py-1.5 text-xs font-bold text-red-300 transition hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="rounded-lg bg-red-100 px-2.5 py-1.5 text-xs font-bold text-red-600 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                               >
                                 Bloquear
                               </button>
@@ -679,8 +679,8 @@ export default function AdminAssinantesPage() {
                 </table>
               </div>
 
-              <div className="flex flex-col items-center justify-between gap-3 border-t border-gray-800 px-4 py-3 sm:flex-row">
-                <p className="text-xs text-gray-500">
+              <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 sm:flex-row">
+                <p className="text-xs text-slate-500">
                   {pagination.total === 1
                     ? "1 assinante"
                     : `${pagination.total} assinantes`}
@@ -693,7 +693,7 @@ export default function AdminAssinantesPage() {
                     type="button"
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                     disabled={isLoading || pagination.page <= 1}
-                    className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-bold text-gray-300 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     ← Anterior
                   </button>
@@ -703,7 +703,7 @@ export default function AdminAssinantesPage() {
                     disabled={
                       isLoading || pagination.page >= pagination.totalPages
                     }
-                    className="rounded-lg border border-gray-700 px-3 py-1.5 text-xs font-bold text-gray-300 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     Próxima →
                   </button>
@@ -716,28 +716,28 @@ export default function AdminAssinantesPage() {
 
       {/* Confirmação de bloqueio */}
       {cancelTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/80 px-4 py-6">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 py-6">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="cancel-subscription-title"
-            className="w-full max-w-md rounded-2xl border border-gray-800 bg-gray-900 p-6 shadow-2xl"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl"
           >
             <h2
               id="cancel-subscription-title"
-              className="text-lg font-bold text-white"
+              className="text-lg font-bold text-slate-900"
             >
               Bloquear assinante?
             </h2>
-            <p className="mt-2 text-sm leading-relaxed text-gray-400">
+            <p className="mt-2 text-sm leading-relaxed text-slate-600">
               O acesso de{" "}
-              <strong className="text-gray-200">
+              <strong className="text-slate-800">
                 {cancelTarget.name || "esta loja"}
               </strong>{" "}
               será bloqueado imediatamente (status{" "}
-              <code className="font-mono text-xs text-gray-300">canceled</code>).
+              <code className="font-mono text-xs text-slate-700">canceled</code>).
               Você pode reativar depois pela ação{" "}
-              <strong className="text-gray-200">Ativar</strong>.
+              <strong className="text-slate-800">Ativar</strong>.
             </p>
 
             <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
@@ -745,7 +745,7 @@ export default function AdminAssinantesPage() {
                 type="button"
                 onClick={() => setCancelTarget(null)}
                 disabled={pendingKey !== null}
-                className="rounded-xl border border-gray-700 px-4 py-2 text-sm font-semibold text-gray-300 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Manter assinatura
               </button>

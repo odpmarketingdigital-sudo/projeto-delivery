@@ -10,6 +10,7 @@ import {
   SubscriptionProvider,
   useSubscription,
 } from "./components/SubscriptionProvider";
+import { PanelShell } from "./components/PanelShell";
 import { TrialBanner } from "./components/TrialBanner";
 
 /**
@@ -123,8 +124,8 @@ export function PainelGuard({ children }: { children: ReactNode }) {
   // 1) Carregando a sessão/perfil: ainda não sabemos quem é o usuário.
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-950">
-        <p className="text-sm font-medium text-gray-500">Carregando...</p>
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <p className="text-sm font-medium text-slate-500">Carregando...</p>
       </div>
     );
   }
@@ -137,15 +138,15 @@ export function PainelGuard({ children }: { children: ReactNode }) {
   // da rota dispararia o ciclo /login ⇄ /painel descrito no efeito acima.
   if (!isAuthenticated || !currentUser) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-950 px-4">
-        <div className="w-full max-w-md rounded-2xl border border-gray-800 bg-gray-900/60 p-6 text-center">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-yellow-400/15 text-2xl text-yellow-300">
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-2xl text-amber-600">
             🔒
           </span>
-          <h1 className="mt-4 text-lg font-bold text-white">
+          <h1 className="mt-4 text-lg font-bold text-slate-900">
             Sessão não identificada
           </h1>
-          <p className="mt-2 text-sm text-gray-400">
+          <p className="mt-2 text-sm text-slate-600">
             Não foi possível confirmar sua sessão neste navegador. Encerre a
             sessão e entre novamente para continuar.
           </p>
@@ -154,7 +155,7 @@ export function PainelGuard({ children }: { children: ReactNode }) {
           </div>
           <Link
             href="/login"
-            className="mt-3 inline-block text-xs font-semibold text-gray-400 underline-offset-2 hover:text-gray-200 hover:underline"
+            className="mt-3 inline-block text-xs font-semibold text-slate-600 underline-offset-2 hover:text-slate-800 hover:underline"
           >
             Ir para a tela de login
           </Link>
@@ -167,21 +168,21 @@ export function PainelGuard({ children }: { children: ReactNode }) {
   //      efeito acima levar para `/confirmar-email`.
   if (currentUser.emailConfirmed === false) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-950 px-4">
-        <div className="w-full max-w-md rounded-2xl border border-gray-800 bg-gray-900/60 p-6 text-center">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-yellow-400/15 text-2xl text-yellow-300">
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-2xl text-amber-600">
             ✉️
           </span>
-          <h1 className="mt-4 text-lg font-bold text-white">
+          <h1 className="mt-4 text-lg font-bold text-slate-900">
             Confirme o seu e-mail
           </h1>
-          <p className="mt-2 text-sm text-gray-400">
+          <p className="mt-2 text-sm text-slate-600">
             Por favor, confirme o seu e-mail antes de acessar o painel.
             Redirecionando para a tela de confirmação...
           </p>
           <Link
             href="/confirmar-email"
-            className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300"
+            className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-yellow-300"
           >
             Reenviar e-mail de confirmação
           </Link>
@@ -193,18 +194,18 @@ export function PainelGuard({ children }: { children: ReactNode }) {
   // 3) Rota de admin sem permissão: bloqueia render até o redirecionamento.
   if (isAdminRoute && currentUser.role !== "super_admin") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-950 px-4">
-        <div className="w-full max-w-md rounded-2xl border border-gray-800 bg-gray-900/60 p-6 text-center">
-          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-500/15 text-2xl text-red-400">
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-2xl text-red-600">
             ⛔
           </span>
-          <h1 className="mt-4 text-lg font-bold text-white">Acesso restrito</h1>
-          <p className="mt-2 text-sm text-gray-400">
+          <h1 className="mt-4 text-lg font-bold text-slate-900">Acesso restrito</h1>
+          <p className="mt-2 text-sm text-slate-600">
             Esta área é exclusiva para Super Administradores.
           </p>
           <Link
             href="/painel"
-            className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300"
+            className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-yellow-300"
           >
             Voltar para o painel
           </Link>
@@ -217,27 +218,27 @@ export function PainelGuard({ children }: { children: ReactNode }) {
   //      leva para a Dashboard SaaS (evita piscar a visão de loja).
   if (isStoreRoot && currentUser.role === "super_admin") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-950">
-        <p className="text-sm font-medium text-gray-500">
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <p className="text-sm font-medium text-slate-500">
           Abrindo a Dashboard SaaS...
         </p>
       </div>
     );
   }
 
-  // 4) Autorizado: a barra superior e o paywall vivem em <PanelShell>, que
-  //    também precisa da situação da assinatura (por isso o provider aqui,
-  //    depois das verificações de sessão/role).
+  // 4) Autorizado: a sidebar e o paywall vivem em <PanelFrame>, que também
+  //    precisa da situação da assinatura (por isso o provider aqui, depois
+  //    das verificações de sessão/role).
   return (
     <SubscriptionProvider>
-      <PanelShell currentUser={currentUser}>{children}</PanelShell>
+      <PanelFrame currentUser={currentUser}>{children}</PanelFrame>
     </SubscriptionProvider>
   );
 }
 
 /**
- * Casca autenticada do painel: identificação do usuário, logout, banner de
- * trial e a trava de assinatura sobre o conteúdo da rota.
+ * Casca autenticada do painel: sidebar de navegação, banner de trial e a
+ * trava de assinatura sobre o conteúdo da rota.
  *
  * Fluxo:
  *  1. enquanto a assinatura é lida → tela de "Verificando assinatura";
@@ -245,7 +246,7 @@ export function PainelGuard({ children }: { children: ReactNode }) {
  *     para `/painel/assinatura` (uma vez por rota, sem laço);
  *  3. caso contrário → banner (quando aplicável) + página.
  */
-function PanelShell({
+function PanelFrame({
   currentUser,
   children,
 }: {
@@ -284,26 +285,11 @@ function PanelShell({
   }, [isRedirecting, pathname, router]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-gray-950">
-      <div className="border-b border-gray-800 bg-gray-900/80 px-4 py-2 backdrop-blur-sm sm:px-6">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <span className="inline-flex items-center gap-2 rounded-full border border-gray-700 px-3 py-1 text-xs font-semibold text-gray-300">
-            <span
-              className={`h-2 w-2 rounded-full ${
-                currentUser.role === "super_admin"
-                  ? "bg-red-400"
-                  : "bg-yellow-400"
-              }`}
-            />
-            {currentUser.role === "super_admin" ? "Super Admin" : "Admin"}
-            {currentUser.establishment
-              ? ` · ${currentUser.establishment}`
-              : ""}
-          </span>
-          <LogoutButton />
-        </div>
-      </div>
-
+    <PanelShell
+      currentUser={currentUser}
+      isSuperAdmin={isSuperAdmin}
+      establishmentId={establishmentId}
+    >
       {isLoading ? (
         <PanelStatusScreen
           title="Verificando assinatura..."
@@ -317,7 +303,7 @@ function PanelShell({
           {children}
         </>
       )}
-    </div>
+    </PanelShell>
   );
 }
 
@@ -332,9 +318,9 @@ function PanelStatusScreen({
   return (
     <div className="flex flex-1 items-center justify-center px-4 py-16">
       <div className="text-center">
-        <p className="text-sm font-medium text-gray-400">{title}</p>
+        <p className="text-sm font-medium text-slate-600">{title}</p>
         {description && (
-          <p className="mt-1 text-xs text-gray-500">{description}</p>
+          <p className="mt-1 text-xs text-slate-500">{description}</p>
         )}
       </div>
     </div>
@@ -349,20 +335,20 @@ function PanelStatusScreen({
 function PaywallNotice() {
   return (
     <div className="flex flex-1 items-center justify-center px-4 py-16">
-      <div className="w-full max-w-md rounded-2xl border border-yellow-400/30 bg-gray-900/60 p-6 text-center">
-        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-yellow-400/15 text-2xl text-yellow-300">
+      <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-white p-6 text-center">
+        <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-amber-100 text-2xl text-amber-600">
           ⏳
         </span>
-        <h1 className="mt-4 text-lg font-bold text-white">
+        <h1 className="mt-4 text-lg font-bold text-slate-900">
           Seu período de testes expirou
         </h1>
-        <p className="mt-2 text-sm text-gray-400">
+        <p className="mt-2 text-sm text-slate-600">
           Para voltar a acessar pedidos, produtos, clientes e dashboard, ative
           o Plano Profissional. Redirecionando para a tela de assinatura...
         </p>
         <Link
           href="/painel/assinatura"
-          className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300"
+          className="mt-5 inline-flex w-full items-center justify-center rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-yellow-300"
         >
           Ir para a assinatura
         </Link>

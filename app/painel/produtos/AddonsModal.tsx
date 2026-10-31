@@ -172,17 +172,17 @@ export function AddonsModal({
   };
 
   const inputClass =
-    "rounded-xl border border-gray-700 bg-gray-900/60 px-3.5 py-2.5 text-sm text-gray-100 placeholder-gray-500 outline-none transition focus:border-yellow-400/60";
+    "rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder-gray-500 outline-none transition focus:border-amber-500";
 
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/80 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-gray-800 bg-gray-900 shadow-xl">
-        <div className="border-b border-gray-800 px-5 py-4">
-          <h2 className="text-lg font-bold text-white">Adicionais</h2>
-          <p className="mt-0.5 text-sm text-gray-400">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-lg font-bold text-slate-900">Adicionais</h2>
+          <p className="mt-0.5 text-sm text-slate-600">
             Opcionais de{" "}
-            <span className="font-semibold text-yellow-300">{product.name}</span>
+            <span className="font-semibold text-amber-600">{product.name}</span>
           </p>
         </div>
 
@@ -192,7 +192,7 @@ export function AddonsModal({
             <div className="flex-1">
               <label
                 htmlFor="addon-name"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
               >
                 Nome
               </label>
@@ -208,7 +208,7 @@ export function AddonsModal({
             <div className="w-28">
               <label
                 htmlFor="addon-price"
-                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-gray-500"
+                className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-slate-500"
               >
                 Preço (R$)
               </label>
@@ -225,7 +225,7 @@ export function AddonsModal({
             <button
               type="submit"
               disabled={isCreating}
-              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-gray-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-70"
             >
               <svg
                 aria-hidden="true"
@@ -242,18 +242,18 @@ export function AddonsModal({
           </form>
 
           {error && (
-            <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400">
+            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600">
               {error}
             </p>
           )}
 
           {/* Lista de adicionais */}
           <div className="mt-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Cadastrados ({items.length})
             </p>
             {items.length === 0 ? (
-              <p className="rounded-lg bg-gray-700/30 px-3 py-2 text-center text-xs font-medium text-gray-500">
+              <p className="rounded-lg bg-slate-200 px-3 py-2 text-center text-xs font-medium text-slate-500">
                 Nenhum adicional cadastrado para este produto.
               </p>
             ) : (
@@ -263,18 +263,18 @@ export function AddonsModal({
                   return (
                     <li
                       key={addon.id}
-                      className="flex items-center gap-2 rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2"
+                      className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
                     >
                       <span
                         className={`min-w-0 flex-1 truncate text-sm font-medium ${
                           addon.is_active
-                            ? "text-gray-100"
-                            : "text-gray-500 line-through"
+                            ? "text-slate-900"
+                            : "text-slate-500 line-through"
                         }`}
                       >
                         {addon.name}
                       </span>
-                      <span className="shrink-0 text-xs font-bold tabular-nums text-yellow-300">
+                      <span className="shrink-0 text-xs font-bold tabular-nums text-amber-600">
                         + {formatBRL(addon.price)}
                       </span>
                       <button
@@ -284,8 +284,8 @@ export function AddonsModal({
                         title={addon.is_active ? "Pausar adicional" : "Ativar adicional"}
                         className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition disabled:opacity-50 ${
                           addon.is_active
-                            ? "border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
-                            : "border-gray-600/50 bg-gray-600/30 text-gray-400"
+                            ? "border-emerald-200 bg-emerald-100 text-emerald-700"
+                            : "border-slate-300 bg-slate-200 text-slate-600"
                         }`}
                       >
                         {addon.is_active ? "Ativo" : "Pausado"}
@@ -295,7 +295,7 @@ export function AddonsModal({
                         onClick={() => void handleDelete(addon)}
                         disabled={busy}
                         aria-label={`Excluir ${addon.name}`}
-                        className="shrink-0 rounded-lg border border-red-500/30 px-2 py-1 text-xs font-semibold text-red-400 transition hover:bg-red-500/10 disabled:opacity-50"
+                        className="shrink-0 rounded-lg border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
                       >
                         <svg
                           className="h-3.5 w-3.5"
@@ -319,11 +319,11 @@ export function AddonsModal({
           </div>
         </div>
 
-        <div className="flex items-center justify-end border-t border-gray-800 px-5 py-4">
+        <div className="flex items-center justify-end border-t border-slate-200 px-5 py-4">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800"
+            className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
           >
             Fechar
           </button>

@@ -34,21 +34,21 @@ export function KanbanColumn({
     <section
       className={`flex flex-1 flex-col overflow-hidden rounded-xl border shadow-sm ${
         highlight
-          ? "border-yellow-400/60 bg-yellow-400/5"
-          : "border-gray-700/60 bg-gray-800/30"
+          ? "border-amber-300 bg-amber-50"
+          : "border-slate-200 bg-slate-100"
       }`}
     >
-      <h2 className="flex items-center gap-2 border-b border-gray-700/60 px-4 py-3 text-xs font-bold uppercase tracking-widest text-gray-400">
+      <h2 className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 text-xs font-bold uppercase tracking-widest text-slate-600">
         <span className={`inline-flex h-2.5 w-2.5 rounded-full ${meta.dotClass}`} />
         {title}
-        <span className="ml-auto rounded-full bg-gray-700/70 px-2 py-0.5 text-[10px] tabular-nums text-gray-300">
+        <span className="ml-auto rounded-full bg-white px-2 py-0.5 text-[10px] tabular-nums text-slate-600 ring-1 ring-slate-200">
           {orders.length}
         </span>
       </h2>
 
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
         {orders.length === 0 ? (
-          <p className="rounded-lg bg-gray-700/30 px-3 py-2 text-center text-xs font-medium text-gray-500">
+          <p className="rounded-lg bg-slate-200 px-3 py-2 text-center text-xs font-medium text-slate-500">
             Nenhum pedido
           </p>
         ) : (

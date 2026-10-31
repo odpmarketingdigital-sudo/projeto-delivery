@@ -46,28 +46,28 @@ export function DeleteCouponModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/80 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-2xl border border-red-500/30 bg-gray-900 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-red-200 bg-white shadow-xl">
         <div className="px-5 py-5">
-          <h2 className="text-lg font-bold text-white">Excluir cupom</h2>
-          <p className="mt-2 text-sm text-gray-400">
+          <h2 className="text-lg font-bold text-slate-900">Excluir cupom</h2>
+          <p className="mt-2 text-sm text-slate-600">
             O cupom{" "}
-            <span className="font-semibold text-gray-200">{coupon.code}</span>{" "}
+            <span className="font-semibold text-slate-800">{coupon.code}</span>{" "}
             será removido permanentemente. Pedidos já feitos mantêm o desconto
             registrado.
           </p>
           {error && (
-            <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-400">
+            <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600">
               {error}
             </p>
           )}
         </div>
-        <div className="flex items-center justify-end gap-3 border-t border-gray-800 px-5 py-4">
+        <div className="flex items-center justify-end gap-3 border-t border-slate-200 px-5 py-4">
           <button
             type="button"
             onClick={onCancel}
             disabled={isDeleting}
-            className="rounded-xl border border-gray-700 px-4 py-2.5 text-sm font-semibold text-gray-200 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Cancelar
           </button>
