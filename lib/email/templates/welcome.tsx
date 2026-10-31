@@ -10,7 +10,7 @@ import type { CSSProperties, ReactNode } from "react";
  *
  * Identidade visual: fundo escuro (`#07090c`), faixa amarela/azul no topo do
  * cartão, CTA amarelo e destaques em azul — os mesmos tokens usados no
- * cadastro (`app/cadastro/SignupForm.tsx`).
+ * cadastro (`app/cadastro/page.tsx`).
  *
  * ⚠️ Regras de e-mail (diferentes do site):
  *  - Todo o CSS é inline (`style`) e o layout usa tabelas: Gmail e Outlook

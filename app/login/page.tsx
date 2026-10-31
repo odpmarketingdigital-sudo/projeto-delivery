@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { GoogleAuthButton } from "@/app/components/GoogleAuthButton";
 import { createClient } from "@/lib/supabase/client";
 import type { AuthRole } from "@/context/AuthContext";
 import { ForgotPasswordDialog } from "./ForgotPasswordDialog";
@@ -240,6 +241,17 @@ export default function LoginPage() {
                 "Entrar no Painel"
               )}
             </button>
+
+            <div className="flex items-center gap-3 pt-1">
+              <span aria-hidden className="h-px flex-1 bg-gray-700" />
+              <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-500">
+                ou
+              </span>
+              <span aria-hidden className="h-px flex-1 bg-gray-700" />
+            </div>
+
+            {/* Contas criadas com o Google não têm senha: o OAuth é a entrada. */}
+            <GoogleAuthButton />
           </form>
         </div>
 

@@ -57,6 +57,8 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/login") || pathname.startsWith("/cadastro");
   // Tela de aviso + reenvio do e-mail de confirmação.
   const isConfirmEmailRoute = pathname.startsWith("/confirmar-email");
+  // Onboarding pós-OAuth (Google): dados do estabelecimento.
+  const isOnboardingRoute = pathname.startsWith("/completar-cadastro");
 
   /**
    * E-mail confirmado?
@@ -68,6 +70,32 @@ export async function updateSession(request: NextRequest) {
   const isEmailConfirmed = Boolean(
     user?.email_confirmed_at ?? user?.confirmed_at
   );
+
+  /**
+   * Ainda falta a etapa do estabelecimento?
+   *
+   * `onboarding_complete` é gravado em `user_metadata` por
+   * `saveEstablishmentForUser` (lib/supabase/establishments.ts). Quando o campo
+   * não existe (contas anteriores ao onboarding) o usuário vai para
+   * `/completar-cadastro`, que redireciona ao painel se a loja já existir.
+   */
+  const needsOnboarding = user
+    ? user.user_metadata?.onboarding_complete !== true
+    : false;
+
+  // Onboarding exige sessão ativa (o fluxo normal vem do /auth/callback).
+  if (isOnboardingRoute && !user) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    url.search = "";
+    url.searchParams.set("redirect", "/completar-cadastro");
+    return NextResponse.redirect(url);
+  }
+
+  // Onboarding com e-mail pendente: confirma antes de criar a loja.
+  if (isOnboardingRoute && user && !isEmailConfirmed) {
+    return redirectToConfirmEmail(request, user.email);
+  }
 
   // Rotas do painel exigem sessão ativa.
   if (isPainelRoute && !user) {
@@ -88,22 +116,25 @@ export async function updateSession(request: NextRequest) {
       return redirectToConfirmEmail(request, user.email);
     }
 
-    const url = request.nextUrl.clone();
-    url.pathname = "/painel";
-    url.search = "";
-    return NextResponse.redirect(url);
+    return redirectToPath(request, needsOnboarding ? "/completar-cadastro" : "/painel");
   }
 
   // Quem já confirmou o e-mail não precisa da tela de aviso.
   if (isConfirmEmailRoute && user && isEmailConfirmed) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/painel";
-    url.search = "";
-    return NextResponse.redirect(url);
+    return redirectToPath(request, needsOnboarding ? "/completar-cadastro" : "/painel");
   }
 
   return response;
 }
+
+/** Redirect interno preservando a origem (sem query string). */
+function redirectToPath(request: NextRequest, pathname: string) {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  url.search = "";
+  return NextResponse.redirect(url);
+}
+
 
 /**
  * Monta o redirect para `/confirmar-email` levando o e-mail na query (a tela

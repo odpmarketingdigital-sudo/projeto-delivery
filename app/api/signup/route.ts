@@ -2,13 +2,21 @@ import { NextResponse } from "next/server";
 import { getAppUrl } from "@/lib/email/config";
 import { sendWelcomeEmailSafely } from "@/lib/email/welcome";
 import {
+  emailError,
+  normalizeEstablishmentDraft,
+  ownerNameError,
+  passwordError,
+  validateEstablishmentDraft,
+  type DocumentType,
+  type EstablishmentDraft,
+} from "@/lib/registration";
+import {
   buildEmailConfirmationRedirect,
   getRequestOrigin,
   resendSignupConfirmation,
 } from "@/lib/supabase/confirmation";
+import { saveEstablishmentForUser } from "@/lib/supabase/establishments";
 import { createAdminClient } from "@/lib/supabase/server";
-import { slugify } from "@/lib/slug";
-import { addTrialDays } from "@/lib/subscriptions";
 
 /**
  * POST /api/signup — cadastro público de restaurantes (SaaS de autoatendimento).
@@ -38,38 +46,12 @@ import { addTrialDays } from "@/lib/subscriptions";
  * Rollback: se o insert em `establishments` falhar, a conta criada em
  * `auth.users` é removida, evitando um usuário órfão ocupando o e-mail.
  *
- * Body: { owner_name, email, password, establishment_name, phone, slug }
+ * Body: { owner_name, email, password, establishment_name, document_type,
+ *         document_number, whatsapp, slug }
+ *
+ * Validações e máscaras vêm de `lib/registration.ts` — o mesmo módulo usado
+ * pelo formulário `/cadastro` e pelo onboarding `/completar-cadastro`.
  */
-
-/** Rotas fixas da aplicação — não podem virar slug de cardápio. */
-const RESERVED_SLUGS = new Set([
-  "admin",
-  "api",
-  "cadastro",
-  "cardapio",
-  "checkout",
-  "clientes",
-  "configuracoes",
-  "cupons",
-  "dashboard",
-  "demo",
-  "login",
-  "painel",
-  "pedido",
-  "pedidos",
-  "produtos",
-]);
-
-const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
-const MIN_NAME_LENGTH = 2;
-const MAX_NAME_LENGTH = 80;
-const MIN_SLUG_LENGTH = 3;
-const MAX_SLUG_LENGTH = 60;
-/** O Supabase Auth aceita no mínimo 6 caracteres (e no máximo 72 bytes). */
-const MIN_PASSWORD_LENGTH = 6;
-const MAX_PASSWORD_LENGTH = 72;
 
 /** Campos do formulário — devolvidos em `field` para destacar o erro na tela. */
 type SignupField =
@@ -77,7 +59,9 @@ type SignupField =
   | "email"
   | "password"
   | "establishment_name"
-  | "phone"
+  | "document_type"
+  | "document_number"
+  | "whatsapp"
   | "slug";
 
 /** Resposta de erro padronizada (com o campo culpado, quando houver). */
@@ -111,22 +95,6 @@ function isWeakPasswordError(
   return error.code === "weak_password" || message.includes("password should be");
 }
 
-/**
- * Detecta a migração de assinaturas não aplicada — sem ela o insert falha com
- * "column ... does not exist" / "Could not find the '...' column".
- */
-function isMissingSubscriptionColumns(
-  error: { message?: string | null } | null
-): boolean {
-  const message = error?.message ?? "";
-  return (
-    /(trial_ends_at|subscription_status|subscription_id|customer_payment_id|plan_id)/i.test(
-      message
-    ) &&
-    (/does not exist/i.test(message) || /could not find/i.test(message))
-  );
-}
-
 export async function POST(request: Request) {
   // 1) Corpo da requisição.
   let body: {
@@ -134,6 +102,12 @@ export async function POST(request: Request) {
     email?: string;
     password?: string;
     establishment_name?: string;
+    /** Alias aceito para `establishment_name` (mesmo nome da coluna). */
+    name?: string;
+    document_type?: string;
+    document_number?: string;
+    whatsapp?: string;
+    /** Alias legado de `whatsapp` (formulário antigo). */
     phone?: string;
     slug?: string;
   };
@@ -147,98 +121,58 @@ export async function POST(request: Request) {
   const ownerName = body.owner_name?.trim() ?? "";
   const email = body.email?.trim().toLowerCase() ?? "";
   const password = body.password ?? "";
-  const establishmentName = body.establishment_name?.trim() ?? "";
-  const phone = body.phone?.trim() ?? "";
+  const establishmentName = (body.establishment_name ?? body.name ?? "").trim();
+  const rawWhatsapp = (body.whatsapp ?? body.phone ?? "").trim();
   const rawSlug = body.slug?.trim() ?? "";
+  const rawDocumentType = (body.document_type ?? "").trim().toLowerCase();
 
-  // 2) Validação dos campos.
-  if (ownerName.length < MIN_NAME_LENGTH) {
-    return fail("Informe o nome do responsável.", 400, "owner_name");
-  }
+  // 2) Validação dos campos — mesmas regras/mensagens do formulário.
+  const ownerMessage = ownerNameError(ownerName);
+  if (ownerMessage) return fail(ownerMessage, 400, "owner_name");
 
-  if (ownerName.length > MAX_NAME_LENGTH) {
-    return fail(
-      `O nome do responsável deve ter no máximo ${MAX_NAME_LENGTH} caracteres.`,
-      400,
-      "owner_name"
-    );
-  }
+  const emailMessage = emailError(email);
+  if (emailMessage) return fail(emailMessage, 400, "email");
 
-  if (!EMAIL_PATTERN.test(email)) {
-    return fail("Informe um e-mail válido.", 400, "email");
-  }
+  const passwordMessage = passwordError(password);
+  if (passwordMessage) return fail(passwordMessage, 400, "password");
 
   if (
-    password.length < MIN_PASSWORD_LENGTH ||
-    password.length > MAX_PASSWORD_LENGTH
+    rawDocumentType &&
+    rawDocumentType !== "cpf" &&
+    rawDocumentType !== "cnpj"
   ) {
-    return fail(
-      `A senha deve ter entre ${MIN_PASSWORD_LENGTH} e ${MAX_PASSWORD_LENGTH} caracteres.`,
-      400,
-      "password"
-    );
+    return fail("Escolha CPF ou CNPJ.", 400, "document_type");
   }
 
-  if (establishmentName.length < MIN_NAME_LENGTH) {
-    return fail(
-      "Informe o nome do estabelecimento.",
-      400,
-      "establishment_name"
-    );
+  const documentType: DocumentType =
+    rawDocumentType === "cnpj" ? "cnpj" : "cpf";
+
+  const draft: EstablishmentDraft = {
+    name: establishmentName,
+    document_type: documentType,
+    document_number: body.document_number ?? "",
+    whatsapp: rawWhatsapp,
+    slug: rawSlug,
+  };
+
+  // O slug é derivado do nome quando o campo vem vazio.
+  const draftErrors = validateEstablishmentDraft(draft);
+
+  if (draftErrors.name) {
+    return fail(draftErrors.name, 400, "establishment_name");
+  }
+  if (draftErrors.document_number) {
+    return fail(draftErrors.document_number, 400, "document_number");
+  }
+  if (draftErrors.whatsapp) {
+    return fail(draftErrors.whatsapp, 400, "whatsapp");
+  }
+  if (draftErrors.slug) {
+    return fail(draftErrors.slug, 400, "slug");
   }
 
-  if (establishmentName.length > MAX_NAME_LENGTH) {
-    return fail(
-      `O nome do estabelecimento deve ter no máximo ${MAX_NAME_LENGTH} caracteres.`,
-      400,
-      "establishment_name"
-    );
-  }
-
-  // WhatsApp: 10 (fixo) ou 11 (celular) dígitos, com ou sem máscara.
-  const phoneDigits = phone.replace(/\D/g, "");
-  if (phoneDigits.length < 10 || phoneDigits.length > 11) {
-    return fail(
-      "Informe o WhatsApp com DDD (10 ou 11 dígitos).",
-      400,
-      "phone"
-    );
-  }
-
-  // 3) Slug do cardápio: normaliza, valida formato e rotas reservadas.
-  const slug = slugify(rawSlug || establishmentName);
-
-  if (slug.length < MIN_SLUG_LENGTH) {
-    return fail(
-      "O link do cardápio precisa ter ao menos 3 caracteres (letras ou números).",
-      400,
-      "slug"
-    );
-  }
-
-  if (slug.length > MAX_SLUG_LENGTH) {
-    return fail(
-      `O link do cardápio deve ter no máximo ${MAX_SLUG_LENGTH} caracteres.`,
-      400,
-      "slug"
-    );
-  }
-
-  if (!SLUG_PATTERN.test(slug)) {
-    return fail(
-      "Use apenas letras minúsculas, números e hífens no link do cardápio.",
-      400,
-      "slug"
-    );
-  }
-
-  if (RESERVED_SLUGS.has(slug)) {
-    return fail(
-      `O link "${slug}" é reservado pela plataforma. Escolha outro.`,
-      400,
-      "slug"
-    );
-  }
+  const normalized = normalizeEstablishmentDraft(draft);
+  const slug = normalized.slug;
 
   const adminClient = createAdminClient();
 
@@ -335,65 +269,39 @@ export async function POST(request: Request) {
     }
   }
 
-  // Garante a linha em `profiles` (o trigger já cria; upsert por segurança).
-  await adminClient.from("profiles").upsert(
-    {
-      id: userId,
-      name: ownerName,
-      email,
-      role: "admin",
-      establishment: establishmentName,
-    },
-    { onConflict: "id" }
-  );
-
   // 5) Estabelecimento já em trial (30 dias grátis).
-  const trialEndsAt = addTrialDays();
+  //
+  //    `saveEstablishmentForUser` (lib/supabase/establishments.ts) concentra o
+  //    insert/update, o trial, a checagem de slug e a sincronização de
+  //    `profiles` + metadados (`role: admin` / `onboarding_complete: true`).
+  const saved = await saveEstablishmentForUser(adminClient, userId, {
+    name: normalized.name,
+    ownerName,
+    email,
+    whatsapp: normalized.whatsapp,
+    documentType: normalized.documentType,
+    documentNumber: normalized.documentNumber,
+    slug,
+  });
 
-  const { data: inserted, error: insertError } = await adminClient
-    .from("establishments")
-    .insert({
-      user_id: userId,
-      name: establishmentName,
-      owner_name: ownerName,
-      email,
-      phone,
-      status: "ativo",
-      slug,
-      subscription_status: "trialing",
-      trial_ends_at: trialEndsAt,
-    })
-    .select("id, name, slug, subscription_status, trial_ends_at")
-    .single();
-
-  if (insertError || !inserted) {
+  if (!saved.ok) {
     // Rollback: sem loja a conta não serve para nada — remove para liberar o
     // e-mail e não deixar usuário órfão.
     await adminClient.auth.admin.deleteUser(userId);
 
-    if (isMissingSubscriptionColumns(insertError)) {
-      return NextResponse.json(
-        {
-          error:
-            "As colunas de assinatura ainda não existem no banco. Execute a " +
-            "migração 20261110000012_add_subscriptions_to_establishments.sql " +
-            "no SQL Editor do Supabase.",
-        },
-        { status: 500 }
-      );
+    // `saved.field` cobre slug e CPF/CNPJ (índices únicos) para destacar o
+    // campo certo no formulário de `/cadastro`.
+    if (saved.field) {
+      return fail(saved.error, saved.status, saved.field);
     }
 
-    // Corrida: outra loja tomou o slug entre a checagem e o insert.
-    if (
-      insertError?.code === "23505" &&
-      /slug/i.test(insertError.message ?? "")
-    ) {
-      return fail(`O link "${slug}" já está em uso. Escolha outro.`, 409, "slug");
-    }
+    return fail(saved.error, saved.status);
+  }
 
-    return fail(
-      insertError?.message ?? "Não foi possível salvar o estabelecimento."
-    );
+  const inserted = saved.establishment;
+
+  if (saved.warning) {
+    console.warn("[api/signup]", saved.warning);
   }
 
   // 6) E-mail de boas-vindas (Resend).
