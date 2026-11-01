@@ -39,7 +39,7 @@ export function LandingFooter() {
   return (
     <footer className="border-t border-white/[0.08] bg-[#05070a]">
       <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
-        <div className="grid gap-10 md:grid-cols-[1.4fr_0.8fr_0.8fr]">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.5fr_0.8fr_0.9fr_0.9fr]">
           <div className="max-w-sm">
             <LandingBrand />
             <p className="mt-4 text-sm leading-relaxed text-gray-500">
@@ -133,10 +133,40 @@ export function LandingFooter() {
               </li>
             </ul>
           </div>
+
+          <nav aria-label="Links legais">
+            <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-300">
+              Legal
+            </h3>
+            <ul className="mt-4 space-y-2.5">
+              <li>
+                <Link
+                  href="/privacidade"
+                  className="text-sm text-gray-500 transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                >
+                  Política de Privacidade
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/termos"
+                  className="text-sm text-gray-500 transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                >
+                  Termos de Uso
+                </Link>
+              </li>
+            </ul>
+            <p className="mt-5 text-xs leading-relaxed text-gray-500">
+              Documentos em conformidade com a LGPD.
+            </p>
+          </nav>
         </div>
 
         <div className="mt-12 flex flex-col gap-4 border-t border-white/[0.08] pt-6 text-xs text-gray-600 sm:flex-row sm:items-center sm:justify-between">
-          <p>© Ipepper. Todos os direitos reservados.</p>
+          <p className="text-gray-500">
+            © Ipepper. Todos os direitos reservados. Desenvolvido e gerenciado
+            por ODP Digital.
+          </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-5">
             <p>Seu delivery, seu canal, seus clientes.</p>
             <a
