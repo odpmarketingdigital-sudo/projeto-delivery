@@ -11,7 +11,6 @@ import {
   LegalSubheading,
 } from "@/app/components/legal/LegalSection";
 import {
-  COMPANY_NAME,
   PRODUCT_NAME,
   SUPPORT_EMAIL,
   SUPPORT_PHONE_DISPLAY,
@@ -60,7 +59,7 @@ export default function TermosPage() {
     <LegalPageShell
       title="Termos de Uso"
       eyebrow="Documentos legais"
-      summary={`Estes Termos de Uso regulam o acesso e a utilização da plataforma ${PRODUCT_NAME}, disponibilizada pela ${COMPANY_NAME}. Ao criar uma conta, contratar um plano ou utilizar qualquer funcionalidade, o estabelecimento declara ter lido e aceito integralmente estas condições e a Política de Privacidade.`}
+      summary={`Estes Termos de Uso regulam o acesso e a utilização da plataforma ${PRODUCT_NAME}. Ao criar uma conta, contratar um plano ou utilizar qualquer funcionalidade, o estabelecimento declara ter lido e aceito integralmente estas condições e a Política de Privacidade.`}
       sections={SECTIONS}
     >
       <LegalSection
@@ -70,9 +69,8 @@ export default function TermosPage() {
       >
         <p>
           O {PRODUCT_NAME} é uma plataforma de software como serviço (SaaS)
-          para delivery e automação de atendimento via WhatsApp, desenvolvida e
-          gerenciada pela {COMPANY_NAME}. A plataforma oferece, entre outras
-          funcionalidades:
+          para delivery e automação de atendimento via WhatsApp. A plataforma
+          oferece, entre outras funcionalidades:
         </p>
         <LegalList>
           <li>
@@ -90,7 +88,7 @@ export default function TermosPage() {
           </li>
         </LegalList>
         <p>
-          O {PRODUCT_NAME} é uma ferramenta de gestão. A {COMPANY_NAME}{" "}
+          O {PRODUCT_NAME} é uma ferramenta de gestão. A {PRODUCT_NAME}{" "}
           <strong className="font-semibold text-gray-200">não</strong> é
           restaurante, não produz, não vende, não entrega alimentos e não
           intermedeia pagamentos entre o estabelecimento e o consumidor final.
@@ -101,7 +99,7 @@ export default function TermosPage() {
           A integração com o WhatsApp depende da API e das políticas da
           Meta/WhatsApp Business. Limites, mudanças ou bloqueios impostos por
           esses provedores podem afetar funcionalidades e não são de
-          responsabilidade da {COMPANY_NAME}.
+          responsabilidade da {PRODUCT_NAME}.
         </p>
       </LegalSection>
 
@@ -113,7 +111,7 @@ export default function TermosPage() {
         <LegalSubheading>2.1. Dados verdadeiros e atualizados</LegalSubheading>
         <p>
           Para usar a plataforma é necessário criar uma conta com informações
-          verdadeiras, exatas e completas: nome ou razão social, CPF ou CNPJ,
+          verdadeiras, exatas e completas: nome ou razão social, CPF/CNPJ,
           e-mail, telefone/WhatsApp e endereço do estabelecimento. O usuário
           deve manter esses dados atualizados e responde pela veracidade das
           informações. Dados falsos ou de terceiros sem autorização podem levar
@@ -158,7 +156,7 @@ export default function TermosPage() {
           O estabelecimento é o controlador dos dados pessoais dos seus clientes
           (nome, telefone, endereço e pedidos) e deve possuir base legal para
           tratá-los, manter a própria política de privacidade e atender às
-          solicitações dos titulares. A {COMPANY_NAME} atua como operadora,
+          solicitações dos titulares. A {PRODUCT_NAME} atua como operadora,
           conforme a{" "}
           <LegalLink href="/privacidade">Política de Privacidade</LegalLink>.
         </p>
@@ -167,7 +165,7 @@ export default function TermosPage() {
         <p>
           O estabelecimento garante possuir os direitos sobre textos, fotos,
           marcas e demais conteúdos publicados no cardápio e concede à{" "}
-          {COMPANY_NAME} licença limitada para exibi-los exclusivamente na
+          {PRODUCT_NAME} licença limitada para exibi-los exclusivamente na
           prestação do serviço.
         </p>
       </LegalSection>
@@ -263,7 +261,7 @@ export default function TermosPage() {
 
         <LegalSubheading>4.3. Canais e horário de atendimento</LegalSubheading>
         <p>
-          O suporte da {COMPANY_NAME} é prestado por e-mail (
+          O suporte da {PRODUCT_NAME} é prestado por e-mail (
           <LegalLink href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</LegalLink>
           ) e WhatsApp (
           <LegalLink href={SUPPORT_WHATSAPP_URL} external>
@@ -305,14 +303,14 @@ export default function TermosPage() {
         <LegalSubheading>5.3. Limites</LegalSubheading>
         <p>
           Na máxima extensão permitida pela legislação aplicável, a{" "}
-          {COMPANY_NAME} não responde por lucros cessantes, perda de
+          {PRODUCT_NAME} não responde por lucros cessantes, perda de
           oportunidade, danos indiretos ou prejuízos decorrentes de uso
           inadequado da plataforma, salvo dolo ou culpa grave.
         </p>
 
         <LegalSubheading>5.4. Teto de responsabilidade</LegalSubheading>
         <p>
-          Quando admitido em lei, a responsabilidade total da {COMPANY_NAME}{" "}
+          Quando admitido em lei, a responsabilidade total da {PRODUCT_NAME}{" "}
           fica limitada ao valor efetivamente pago pelo estabelecimento nos 12
           meses anteriores ao evento que originou o dano. Nenhuma cláusula
           deste documento afasta direitos irrenunciáveis do consumidor
@@ -342,7 +340,7 @@ export default function TermosPage() {
           renovação automática após o cancelamento.
         </p>
 
-        <LegalSubheading>6.2. Rescisão pela ODP Digital</LegalSubheading>
+        <LegalSubheading>6.2. Rescisão pela Ipepper</LegalSubheading>
         <p>
           Podemos suspender ou encerrar a conta, mediante aviso quando possível,
           em caso de descumprimento destes Termos, uso ilícito, inadimplência,
@@ -372,7 +370,7 @@ export default function TermosPage() {
           Estes Termos são regidos pelas leis brasileiras. Fica eleito o foro
           do domicílio do estabelecimento quando este for consumidor, nos
           termos do Código de Defesa do Consumidor e, nos demais casos, o foro
-          da comarca da sede da {COMPANY_NAME}.
+          da comarca da sede da {PRODUCT_NAME}.
         </p>
       </LegalSection>
 
@@ -383,7 +381,7 @@ export default function TermosPage() {
         </p>
         <LegalCallout>
           <p className="font-semibold text-white">
-            {COMPANY_NAME} — Suporte {PRODUCT_NAME}
+            {PRODUCT_NAME} — Suporte
           </p>
           <ul className="mt-3 space-y-2">
             <li>

@@ -164,8 +164,7 @@ export function LandingFooter() {
 
         <div className="mt-12 flex flex-col gap-4 border-t border-white/[0.08] pt-6 text-xs text-gray-600 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-gray-500">
-            © Ipepper. Todos os direitos reservados. Desenvolvido e gerenciado
-            por ODP Digital.
+            © Ipepper. Todos os direitos reservados.
           </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-5">
             <p>Seu delivery, seu canal, seus clientes.</p>

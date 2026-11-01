@@ -11,7 +11,6 @@ import {
   LegalSubheading,
 } from "@/app/components/legal/LegalSection";
 import {
-  COMPANY_NAME,
   PRIVACY_WHATSAPP_URL,
   PRODUCT_NAME,
   SUPPORT_EMAIL,
@@ -60,7 +59,7 @@ export default function PrivacidadePage() {
     <LegalPageShell
       title="Política de Privacidade"
       eyebrow="Documentos legais"
-      summary={`A ${PRODUCT_NAME} é uma plataforma de cardápio digital e delivery via WhatsApp, desenvolvida e gerenciada pela ${COMPANY_NAME}. Temos o compromisso de tratar dados pessoais com transparência, segurança e em conformidade com a Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018 — LGPD). Esta política explica quais dados coletamos, por que coletamos, com quem compartilhamos e como você pode exercer seus direitos.`}
+      summary={`A ${PRODUCT_NAME} é uma plataforma de cardápio digital e delivery via WhatsApp. Temos o compromisso de tratar dados pessoais com transparência, segurança e em conformidade com a Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018 — LGPD). Esta política explica quais dados coletamos, por que coletamos, com quem compartilhamos e como você pode exercer seus direitos.`}
       sections={SECTIONS}
     >
       <LegalSection id="coleta-de-dados" number={1} title="Coleta de Dados">
@@ -79,7 +78,7 @@ export default function PrivacidadePage() {
           <li>
             Nome completo ou razão social e nome fantasia do estabelecimento;
           </li>
-          <li>CPF ou CNPJ do responsável legal;</li>
+          <li>CPF/CNPJ do responsável legal;</li>
           <li>E-mail de acesso e de contato;</li>
           <li>Telefone/WhatsApp;</li>
           <li>
@@ -118,7 +117,7 @@ export default function PrivacidadePage() {
           inseridos pelo estabelecimento para viabilizar as vendas. Nesse
           contexto, o estabelecimento é o{" "}
           <strong className="font-semibold text-gray-200">controlador</strong>{" "}
-          dos dados e a {COMPANY_NAME} atua como{" "}
+          dos dados e a {PRODUCT_NAME} atua como{" "}
           <strong className="font-semibold text-gray-200">operadora</strong>,
           tratando as informações apenas conforme as instruções do lojista e o
           contrato de uso.
@@ -360,7 +359,7 @@ export default function PrivacidadePage() {
         </p>
         <LegalCallout>
           <p className="font-semibold text-white">
-            {COMPANY_NAME} — Encarregado de Proteção de Dados (DPO)
+            {PRODUCT_NAME} — Encarregado de Proteção de Dados (DPO)
           </p>
           <ul className="mt-3 space-y-2">
             <li>

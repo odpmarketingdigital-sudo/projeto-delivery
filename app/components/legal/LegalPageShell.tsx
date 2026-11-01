@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { LandingBrand } from "../landing/LandingBrand";
 import { Icon } from "../landing/LandingIcons";
 import {
-  COMPANY_NAME,
   LEGAL_LAST_UPDATED_DISPLAY,
   LEGAL_LAST_UPDATED_ISO,
   PRODUCT_NAME,
@@ -118,8 +117,7 @@ export function LegalPageShell({
       <footer className="border-t border-white/[0.08] bg-[#05070a]">
         <div className="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-8 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
           <p>
-            © {PRODUCT_NAME}. Todos os direitos reservados. Desenvolvido e
-            gerenciado por {COMPANY_NAME}.
+            © {PRODUCT_NAME}. Todos os direitos reservados.
           </p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <Link

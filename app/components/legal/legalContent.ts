@@ -5,19 +5,15 @@
  * Centralizar aqui evita divergência entre as duas páginas e facilita a
  * atualização quando o canal de suporte ou a data de revisão mudarem.
  *
- * Observação: a Landing Page usa os contatos definidos em
- * `app/components/landing/contact.ts`. Se o canal oficial for unificado,
- * atualize os dois arquivos.
+ * Os documentos citam exclusivamente a marca Ipepper — nenhuma agência,
+ * empresa terceira ou prestador de desenvolvimento é mencionado.
  */
 
 /** Nome comercial da plataforma. */
 export const PRODUCT_NAME = "Ipepper";
 
-/** Empresa responsável pelo desenvolvimento e gestão da plataforma. */
-export const COMPANY_NAME = "ODP Digital";
-
 /** E-mail oficial de suporte, privacidade e cancelamento. */
-export const SUPPORT_EMAIL = "contato@odpdigital.com.br";
+export const SUPPORT_EMAIL = "contato@ipepper.com.br";
 
 /** Telefone/WhatsApp formatado para exibição. */
 export const SUPPORT_PHONE_DISPLAY = "(17) 99265-0646";
