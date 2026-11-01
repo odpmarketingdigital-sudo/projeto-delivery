@@ -21,6 +21,16 @@ interface OrderCardProps {
   onAdvance: (order: PanelOrder, nextStatus: OrderStatus) => void;
   /** true = há uma atualização de status em andamento para este pedido. */
   isBusy?: boolean;
+  /**
+   * Início do arraste do card no Kanban. Quando ausente o card NÃO é
+   * arrastável (ex.: usado fora do Kanban). Os botões continuam funcionando:
+   * o arraste é apenas um atalho de desktop.
+   */
+  onDragStart?: (order: PanelOrder) => void;
+  /** Fim (ou cancelamento) do arraste — limpa o estado visual no Kanban. */
+  onDragEnd?: () => void;
+  /** true = este card está sendo arrastado agora. */
+  isDragging?: boolean;
 }
 
 function formatDateTime(iso: string): string {
@@ -42,6 +52,10 @@ function formatDateTime(iso: string): string {
  * Card compacto da listagem: número, data/hora, status e as ações rápidas
  * "Veja mais" e "Próxima etapa". Itens, endereço, valores e as demais ações
  * ficam no OrderDetailsModal.
+ *
+ * No Kanban o card também é arrastável (HTML5 Drag and Drop — desktop). Em
+ * telas touch, onde o arraste nativo não existe, as ações continuam sendo os
+ * botões do card e o seletor de status do modal.
  */
 export function OrderCard({
   order,
@@ -49,12 +63,17 @@ export function OrderCard({
   onOpen,
   onAdvance,
   isBusy = false,
+  onDragStart,
+  onDragEnd,
+  isDragging = false,
 }: OrderCardProps) {
   const meta = ORDER_STATUS_META[order.status];
   const isPending = order.status === "pendente";
   const isCancelled = order.status === "cancelado";
   const nextStatus = nextOrderStatus(order.status);
   const nextActionLabel = nextOrderActionLabel(order.status);
+  // Pedido com atualização em andamento não pode ser arrastado (evita corrida).
+  const isDraggable = Boolean(onDragStart) && !isBusy;
   const estimateWindow = parseEstimatedDeliveryWindow(
     order.estimated_delivery_time
   );
@@ -64,23 +83,47 @@ export function OrderCard({
 
   return (
     <article
+      draggable={isDraggable}
+      onDragStart={(event) => {
+        if (!onDragStart) return;
+        // Firefox só inicia o arraste quando algum dado é definido.
+        event.dataTransfer.setData("text/plain", order.id);
+        event.dataTransfer.effectAllowed = "move";
+        onDragStart(order);
+      }}
+      onDragEnd={onDragEnd}
+      title={isDraggable ? "Arraste para outra coluna" : undefined}
       className={`flex flex-col rounded-xl border p-3.5 shadow-sm transition ${
         isPending
           ? "border-amber-300 bg-amber-50"
           : isCancelled
             ? "border-red-200 bg-slate-50 opacity-80"
             : "border-slate-200 bg-white"
+      } ${isDraggable ? "sm:cursor-grab sm:active:cursor-grabbing" : ""} ${
+        isDragging ? "opacity-50 ring-2 ring-amber-400" : ""
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <p
-            className={`whitespace-nowrap text-base font-black tracking-tight ${
-              isPending ? "text-amber-600" : "text-slate-900"
-            }`}
-          >
-            {shortNumber}
-          </p>
+          <div className="flex items-center gap-1.5">
+            {isDraggable && (
+              <svg
+                aria-hidden="true"
+                className="hidden h-4 w-4 shrink-0 text-slate-400 sm:block"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path d="M7 4a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm0 6a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm0 6a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm9-12a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm0 6a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Zm0 6a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0Z" />
+              </svg>
+            )}
+            <p
+              className={`whitespace-nowrap text-base font-black tracking-tight ${
+                isPending ? "text-amber-600" : "text-slate-900"
+              }`}
+            >
+              {shortNumber}
+            </p>
+          </div>
           <p className="mt-0.5 whitespace-nowrap text-[11px] font-medium text-slate-600">
             {formatDateTime(order.created_at)}
           </p>

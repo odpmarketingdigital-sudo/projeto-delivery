@@ -12,6 +12,7 @@ import {
   parseEstimatedDeliveryWindow,
 } from "@/lib/deliveryEstimate";
 import { getCustomerProfile } from "@/lib/storage";
+import { OrderProgressStepper } from "@/app/components/OrderProgressStepper";
 import { WhatsAppSendHint } from "@/app/components/WhatsAppSendHint";
 import {
   clearPendingOrderWhatsAppUrl,
@@ -485,6 +486,12 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
               Status atualizado agora ✓
             </p>
           )}
+          {/*
+           * Stepper de 4 etapas: verde até a etapa atual, cinza nas futuras.
+           * Acompanha o status ao vivo do tracker (polling de 10s e, quando a
+           * tabela `orders` está publicada no Realtime, eventos em tempo real).
+           */}
+          <OrderProgressStepper status={order.status} />
         </section>
         {/*
          * Resumo do pedido no WhatsApp: link montado no servidor no momento da

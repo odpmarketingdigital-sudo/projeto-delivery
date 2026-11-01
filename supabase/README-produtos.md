@@ -96,6 +96,15 @@ Mesmo padrão de guarda/escopo, alinhadas às tabelas padronizadas `orders` e
 | DELETE | `/api/customers`    | Exclui um cliente.                                     |
 | GET    | `/api/customers/history?establishment_id=xxx[&key=...]` | Agrupa os clientes a partir dos pedidos (nome/telefone, total de pedidos, faturamento, ticket médio e último pedido). Com `key`, devolve o histórico completo do cliente. |
 
+> **Tempo real:** o Kanban (`/painel`) assina `postgres_changes` em `orders` e o
+> acompanhamento público (`/pedido/[id]`) consulta o status a cada 10s — o
+> cliente anônimo não tem policy de `SELECT` em `orders`, então nenhum dado é
+> exposto via Realtime. A migração
+> `20261110000021_enable_orders_realtime.sql` adiciona a tabela à publicação
+> `supabase_realtime` e define `REPLICA IDENTITY FULL` (necessário para o filtro
+> por `establishment_id` nos UPDATEs); sem ela o painel segue funcionando pelo
+> polling de 15s.
+
 ### Rotas de cupons
 
 | Método | Rota                | Descrição                                              |

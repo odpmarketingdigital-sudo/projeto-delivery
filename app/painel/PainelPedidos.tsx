@@ -21,7 +21,7 @@ import { OrderSoundControl } from "./components/OrderSoundControl";
 import { useOrderSoundContext } from "./components/OrderSoundProvider";
 
 const COLUMNS: { status: OrderStatus; title: string; highlight?: boolean }[] = [
-  { status: "pendente", title: "Pendentes", highlight: true },
+  { status: "pendente", title: "Pendentes / Recebidos", highlight: true },
   { status: "preparando", title: "Em Preparo" },
   { status: "entrega", title: "Saiu para Entrega" },
   { status: "finalizado", title: "Concluídos / Entregues" },
@@ -124,6 +124,11 @@ export function PainelPedidos() {
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
   const [feedback, setFeedback] = useState<string | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  // Pedido aberto direto no formulário de cancelamento (drop na coluna
+  // "Cancelados", que exige motivo). Resetado ao abrir/fechar o modal.
+  const [cancelOnOpen, setCancelOnOpen] = useState(false);
+  // id do card em arraste no Kanban (null = nenhum arraste em andamento).
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   // Data selecionada no topo (padrão: hoje no fuso da loja).
   const [selectedDate, setSelectedDate] = useState(() => todayDateValue());
   // Visualização: Kanban (fluxo) ou Lista (tabela). Ambas usam os MESMOS
@@ -374,6 +379,40 @@ export function PainelPedidos() {
     [updateStatus]
   );
 
+  /**
+   * Drag and drop do Kanban: move o card solto para a coluna de destino.
+   *
+   * - Mesma coluna, pedido inexistente ou atualização em andamento: ignora.
+   * - "Cancelados" exige `cancellation_reason` (regra do PUT /api/orders),
+   *   então abre o modal já no formulário de cancelamento em vez de aplicar
+   *   direto.
+   * - Demais colunas: `updateStatus` aplica de forma otimista, chama a API e
+   *   mescla a linha retornada. O Realtime/polling do painel e do tracker
+   *   (`/pedido/[id]`) mantêm as duas telas sincronizadas.
+   */
+  const moveOrderToStatus = useCallback(
+    (orderId: string, targetStatus: OrderStatus) => {
+      // O card sai da coluna de origem imediatamente; encerra o visual de
+      // arraste sem depender do evento `dragend` do nó que foi movido.
+      setDraggingId(null);
+      const order = orders.find((o) => o.id === orderId);
+      if (!order || order.status === targetStatus || busyIds.has(orderId)) {
+        return;
+      }
+
+      if (targetStatus === "cancelado") {
+        setCancelOnOpen(true);
+        setSelectedOrderId(orderId);
+        return;
+      }
+
+      void updateStatus(orderId, targetStatus).catch(() => {
+        // Erro já tratado e exibido por updateStatus.
+      });
+    },
+    [orders, busyIds, updateStatus]
+  );
+
   const grouped = useMemo(() => {
     const g = {} as Record<OrderStatus, PanelOrder[]>;
     for (const c of COLUMNS) g[c.status] = [];
@@ -420,7 +459,9 @@ export function PainelPedidos() {
             </h2>
             <p className="text-sm text-slate-600">
               Pedidos de {formatDateBR(selectedDate)} · alterne entre Kanban e
-              Lista e abra os detalhes para gerenciar o pedido.
+              Lista e abra os detalhes para gerenciar o pedido. No Kanban,
+              arraste os cards entre as colunas — no celular, use “Próxima
+              etapa” ou o seletor de status no modal.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -535,9 +576,16 @@ export function PainelPedidos() {
                 status={col.status}
                 orders={grouped[col.status]}
                 shortNumbers={shortNumbers}
-                onOpenOrder={(order) => setSelectedOrderId(order.id)}
+                onOpenOrder={(order) => {
+                  setCancelOnOpen(false);
+                  setSelectedOrderId(order.id);
+                }}
                 onAdvanceOrder={advanceOrderStatus}
                 busyIds={busyIds}
+                onDropOrder={moveOrderToStatus}
+                onDragStartOrder={(order) => setDraggingId(order.id)}
+                onDragEndOrder={() => setDraggingId(null)}
+                draggingId={draggingId}
                 highlight={col.highlight}
               />
             ))
@@ -560,7 +608,11 @@ export function PainelPedidos() {
           shortNumber={selectedShortNumber}
           establishmentName={establishmentName}
           isBusy={busyIds.has(selectedOrder.id)}
-          onClose={() => setSelectedOrderId(null)}
+          initialCancelMode={cancelOnOpen}
+          onClose={() => {
+            setSelectedOrderId(null);
+            setCancelOnOpen(false);
+          }}
           onUpdateStatus={updateStatus}
         />
       )}

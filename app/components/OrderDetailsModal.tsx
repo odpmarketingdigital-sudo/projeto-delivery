@@ -22,6 +22,12 @@ interface OrderDetailsModalProps {
   shortNumber: string;
   establishmentName: string;
   isBusy: boolean;
+  /**
+   * true = abre já no formulário de motivo de cancelamento. Usado quando o
+   * operador solta o card na coluna "Cancelados" do Kanban (o cancelamento
+   * exige motivo na API).
+   */
+  initialCancelMode?: boolean;
   onClose: () => void;
   onUpdateStatus: (
     orderId: string,
@@ -204,6 +210,7 @@ export function OrderDetailsModal({
   shortNumber,
   establishmentName,
   isBusy,
+  initialCancelMode = false,
   onClose,
   onUpdateStatus,
 }: OrderDetailsModalProps) {
@@ -227,7 +234,7 @@ export function OrderDetailsModal({
     ? formatDateTime(order.estimated_delivery_at)
     : null;
 
-  const [cancelMode, setCancelMode] = useState(false);
+  const [cancelMode, setCancelMode] = useState(initialCancelMode);
   const [cancelReason, setCancelReason] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
