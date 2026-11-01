@@ -19,22 +19,25 @@ import {
 } from "@/app/components/legal/legalContent";
 
 export const metadata: Metadata = {
-  title: "Política de Privacidade | Ipepper",
+  title: "Política de Privacidade | ipepper",
   description:
-    "Saiba como o Ipepper coleta, usa, compartilha e protege os dados pessoais de estabelecimentos e usuários, em conformidade com a LGPD.",
+    "Saiba como o ipepper coleta, usa, compartilha e protege os dados pessoais de estabelecimentos e usuários, em conformidade com a LGPD.",
+  alternates: {
+    canonical: "/privacidade",
+  },
   openGraph: {
-    title: "Política de Privacidade | Ipepper",
+    title: "Política de Privacidade | ipepper",
     description:
-      "Transparência sobre a coleta, o uso, o compartilhamento e a proteção de dados pessoais no Ipepper.",
+      "Transparência sobre a coleta, o uso, o compartilhamento e a proteção de dados pessoais no ipepper.",
     siteName: PRODUCT_NAME,
     locale: "pt_BR",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "Política de Privacidade | Ipepper",
+    title: "Política de Privacidade | ipepper",
     description:
-      "Transparência sobre a coleta, o uso, o compartilhamento e a proteção de dados pessoais no Ipepper.",
+      "Transparência sobre a coleta, o uso, o compartilhamento e a proteção de dados pessoais no ipepper.",
   },
   robots: {
     index: true,

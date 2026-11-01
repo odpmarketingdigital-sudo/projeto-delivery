@@ -18,22 +18,25 @@ import {
 } from "@/app/components/legal/legalContent";
 
 export const metadata: Metadata = {
-  title: "Termos de Uso | Ipepper",
+  title: "Termos de Uso | ipepper",
   description:
-    "Condições de uso da plataforma Ipepper: cadastro, planos e pagamentos via Stripe e Asaas, disponibilidade, suporte e responsabilidades do estabelecimento.",
+    "Condições de uso da plataforma ipepper: cadastro, planos e pagamentos via Stripe e Asaas, disponibilidade, suporte e responsabilidades do estabelecimento.",
+  alternates: {
+    canonical: "/termos",
+  },
   openGraph: {
-    title: "Termos de Uso | Ipepper",
+    title: "Termos de Uso | ipepper",
     description:
-      "Regras de utilização da plataforma Ipepper, planos, pagamentos, suporte e responsabilidades.",
+      "Regras de utilização da plataforma ipepper, planos, pagamentos, suporte e responsabilidades.",
     siteName: PRODUCT_NAME,
     locale: "pt_BR",
     type: "website",
   },
   twitter: {
     card: "summary",
-    title: "Termos de Uso | Ipepper",
+    title: "Termos de Uso | ipepper",
     description:
-      "Regras de utilização da plataforma Ipepper, planos, pagamentos, suporte e responsabilidades.",
+      "Regras de utilização da plataforma ipepper, planos, pagamentos, suporte e responsabilidades.",
   },
   robots: {
     index: true,
