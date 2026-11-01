@@ -46,7 +46,7 @@ curl -s  https://www.ipepper.com.br/sitemap.xml             # /, /privacidade, /
 ```
 
 Confirme também em uma janela anônima (sem sessão) que as páginas abrem,
-mostram `contato@ipepper.com.br`, `(17) 99265-0646` e o link de volta para o
+mostram `alpmdp@gmail.com`, `(17) 99265-0646` e o link de volta para o
 início — o revisor do Google abre exatamente assim.
 
 ---
@@ -81,13 +81,13 @@ Branding / Audience / Data access*).
 | Campo | Valor |
 | --- | --- |
 | App name | `ipepper` (sem "Google", sem "App", ≤ 30 caracteres) |
-| User support email | `contato@ipepper.com.br` (e-mail da própria conta, verificado) |
+| User support email | `alpmdp@gmail.com` (precisa ser um e-mail acessível; o Google envia as notificações da análise para ele) |
 | App logo | PNG/JPG quadrado 120×120 (logo do `public/logotipo.png`) |
 | Application home page | `https://www.ipepper.com.br` |
 | Application privacy policy link | `https://www.ipepper.com.br/privacidade` |
 | Application terms of service link | `https://www.ipepper.com.br/termos` |
 | Authorized domains | `ipepper.com.br` |
-| Developer contact information | `contato@ipepper.com.br` |
+| Developer contact information | `alpmdp@gmail.com` |
 
 Regras que reprovam a análise com mais frequência:
 
@@ -97,7 +97,10 @@ Regras que reprovam a análise com mais frequência:
 - o domínio não está verificado no Search Console com a mesma conta;
 - a política é genérica, sem citar coleta de dados, finalidade,
   compartilhamento (Stripe/Asaas), direitos do titular e contato;
-- e-mail de suporte é `gmail.com`/`hotmail.com` em vez de domínio próprio.
+- o e-mail de suporte informado **não existe** ou está fora do ar;
+- (recomendação) usar `gmail.com`/`hotmail.com` no *User support email* é
+  aceito, mas reduz a credibilidade da marca — o ideal é um endereço no
+  domínio próprio (`contato@ipepper.com.br`) com caixa ativa e monitorada.
 
 **Audience:** `External` → *Publish app* (status **In production**). Em
 *Testing* o refresh token expira em 7 dias e o app não é aprovado.
@@ -144,7 +147,7 @@ Supabase como intermediário, com retorno em
 - [ ] `next build` sem erros e as 5 rotas em `○ (Static)`.
 - [ ] `https://www.ipepper.com.br/privacidade` e `/termos` retornam `200` sem
       cookies/sessão.
-- [ ] Ambas exibem `contato@ipepper.com.br`, `(17) 99265-0646` e o link
+- [ ] Ambas exibem `alpmdp@gmail.com`, `(17) 99265-0646` e o link
       "Voltar para o início".
 - [ ] Rodapé da home tem "Política de Privacidade" e "Termos de Uso"
       (`next/link`).

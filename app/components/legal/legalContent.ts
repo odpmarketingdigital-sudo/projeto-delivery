@@ -13,7 +13,7 @@
 export const PRODUCT_NAME = "Ipepper";
 
 /** E-mail oficial de suporte, privacidade e cancelamento. */
-export const SUPPORT_EMAIL = "contato@ipepper.com.br";
+export const SUPPORT_EMAIL = "alpmdp@gmail.com";
 
 /** Telefone/WhatsApp formatado para exibição. */
 export const SUPPORT_PHONE_DISPLAY = "(17) 99265-0646";

@@ -16,7 +16,7 @@ Em `.env.local` (e no provedor de deploy):
 ```bash
 RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxx
 EMAIL_FROM="Ipepper <nao-responda@ipepper.com.br>"
-EMAIL_REPLY_TO=contato@ipepper.com.br   # opcional
+EMAIL_REPLY_TO=alpmdp@gmail.com          # opcional
 NEXT_PUBLIC_APP_URL=https://ipepper.com.br
 EMAIL_LOGO_URL=                          # opcional
 ```
