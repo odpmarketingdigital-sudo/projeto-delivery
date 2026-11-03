@@ -175,10 +175,17 @@ export async function POST(request: Request) {
       street?: string;
       number?: string;
       neighborhood?: string;
+      /** Cidade informada/selecionada no autocomplete (opcional). */
+      city?: string;
       complement?: string;
       reference?: string;
       /** CEP do endereço (obrigatório no modelo por distância/raio). */
       cep?: string;
+      /** Coordenadas do Places Autocomplete (preferidas para a rota). */
+      latitude?: number | string;
+      longitude?: number | string;
+      /** `place_id` do Google — gravado junto ao endereço. */
+      place_id?: string;
     };
     payment_method?: string;
     change_for?: number | null;
@@ -382,12 +389,15 @@ export async function POST(request: Request) {
   }
 
   // Taxa de entrega recalculada no servidor (nunca confia no navegador).
-  // `quoteDelivery` valida o CEP, geocodifica, calcula a distância (Haversine)
-  // e aplica o modelo configurado pela loja (fixo ou por km).
-  const deliveryResult = await quoteDelivery(
-    establishment,
-    typeof customer.cep === "string" ? customer.cep : null
-  );
+  // `quoteDelivery` resolve o endereço (coordenadas do Places ou CEP),
+  // calcula a distância por rota (Google Routes API, com fallback em linha
+  // reta) e aplica o modelo configurado pela loja (fixo ou por km).
+  const deliveryResult = await quoteDelivery(establishment, {
+    cep: typeof customer.cep === "string" ? customer.cep : null,
+    latitude: customer.latitude,
+    longitude: customer.longitude,
+    place_id: typeof customer.place_id === "string" ? customer.place_id : null,
+  });
   if (!deliveryResult.ok) {
     return NextResponse.json(
       { error: deliveryResult.error },
@@ -397,12 +407,13 @@ export async function POST(request: Request) {
   const deliveryQuote = deliveryResult.quote;
 
   if (!deliveryQuote.within_radius) {
+    const distanceKm = deliveryQuote.distance_km;
     return NextResponse.json(
       {
         error:
           `Endereço fora do raio de entrega da loja` +
-          (deliveryQuote.distance_km != null
-            ? ` (${deliveryQuote.distance_km} km de distância, limite de ${deliveryQuote.max_delivery_radius_km} km).`
+          (distanceKm != null
+            ? ` (${distanceKm} km de distância, limite de ${deliveryQuote.max_delivery_radius_km} km).`
             : "."),
       },
       { status: 400 }
@@ -649,9 +660,27 @@ export async function POST(request: Request) {
     street,
     number,
     neighborhood,
+    // Cidade: usa a do formulário (Places/CEP) e, quando ausente, a resolvida
+    // pelo servidor a partir do CEP — o painel sempre tem a cidade preenchida.
+    city:
+      customer.city?.trim() ||
+      deliveryQuote.address?.city ||
+      "",
     complement: customer.complement?.trim() ?? "",
     reference: customer.reference?.trim() ?? "",
     cep: deliveryQuote.cep,
+    // Coordenadas efetivamente usadas no cálculo da rota (Places/CEP). Ficam
+    // no pedido para o entregador abrir a navegação sem redigitar o endereço.
+    ...(deliveryQuote.destination.latitude != null &&
+    deliveryQuote.destination.longitude != null
+      ? {
+          latitude: deliveryQuote.destination.latitude,
+          longitude: deliveryQuote.destination.longitude,
+        }
+      : {}),
+    ...(deliveryQuote.destination.place_id
+      ? { place_id: deliveryQuote.destination.place_id }
+      : {}),
   };
   const itemsData = orderItems ?? [];
   const notesValue = body.notes?.trim() || null;
@@ -689,6 +718,12 @@ export async function POST(request: Request) {
     notes: notesValue ?? null,
     estimated_delivery_time: estimatedDeliveryTime,
     estimated_delivery_at: estimatedDeliveryAt,
+    // Distância/taxa efetivamente cobradas (auditoria e reembolso). A distância
+    // é a da rota do Google quando disponível; `delivery_distance_source`
+    // registra se veio da rota ou do fallback em linha reta.
+    delivery_distance_km: deliveryQuote.distance_km ?? null,
+    delivery_duration_minutes: deliveryQuote.duration_minutes ?? null,
+    delivery_distance_source: deliveryQuote.distance_source ?? null,
     // Colunas de cupom só são enviadas quando um cupom foi aplicado: assim
     // pedidos sem cupom continuam funcionando mesmo em bases que ainda não
     // executaram a migração 20261110000011.
@@ -722,6 +757,28 @@ export async function POST(request: Request) {
     const retryPayload = { ...orderPayload };
     delete retryPayload.estimated_delivery_time;
     delete retryPayload.estimated_delivery_at;
+    ({ data: created, error: insertError } = await adminClient
+      .from("orders")
+      .insert(retryPayload)
+      .select("id")
+      .single());
+  }
+
+  // Base sem a migração 20261110000024: mantém o pedido (com a taxa já
+  // calculada) apenas sem a distância/tempo da rota gravados.
+  if (
+    insertError &&
+    /delivery_distance_km|delivery_duration_minutes|delivery_distance_source/i.test(
+      insertError.message ?? ""
+    ) &&
+    /does not exist|could not find|schema cache/i.test(
+      insertError.message ?? ""
+    )
+  ) {
+    const retryPayload = { ...orderPayload };
+    delete retryPayload.delivery_distance_km;
+    delete retryPayload.delivery_duration_minutes;
+    delete retryPayload.delivery_distance_source;
     ({ data: created, error: insertError } = await adminClient
       .from("orders")
       .insert(retryPayload)
@@ -830,6 +887,9 @@ export async function POST(request: Request) {
         estimated_delivery_time: estimatedDeliveryTime,
         estimated_delivery_at: estimatedDeliveryAt,
         status: "pendente",
+        /** Distância da rota usada no cálculo (km) e tempo estimado. */
+        delivery_distance_km: deliveryQuote.distance_km,
+        delivery_duration_minutes: deliveryQuote.duration_minutes,
         /** Link `wa.me` com o resumo do pedido (null quando indisponível). */
         whatsapp_url: whatsappUrl,
       },

@@ -21,7 +21,18 @@ export interface CustomerProfile {
   street: string;
   number: string;
   neighborhood: string;
+  /** Cidade do endereço (preenchida pelo autocomplete/CEP). */
+  city?: string;
   complement?: string;
+  /**
+   * Coordenadas do endereço escolhido no Google Places (quando disponíveis).
+   * Permitem cotar a entrega por rota já no primeiro carregamento do checkout,
+   * sem depender da geocodificação do CEP.
+   */
+  latitude?: number;
+  longitude?: number;
+  /** `place_id` do Google — reutilizado apenas como referência do endereço. */
+  placeId?: string;
 }
 
 /**
@@ -40,7 +51,8 @@ export function getCustomerProfile(): CustomerProfile | null {
     if (!parsed || typeof parsed !== "object") return null;
 
     // Validação mínima dos campos obrigatórios.
-    const { name, phone, cep, street, number, neighborhood, complement } = parsed;
+    const { name, phone, cep, street, number, neighborhood, city, complement } =
+      parsed;
     if (
       typeof name !== "string" ||
       typeof phone !== "string" ||
@@ -51,6 +63,20 @@ export function getCustomerProfile(): CustomerProfile | null {
       return null;
     }
 
+    // Coordenadas são opcionais e só são reaproveitadas quando válidas.
+    const latitude =
+      typeof parsed.latitude === "number" && Number.isFinite(parsed.latitude)
+        ? parsed.latitude
+        : undefined;
+    const longitude =
+      typeof parsed.longitude === "number" && Number.isFinite(parsed.longitude)
+        ? parsed.longitude
+        : undefined;
+    const placeId =
+      typeof parsed.placeId === "string" && parsed.placeId.trim()
+        ? parsed.placeId
+        : undefined;
+
     return {
       name,
       phone,
@@ -58,7 +84,10 @@ export function getCustomerProfile(): CustomerProfile | null {
       street,
       number,
       neighborhood,
+      ...(typeof city === "string" && city.trim() ? { city: city.trim() } : {}),
       complement: typeof complement === "string" ? complement : undefined,
+      ...(latitude != null && longitude != null ? { latitude, longitude } : {}),
+      ...(placeId ? { placeId } : {}),
     };
   } catch {
     // JSON inválido ou localStorage bloqueado (modo privado, etc.).
@@ -81,7 +110,12 @@ export function saveCustomerProfile(profile: CustomerProfile): void {
       street: profile.street,
       number: profile.number,
       neighborhood: profile.neighborhood,
+      ...(profile.city ? { city: profile.city } : {}),
       ...(profile.complement ? { complement: profile.complement } : {}),
+      ...(profile.latitude != null && profile.longitude != null
+        ? { latitude: profile.latitude, longitude: profile.longitude }
+        : {}),
+      ...(profile.placeId ? { placeId: profile.placeId } : {}),
     };
     window.localStorage.setItem(
       CUSTOMER_PROFILE_KEY,

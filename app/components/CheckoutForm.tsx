@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useCart } from "@/context/CartContext";
 import type { StorefrontMenu } from "@/lib/types";
 import { describeNextOpening, isStoreOpen } from "@/lib/openingHours";
-import { formatCep, parseCep, type DeliveryQuote } from "@/lib/delivery";
+import { formatCep, formatTravelDuration, parseCep, type DeliveryQuote } from "@/lib/delivery";
 import {
   buildCatalogWhatsAppUrl,
   isCartItemPriceOnRequest,
@@ -32,6 +32,8 @@ import {
   savePendingOrderWhatsAppUrl,
 } from "@/lib/whatsappOrder";
 import { WhatsAppSendHint } from "@/app/components/WhatsAppSendHint";
+import { AddressAutocomplete } from "@/app/components/AddressAutocomplete";
+import type { GooglePlaceAddress } from "@/lib/googleMapsPlaces";
 
 type PaymentMethod = "pix" | "cartao" | "dinheiro";
 
@@ -42,6 +44,7 @@ interface DeliveryForm {
   rua: string;
   numero: string;
   bairro: string;
+  cidade: string;
   complemento: string;
   referencia: string;
 }
@@ -75,7 +78,24 @@ interface DeliveryQuoteResponse {
   error?: string;
   /** Distância também exposta na raiz da resposta (float ou `null`). */
   distance_km?: number | null;
+  /** Tempo de percurso em minutos (Google Routes) ou `null`. */
+  duration_minutes?: number | null;
+  /** `google_routes` (rota real) ou `haversine` (linha reta). */
+  distance_source?: DeliveryQuote["distance_source"];
   quote?: DeliveryQuotePreview;
+}
+
+/**
+ * Coordenadas do endereço escolhido no Google Places.
+ *
+ * `cep` amarra o ponto ao endereço atual: se o cliente trocar o CEP, o ponto
+ * deixa de ser usado (evita cotar com coordenadas de outro endereço).
+ */
+interface DeliveryPoint {
+  cep: string;
+  latitude: number;
+  longitude: number;
+  placeId: string | null;
 }
 
 /** Resultado da consulta de CEP vinculado ao CEP consultado. */
@@ -92,9 +112,30 @@ const INITIAL_FORM: DeliveryForm = {
   rua: "",
   numero: "",
   bairro: "",
+  cidade: "",
   complemento: "",
   referencia: "",
 };
+
+/**
+ * Coordenadas salvas no perfil do cliente (último endereço escolhido no
+ * autocomplete). Só valem quando o CEP confere com o do formulário — assim o
+ * checkout nunca cota com coordenadas de um endereço diferente.
+ */
+function readSavedDeliveryPoint(preferredCep: string): DeliveryPoint | null {
+  const saved = getCustomerProfile();
+  const savedCep = parseCep(saved?.cep ?? "");
+  if (!saved || !savedCep || saved.latitude == null || saved.longitude == null) {
+    return null;
+  }
+  if (parseCep(preferredCep) !== savedCep) return null;
+  return {
+    cep: savedCep,
+    latitude: saved.latitude,
+    longitude: saved.longitude,
+    placeId: saved.placeId ?? null,
+  };
+}
 
 const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; hint: string }[] =
   [
@@ -176,6 +217,7 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       rua: saved.street,
       numero: saved.number,
       bairro: saved.neighborhood,
+      cidade: saved.city ?? "",
       complemento: saved.complement ?? "",
       referencia: "",
     };
@@ -261,6 +303,11 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   // Feedback da consulta de CEP usada para preencher rua/bairro.
   const [cepLookupState, setCepLookupState] =
     useState<CepLookupState | null>(null);
+  // Coordenadas do endereço escolhido no Google Places (ou do último pedido).
+  // São a entrada preferida do cálculo de rota no servidor.
+  const [deliveryPoint, setDeliveryPoint] = useState<DeliveryPoint | null>(() =>
+    readSavedDeliveryPoint(deliveryCep || getCustomerProfile()?.cep || "")
+  );
 
   // Reseta quando a loja derivada do carrinho muda — ajuste durante o render
   // (padrão recomendado pelo React; mesmo padrão de PainelProdutos).
@@ -366,19 +413,36 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       (establishment.delivery_type === "distance" ||
         establishment.max_delivery_radius_km != null)
   );
+  // Coordenadas válidas para o CEP atual (endereço escolhido no autocomplete).
+  const activeDeliveryPoint =
+    deliveryPoint && cepDigits && deliveryPoint.cep === cepDigits
+      ? deliveryPoint
+      : null;
   // Só consulta o servidor quando o modelo realmente depende da distância
   // (por km ou raio máximo). Lojas com taxa fixa seguem usando `delivery_fee`
-  // local, sem chamadas externas de CEP no checkout.
+  // local, sem chamadas externas de endereço no checkout.
+  //
+  // A chave inclui as coordenadas: trocar o endereço sugerido invalida a
+  // cotação anterior mesmo quando o CEP é o mesmo (ex.: número na outra ponta
+  // da rua), forçando um novo cálculo de rota.
+  const quotePointKey = activeDeliveryPoint
+    ? `${activeDeliveryPoint.latitude.toFixed(5)},${activeDeliveryPoint.longitude.toFixed(5)}`
+    : "";
   const quoteKey =
     establishment &&
     deliveryNeedsCep &&
     quoteEstablishmentId &&
-    cepDigits
-      ? `${quoteEstablishmentId}:${cepDigits}`
+    (cepDigits || activeDeliveryPoint)
+      ? `${quoteEstablishmentId}:${cepDigits ?? ""}:${quotePointKey}`
       : null;
 
   useEffect(() => {
-    if (!quoteKey || !quoteEstablishmentId || !cepDigits) return;
+    if (!quoteKey || !quoteEstablishmentId) return;
+
+    // Snapshot do endereço desta cotação (evita usar valores novos dentro do
+    // timer quando o cliente continua digitando).
+    const cepForQuote = cepDigits;
+    const pointForQuote = activeDeliveryPoint;
 
     let cancelled = false;
     const timer = window.setTimeout(async () => {
@@ -396,7 +460,10 @@ export function CheckoutForm({ slug }: { slug?: string }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             establishment_id: quoteEstablishmentId,
-            cep: cepDigits,
+            cep: cepForQuote ?? undefined,
+            latitude: pointForQuote?.latitude,
+            longitude: pointForQuote?.longitude,
+            place_id: pointForQuote?.placeId ?? undefined,
           }),
         });
         const data = (await res.json().catch(() => ({}))) as DeliveryQuoteResponse;
@@ -409,6 +476,10 @@ export function CheckoutForm({ slug }: { slug?: string }) {
           quote: {
             ...data.quote,
             distance_km: data.distance_km ?? data.quote.distance_km ?? null,
+            duration_minutes:
+              data.duration_minutes ?? data.quote.duration_minutes ?? null,
+            distance_source:
+              data.distance_source ?? data.quote.distance_source ?? null,
           },
           error: null,
           loading: false,
@@ -429,7 +500,7 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [quoteKey, quoteEstablishmentId, cepDigits]);
+  }, [quoteKey, quoteEstablishmentId, cepDigits, activeDeliveryPoint]);
 
   const currentQuoteState =
     deliveryQuoteState && deliveryQuoteState.key === quoteKey
@@ -460,6 +531,7 @@ export function CheckoutForm({ slug }: { slug?: string }) {
           address?: {
             street?: string | null;
             neighborhood?: string | null;
+            city?: string | null;
           };
         };
         if (cancelled) return;
@@ -468,12 +540,14 @@ export function CheckoutForm({ slug }: { slug?: string }) {
         }
         const street = data.address.street?.trim() ?? "";
         const neighborhood = data.address.neighborhood?.trim() ?? "";
+        const city = data.address.city?.trim() ?? "";
         setForm((prev) => ({
           ...prev,
           rua: prev.rua.trim() ? prev.rua : street || prev.rua,
           bairro: prev.bairro.trim()
             ? prev.bairro
             : neighborhood || prev.bairro,
+          cidade: prev.cidade.trim() ? prev.cidade : city || prev.cidade,
         }));
         setCepLookupState({ cep: cepDigits, error: null, loading: false });
       } catch (err) {
@@ -510,6 +584,10 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     deliveryQuote?.distance_km != null && deliveryQuote.distance_km > 0
       ? deliveryQuote.distance_km
       : null;
+  // Tempo de percurso estimado pelo Google Routes (null no fallback Haversine).
+  const deliveryDurationLabel = formatTravelDuration(
+    deliveryQuote?.duration_minutes ?? null
+  );
   const deliveryOutOfRange = deliveryQuote?.within_radius === false;
   const deliveryOutOfRangeMessage = deliveryOutOfRange
     ? deliveryDistanceKm != null
@@ -645,10 +723,61 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     setForm((prev) => ({ ...prev, [field]: value }));
     // Mantém a sacola sincronizada também quando o CEP é editado no checkout
     // (inclusive ao apagar o valor, para não deixar um CEP antigo na sacola).
-    if (field === "cep") setDeliveryCep(parseCep(value) ?? "");
+    // Ao alterar o CEP manualmente, as coordenadas do autocomplete deixam de
+    // corresponder ao endereço digitado e são descartadas.
+    if (field === "cep") {
+      setDeliveryCep(parseCep(value) ?? "");
+      setDeliveryPoint(null);
+    }
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
+  };
+
+  /**
+   * Aplica o endereço escolhido no Google Places.
+   *
+   * Os campos são sobrescritos de propósito: o cliente acabou de confirmar um
+   * endereço completo no dropdown e espera ver os dados corretos no formulário
+   * (inclusive o número, que costuma vir da sugestão).
+   */
+  const handlePlaceSelected = (address: GooglePlaceAddress) => {
+    const cep = address.cep;
+    const street = address.street?.trim() ?? "";
+    const number = address.number?.trim() ?? "";
+    const neighborhood = address.neighborhood?.trim() ?? "";
+    const city = address.city?.trim() ?? "";
+
+    setForm((prev) => ({
+      ...prev,
+      cep: cep ? formatCep(cep) : prev.cep,
+      rua: street || prev.rua,
+      numero: number || prev.numero,
+      bairro: neighborhood || prev.bairro,
+      cidade: city || prev.cidade,
+    }));
+
+    if (address.latitude != null && address.longitude != null) {
+      setDeliveryPoint({
+        // Sem CEP na sugestão o ponto não é usado (o servidor precisa do CEP
+        // para calcular a taxa quando o cliente digitar um).
+        cep: cep ?? "",
+        latitude: address.latitude,
+        longitude: address.longitude,
+        placeId: address.placeId,
+      });
+    } else {
+      setDeliveryPoint(null);
+    }
+
+    if (cep) setDeliveryCep(cep);
+    setErrors((prev) => ({
+      ...prev,
+      cep: undefined,
+      rua: undefined,
+      numero: undefined,
+      bairro: undefined,
+    }));
   };
 
   const validate = (): FormErrors => {
@@ -667,10 +796,10 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     if (!form.numero.trim()) next.numero = "Informe o número.";
     if (!form.bairro.trim()) next.bairro = "Informe o bairro.";
 
-    if (form.cep.trim() && !cepDigits) {
+    if (form.cep.trim() && !cepDigits && !activeDeliveryPoint) {
       next.cep = "Informe um CEP válido com 8 dígitos.";
     } else if (deliveryNeedsCep) {
-      if (!cepDigits) {
+      if (!cepDigits && !activeDeliveryPoint) {
         next.cep = "Informe o CEP para calcular a taxa de entrega.";
       } else if (isQuotingDelivery) {
         next.cep = "Aguarde o cálculo da taxa de entrega.";
@@ -825,7 +954,19 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       street: form.rua.trim(),
       number: form.numero.trim(),
       neighborhood: form.bairro.trim(),
+      ...(form.cidade.trim() ? { city: form.cidade.trim() } : {}),
       complement: form.complemento.trim() || undefined,
+      // Coordenadas do endereço selecionado: no próximo checkout a cotação já
+      // começa com a rota certa, sem depender da geocodificação do CEP.
+      ...(activeDeliveryPoint
+        ? {
+            latitude: activeDeliveryPoint.latitude,
+            longitude: activeDeliveryPoint.longitude,
+            ...(activeDeliveryPoint.placeId
+              ? { placeId: activeDeliveryPoint.placeId }
+              : {}),
+          }
+        : {}),
     });
 
     try {
@@ -847,8 +988,14 @@ export function CheckoutForm({ slug }: { slug?: string }) {
             street: form.rua.trim(),
             number: form.numero.trim(),
             neighborhood: form.bairro.trim(),
+            city: form.cidade.trim() || undefined,
             complement: form.complemento.trim(),
             reference: form.referencia.trim(),
+            // Coordenadas do Places: o servidor usa direto na rota (a taxa é
+            // sempre recalculada lá, nunca aceita do navegador).
+            latitude: activeDeliveryPoint?.latitude,
+            longitude: activeDeliveryPoint?.longitude,
+            place_id: activeDeliveryPoint?.placeId ?? undefined,
           },
           payment_method: payment,
           // A API revalida o cupom e recalcula o desconto no servidor.
@@ -1747,8 +1894,14 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                   deliveryQuote &&
                   deliveryDistanceKm != null && (
                     <p className="mt-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                      Distância aproximada: {formatKm(deliveryDistanceKm)} km —
-                      entrega de {formatBRL(deliveryQuote.fee)}.
+                      {deliveryQuote.distance_source === "google_routes"
+                        ? "Distância pela rota"
+                        : "Distância aproximada"}
+                      : {formatKm(deliveryDistanceKm)} km
+                      {deliveryDurationLabel
+                        ? ` · ~${deliveryDurationLabel} de percurso`
+                        : ""}{" "}
+                      — entrega de {formatBRL(deliveryQuote.fee)}.
                     </p>
                   )}
               </div>
@@ -1761,15 +1914,15 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                   >
                     Rua
                   </label>
-                  <input
+                  <AddressAutocomplete
                     id="rua"
                     name="rua"
-                    type="text"
+                    placeholder="Ex.: Rua das Flores, 123"
                     autoComplete="address-line1"
-                    placeholder="Ex.: Rua das Flores"
                     value={form.rua}
-                    onChange={(event) => updateField("rua", event.target.value)}
-                    aria-invalid={errors.rua ? true : undefined}
+                    onChange={(value) => updateField("rua", value)}
+                    onPlaceSelected={handlePlaceSelected}
+                    ariaInvalid={Boolean(errors.rua)}
                     className={inputClassName("rua")}
                   />
                   {errorText("rua")}
@@ -1823,6 +1976,33 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                   {errorText("bairro")}
                 </div>
 
+                <div id="field-cidade" className="flex-1">
+                  <label
+                    htmlFor="cidade"
+                    className="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >
+                    Cidade{" "}
+                    <span className="font-normal text-gray-400">
+                      (opcional)
+                    </span>
+                  </label>
+                  <input
+                    id="cidade"
+                    name="cidade"
+                    type="text"
+                    autoComplete="address-level2"
+                    placeholder="Ex.: São José do Rio Preto"
+                    value={form.cidade}
+                    onChange={(event) =>
+                      updateField("cidade", event.target.value)
+                    }
+                    className={inputClassName("cidade")}
+                  />
+                  {errorText("cidade")}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-4 sm:flex-row">
                 <div id="field-complemento" className="flex-1">
                   <label
                     htmlFor="complemento"
@@ -1845,29 +2025,29 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                     className={inputClassName("complemento")}
                   />
                 </div>
-              </div>
 
-              <div id="field-referencia">
-                <label
-                  htmlFor="referencia"
-                  className="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-                >
-                  Ponto de referência{" "}
-                  <span className="font-normal text-gray-400">
-                    (opcional)
-                  </span>
-                </label>
-                <input
-                  id="referencia"
-                  name="referencia"
-                  type="text"
-                  placeholder="Ex.: Próximo ao mercado"
-                  value={form.referencia}
-                  onChange={(event) =>
-                    updateField("referencia", event.target.value)
-                  }
-                  className={inputClassName("referencia")}
-                />
+                <div id="field-referencia" className="flex-1">
+                  <label
+                    htmlFor="referencia"
+                    className="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >
+                    Ponto de referência{" "}
+                    <span className="font-normal text-gray-400">
+                      (opcional)
+                    </span>
+                  </label>
+                  <input
+                    id="referencia"
+                    name="referencia"
+                    type="text"
+                    placeholder="Ex.: Próximo ao mercado"
+                    value={form.referencia}
+                    onChange={(event) =>
+                      updateField("referencia", event.target.value)
+                    }
+                    className={inputClassName("referencia")}
+                  />
+                </div>
               </div>
             </div>
           </section>

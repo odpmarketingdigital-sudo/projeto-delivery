@@ -9,10 +9,26 @@ import { quoteDelivery } from "@/lib/deliveryQuote";
  * A taxa NUNCA deve ser calculada apenas no navegador: `POST /api/orders`
  * revalida os mesmos dados antes de gravar o pedido.
  *
- * Body: { establishment_id: string; cep?: string }
+ * A distância vem da Google Routes API (rota real, com trânsito) quando a
+ * chave `GOOGLE_MAPS_API_KEY` está configurada; sem ela, a cotação responde
+ * com a distância em linha reta e `distance_source = "haversine"`.
+ *
+ * Body: {
+ *   establishment_id: string;
+ *   cep?: string;
+ *   latitude?: number;   // coordenadas do Places Autocomplete
+ *   longitude?: number;
+ *   place_id?: string;
+ * }
  */
 export async function POST(request: Request) {
-  type QuoteBody = { establishment_id?: unknown; cep?: unknown };
+  type QuoteBody = {
+    establishment_id?: unknown;
+    cep?: unknown;
+    latitude?: unknown;
+    longitude?: unknown;
+    place_id?: unknown;
+  };
   let body: QuoteBody;
   try {
     body = (await request.json()) as QuoteBody;
@@ -32,6 +48,12 @@ export async function POST(request: Request) {
   }
 
   const cep = typeof body.cep === "string" ? body.cep : null;
+  // `latitude`/`longitude` são normalizadas por `parseGeoPoint` dentro da
+  // cotação; aqui só repassamos os valores crus para aceitar number ou string.
+  const placeId =
+    typeof body.place_id === "string" && body.place_id.trim()
+      ? body.place_id.trim()
+      : null;
 
   const adminClient = createAdminClient();
   const { data: establishment, error } = await adminClient
@@ -54,17 +76,24 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await quoteDelivery(establishment, cep);
+  const result = await quoteDelivery(establishment, {
+    cep,
+    latitude: body.latitude,
+    longitude: body.longitude,
+    place_id: placeId,
+  });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });
   }
 
-  // `distance_km` também no nível raiz: facilita consumidores que só precisam
-  // da distância. É sempre um float (ex.: 3.42) ou `null` quando não foi
-  // possível calcular — nunca `0`.
+  // `distance_km`/`duration_minutes` também no nível raiz: facilita
+  // consumidores que só precisam da distância/tempo. Distância é sempre um
+  // float (ex.: 3.42) ou `null` quando não foi possível calcular — nunca `0`.
   return NextResponse.json(
     {
       distance_km: result.quote.distance_km,
+      duration_minutes: result.quote.duration_minutes,
+      distance_source: result.quote.distance_source,
       quote: result.quote,
     },
     { status: 200 }

@@ -86,8 +86,17 @@ export interface PanelOrderAddress {
   street: string;
   number: string;
   neighborhood: string;
+  /** Cidade informada/selecionada no checkout. */
+  city?: string | null;
   complement?: string;
   reference?: string;
+  /** CEP do endereço (somente dígitos). */
+  cep?: string | null;
+  /** Coordenadas do endereço usadas no cálculo da rota (Places/CEP). */
+  latitude?: number | null;
+  longitude?: number | null;
+  /** `place_id` do Google para reabrir o local no mapa. */
+  place_id?: string | null;
 }
 
 /**
@@ -120,6 +129,18 @@ export interface PanelOrder {
   estimated_delivery_time?: string | null;
   /** Instante previsto da entrega (coluna `estimated_delivery_at`). */
   estimated_delivery_at?: string | null;
+  /**
+   * Distância usada no cálculo da entrega (km) — coluna
+   * `delivery_distance_km`, migração 20261110000024.
+   */
+  delivery_distance_km?: number | null;
+  /** Tempo de percurso estimado (minutos) — `delivery_duration_minutes`. */
+  delivery_duration_minutes?: number | null;
+  /**
+   * Origem da distância: `google_routes` (rota real) ou `haversine`
+   * (linha reta) — coluna `delivery_distance_source`.
+   */
+  delivery_distance_source?: string | null;
   created_at: string;
   updated_at: string;
 }

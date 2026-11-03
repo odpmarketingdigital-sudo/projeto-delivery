@@ -90,6 +90,46 @@ Passo a passo de configuração do webhook (Sandbox e Produção):
   a `canceled_at`/`overdue_suspended_at`) — lojas desligadas manualmente pelo
   Super Admin continuam offline.
 
+## Entrega por distância (Google Maps)
+
+Fluxo do checkout para lojas com entrega por km (`delivery_type = 'distance'`)
+ou raio máximo (`max_delivery_radius_km`):
+
+1. **Autocomplete de endereço** — o campo *Rua* do checkout
+   ([`AddressAutocomplete.tsx`](app/components/AddressAutocomplete.tsx)) usa a
+   Google Maps JS API (Places) para sugerir endereços no Brasil. Ao escolher uma
+   sugestão, o formulário recebe **rua, número, bairro, cidade, estado, CEP** e
+   as **coordenadas** (`lat`/`lng`), que seguem no corpo do pedido;
+2. **Cotação no servidor** — `POST /api/delivery-quote` (pré-visualização) e
+   `POST /api/orders` (validação final) chamam a mesma função
+   [`quoteDelivery`](lib/deliveryQuote.ts), que:
+   - resolve o endereço por coordenadas (Places) ou, na falta delas, pelo CEP
+     ([`lib/cep.ts`](lib/cep.ts): BrasilAPI → ViaCEP → Nominatim);
+   - calcula a **rota real de carro** com a Google Routes API
+     ([`lib/googleRoutes.ts`](lib/googleRoutes.ts), `computeRoutes`,
+     `routingPreference: TRAFFIC_AWARE`) devolvendo distância em km e tempo em
+     minutos;
+   - aplica a regra da loja em [`lib/delivery.ts`](lib/delivery.ts)
+     (`computeDistanceFee`: taxa base até `distance_base_km` + valor por km
+     excedente) e valida o raio máximo;
+3. **Persistência** — o pedido grava `delivery_fee` (valor final) e também
+   `delivery_distance_km`, `delivery_duration_minutes` e
+   `delivery_distance_source` (`google_routes` | `haversine`), além das
+   coordenadas dentro de `customer_address`;
+4. **Degradação segura** — sem `GOOGLE_MAPS_API_KEY` (ou em erro/timeout da API)
+   a distância cai para linha reta (Haversine), a UI avisa que a taxa pode
+   variar e o pedido continua sendo criado. Sem
+   `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` o campo de rua vira um input comum.
+
+Variáveis de ambiente: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (navegador, restrita por
+HTTP referrer) e `GOOGLE_MAPS_API_KEY` (servidor, Routes API). Passo a passo,
+restrições e custos: [`docs/google-maps-delivery.md`](docs/google-maps-delivery.md).
+
+Migração relacionada: `20261110000024_add_delivery_distance_to_orders.sql`
+(colunas `delivery_distance_km`, `delivery_duration_minutes` e
+`delivery_distance_source` em `orders`; sem ela o pedido é gravado normalmente,
+apenas sem esses campos).
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
