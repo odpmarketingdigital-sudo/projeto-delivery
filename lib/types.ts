@@ -290,6 +290,25 @@ export interface Establishment {
   customer_payment_id?: string | null;
   /** Plano contratado (coluna `plan_id`). */
   plan_id?: string | null;
+  /**
+   * Momento do cancelamento da assinatura (coluna `canceled_at`).
+   * Preenchido por `POST /api/billing/cancel` — migração 20261110000022.
+   */
+  canceled_at?: string | null;
+  /**
+   * Vencimento da cobrança em aberto (coluna `payment_due_date`, migração
+   * 20261110000023). Null quando não há fatura pendente.
+   */
+  payment_due_date?: string | null;
+  /** Link da fatura no Asaas (banner de regularização do painel). */
+  payment_invoice_url?: string | null;
+  /** Momento do último pagamento recebido (coluna `last_payment_at`). */
+  last_payment_at?: string | null;
+  /**
+   * Momento da suspensão automática por atraso acima de 15 dias
+   * (coluna `overdue_suspended_at`, migração 20261110000023).
+   */
+  overdue_suspended_at?: string | null;
   created_at: string;
   updated_at: string;
 }

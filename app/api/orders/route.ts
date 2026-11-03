@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
+import { evaluateStoreEligibility } from "@/lib/storeEligibility";
 import {
   requireMenuAccess,
   canManageEstablishment,
@@ -271,6 +272,62 @@ export async function POST(request: Request) {
     );
   }
 
+  // A loja precisa existir e estar ativa (mesma regra da vitrine). Esse guarda
+  // vem antes da validação do carrinho/cliente para que uma loja fora do ar
+  // responda 403/404 sem depender do corpo enviado (link ou aba antiga).
+  // NOTA: `delivery_fee` pode não existir na tabela em bases legadas —
+  // usamos `select("*")` (tolerante) e fallback `?? 0` abaixo, em vez de
+  // selecionar a coluna explicitamente (o que lançaria
+  // "column establishments.delivery_fee does not exist").
+  const { data: establishment, error: establishmentError } = await adminClient
+    .from("establishments")
+    .select("*")
+    .eq("id", establishmentId)
+    .maybeSingle();
+
+  if (establishmentError) {
+    return NextResponse.json(
+      { error: establishmentError.message ?? "Falha ao localizar a loja." },
+      { status: 400 }
+    );
+  }
+  if (!establishment) {
+    return NextResponse.json(
+      { error: "Estabelecimento indisponível no momento." },
+      { status: 404 }
+    );
+  }
+
+  /**
+   * Mesma regra da vitrine (`lib/storeEligibility.ts`): loja inativa,
+   * assinatura cancelada ou atraso acima de 15 dias impedem o pedido. O
+   * `status` continua `ativo` quando quem encerrou a assinatura foi o Asaas
+   * (webhook) ou quando a loja entrou em inadimplência.
+   */
+  const storeEligibility = evaluateStoreEligibility(
+    establishment as {
+      status?: string | null;
+      subscription_status?: string | null;
+      trial_ends_at?: string | null;
+      subscription_expires_at?: string | null;
+      payment_due_date?: string | null;
+    }
+  );
+
+  if (!storeEligibility.isEligible) {
+    if (storeEligibility.reason === "status") {
+      return NextResponse.json(
+        { error: "Estabelecimento indisponível no momento." },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: "Esta loja não está online no momento." },
+      { status: 403 }
+    );
+  }
+
   const rawItems = Array.isArray(body.items) ? body.items : [];
   if (rawItems.length === 0) {
     return NextResponse.json({ error: "Seu carrinho está vazio." }, { status: 400 });
@@ -306,31 +363,6 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "Selecione a forma de pagamento." },
       { status: 400 }
-    );
-  }
-
-
-  // A loja precisa existir e estar ativa (mesma regra da vitrine).
-  // NOTA: `delivery_fee` pode não existir na tabela em bases legadas —
-  // usamos `select("*")` (tolerante) e fallback `?? 0` abaixo, em vez de
-  // selecionar a coluna explicitamente (o que lançaria
-  // "column establishments.delivery_fee does not exist").
-  const { data: establishment, error: establishmentError } = await adminClient
-    .from("establishments")
-    .select("*")
-    .eq("id", establishmentId)
-    .maybeSingle();
-
-  if (establishmentError) {
-    return NextResponse.json(
-      { error: establishmentError.message ?? "Falha ao localizar a loja." },
-      { status: 400 }
-    );
-  }
-  if (!establishment || establishment.status !== "ativo") {
-    return NextResponse.json(
-      { error: "Estabelecimento indisponível no momento." },
-      { status: 404 }
     );
   }
 

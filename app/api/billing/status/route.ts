@@ -12,6 +12,7 @@ import {
   type BillingStatusSubscription,
 } from "@/lib/billing";
 import { createAdminClient } from "@/lib/supabase/server";
+import { restoreStoreAfterPayment } from "@/lib/storeAvailability";
 import {
   canManageEstablishment,
   requireMenuAccess,
@@ -48,6 +49,9 @@ const BASE_COLUMNS =
 /** Colunas de ciclo/vencimento da assinatura (migração 20261110000019). */
 const CYCLE_COLUMNS = `${BASE_COLUMNS}, subscription_cycle, subscription_expires_at`;
 
+/** Colunas de cobrança/inadimplência (migração 20261110000023). */
+const OVERDUE_COLUMNS = `${CYCLE_COLUMNS}, payment_due_date, payment_invoice_url, last_payment_at`;
+
 /** Linha lida de `establishments`. */
 interface BillingStatusRow {
   id: string;
@@ -58,12 +62,31 @@ interface BillingStatusRow {
   /** Ausentes enquanto a migração 20261110000019 não rodar. */
   subscription_cycle?: string | null;
   subscription_expires_at?: string | null;
+  /** Ausentes enquanto a migração 20261110000023 não rodar. */
+  payment_due_date?: string | null;
+  payment_invoice_url?: string | null;
+  last_payment_at?: string | null;
 }
 
 /** Extrai a parte `YYYY-MM-DD` de uma data/coluna `date`. */
 function toDateOnly(value: string | null | undefined): string | null {
   const match = /^(\d{4}-\d{2}-\d{2})/.exec((value ?? "").trim());
   return match ? match[1] : null;
+}
+
+/** `true` quando as duas datas representam o mesmo instante/dia. */
+function sameMoment(
+  a: string | null | undefined,
+  b: string | null | undefined
+): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+
+  const aMs = Date.parse(a);
+  const bMs = Date.parse(b);
+  if (Number.isFinite(aMs) && Number.isFinite(bMs)) return aMs === bMs;
+
+  return a === b;
 }
 
 /** Erro HTTP padronizado (`{ error }`). */
@@ -124,33 +147,53 @@ export async function GET(request: Request) {
 
   const adminClient = createAdminClient();
 
-  // 1) Leitura completa (status + ciclo/vencimento da assinatura).
-  const full = await adminClient
-    .from("establishments")
-    .select(CYCLE_COLUMNS)
-    .eq("id", resolved.id)
-    .maybeSingle();
-
-  let data = full.data as BillingStatusRow | null;
-  let error = full.error;
+  // 1) Leitura completa (status + ciclo/vencimento + cobrança), com recuo para
+  // bases cujas migrações ainda não rodaram:
+  // 20261110000023 → 20261110000019 → 20261110000012.
+  let data: BillingStatusRow | null = null;
+  let error: { message?: string | null } | null = null;
   // Migração 20261110000019 pendente: segue sem as colunas de ciclo e usa o
   // gateway como fonte do ciclo/vencimento.
   let cycleColumnsPending = false;
+  // Migração 20261110000023 pendente: não há onde gravar a fatura em aberto.
+  let overdueColumnsPending = false;
 
-  if (
-    error &&
-    /subscription_cycle|subscription_expires_at/i.test(error.message ?? "")
-  ) {
-    cycleColumnsPending = true;
-
-    const base = await adminClient
+  for (const [index, columns] of [
+    OVERDUE_COLUMNS,
+    CYCLE_COLUMNS,
+    BASE_COLUMNS,
+  ].entries()) {
+    const result = await adminClient
       .from("establishments")
-      .select(BASE_COLUMNS)
+      .select(columns)
       .eq("id", resolved.id)
       .maybeSingle();
 
-    data = base.data as BillingStatusRow | null;
-    error = base.error;
+    if (!result.error) {
+      data = result.data as BillingStatusRow | null;
+      error = null;
+      break;
+    }
+
+    error = result.error;
+    const message = result.error.message ?? "";
+    const missingOverdueColumns =
+      /payment_due_date|payment_invoice_url|last_payment_at/i.test(message);
+    const missingCycleColumns =
+      /subscription_cycle|subscription_expires_at/i.test(message);
+    const missingBaseColumns =
+      /subscription_status|trial_ends_at|plan_id|subscription_id/i.test(message);
+
+    // Erro que não é de coluna ausente (rede/RLS): não adianta recuar.
+    if (!missingOverdueColumns && !missingCycleColumns && !missingBaseColumns) {
+      break;
+    }
+
+    if (index === 0) overdueColumnsPending = true;
+    if (index <= 1) cycleColumnsPending = true;
+
+    // Nem as colunas base existem → o bloco abaixo trata como schema pendente.
+    if (missingBaseColumns) break;
   }
 
   const checkedAt = new Date().toISOString();
@@ -289,20 +332,69 @@ export async function GET(request: Request) {
     }
   }
 
-  if (nextStatus !== currentStatus) {
+  /**
+   * Cobrança em aberto (migração 20261110000023): guarda o vencimento e o link
+   * da fatura para o banner do painel e para a carência de 15 dias; o pagamento
+   * confirmado limpa os campos e registra a data do último recebimento.
+   */
+  const billingUpdate: Record<string, string | null> = {};
+  if (latest && !overdueColumnsPending) {
+    if (isPaidPaymentStatus(latest.status)) {
+      billingUpdate.payment_due_date = null;
+      billingUpdate.payment_invoice_url = null;
+      billingUpdate.last_payment_at =
+        latest.confirmedDate ??
+        latest.clientPaymentDate ??
+        latest.paymentDate ??
+        checkedAt;
+    } else if (latest.status === "OVERDUE") {
+      const dueDate = toDateOnly(latest.dueDate);
+      if (dueDate) billingUpdate.payment_due_date = dueDate;
+      if (latest.invoiceUrl) {
+        billingUpdate.payment_invoice_url = latest.invoiceUrl;
+      }
+    }
+  }
+
+  const update: Record<string, string | null> = {};
+  if (nextStatus !== currentStatus) update.subscription_status = nextStatus;
+
+  if (billingUpdate.payment_due_date !== undefined) {
+    if (toDateOnly(row.payment_due_date) !== billingUpdate.payment_due_date) {
+      update.payment_due_date = billingUpdate.payment_due_date;
+    }
+  }
+  if (
+    billingUpdate.payment_invoice_url !== undefined &&
+    (row.payment_invoice_url ?? null) !== billingUpdate.payment_invoice_url
+  ) {
+    update.payment_invoice_url = billingUpdate.payment_invoice_url;
+  }
+  if (
+    billingUpdate.last_payment_at !== undefined &&
+    !sameMoment(row.last_payment_at, billingUpdate.last_payment_at)
+  ) {
+    update.last_payment_at = billingUpdate.last_payment_at;
+  }
+
+  if (Object.keys(update).length > 0) {
     const { error: updateError } = await adminClient
       .from("establishments")
-      .update({ subscription_status: nextStatus })
+      .update(update)
       .eq("id", row.id);
 
     if (updateError) {
       // A resposta abaixo já reflete a transição; o próximo polling tenta de
       // novo persistir (a cobrança continua paga no Asaas).
-      console.error(
-        "[billing/status] falha ao atualizar o status da assinatura",
-        updateError
-      );
+      console.error("[billing/status] falha ao atualizar a assinatura", updateError);
     }
+  }
+
+  // Pagamento confirmado devolve a loja ao ar: reativa quem havia sido
+  // suspensa pelo atraso (best-effort — lojas desligadas manualmente pelo
+  // Super Admin não são afetadas, ver `restoreStoreAfterPayment`).
+  if (nextStatus === "active" && currentStatus !== "active") {
+    await restoreStoreAfterPayment(adminClient, row.id);
   }
 
   const response: BillingStatusResponse = {

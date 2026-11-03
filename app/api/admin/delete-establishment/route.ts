@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePublicStore } from "@/lib/storeAvailability";
 import { createAdminClient } from "@/lib/supabase/server";
 import { requireSuperAdmin } from "@/lib/supabase/adminGuard";
 
@@ -43,9 +44,10 @@ export async function DELETE(request: Request) {
   const adminClient = createAdminClient();
 
   // 2) Localiza o estabelecimento para obter o user_id da conta de acesso.
+  //    O `slug` também é lido para invalidar o cache da vitrine pública.
   const { data: establishment, error: findError } = await adminClient
     .from("establishments")
-    .select("id, user_id, name")
+    .select("id, user_id, name, slug")
     .eq("id", id)
     .maybeSingle();
 
@@ -82,6 +84,13 @@ export async function DELETE(request: Request) {
       { status: 400 }
     );
   }
+
+  // 5) O link público da loja excluída deixa de existir: invalida o cache de
+  //    `/[slug]` (e do checkout) para o cardápio não continuar sendo servido
+  //    a partir de uma resposta em cache.
+  revalidatePublicStore(
+    (establishment as { slug?: string | null }).slug ?? null
+  );
 
   return NextResponse.json({ success: true, id }, { status: 200 });
 }

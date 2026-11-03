@@ -21,6 +21,10 @@ import {
   type CreditCardHolderInput,
   type CreditCardInput,
 } from "@/lib/billing";
+import {
+  revalidatePublicStore,
+  restoreStoreAfterPayment,
+} from "@/lib/storeAvailability";
 import { createAdminClient } from "@/lib/supabase/server";
 import {
   canManageEstablishment,
@@ -68,12 +72,14 @@ import { getSubscriptionPlan } from "@/lib/settings";
 
 /** Colunas necessárias da loja (as de assinatura vêm da migração 20261110000012). */
 const ESTABLISHMENT_COLUMNS =
-  "id, name, email, subscription_status, trial_ends_at, subscription_id, customer_payment_id, plan_id";
+  "id, name, slug, email, subscription_status, trial_ends_at, subscription_id, customer_payment_id, plan_id";
 
 /** Loja mínima usada pela rota. */
 interface BillingEstablishmentRow {
   id: string;
   name: string | null;
+  /** Slug público — usado para invalidar o cache de `/[slug]`. */
+  slug: string | null;
   email: string | null;
   subscription_status: SubscriptionStatus | null;
   trial_ends_at: string | null;
@@ -402,6 +408,11 @@ export async function POST(request: Request) {
             "[billing/checkout] falha ao liberar a assinatura já paga",
             reuseUpdateError
           );
+        } else {
+          // Pagamento aprovado: se a loja estava fora do ar por causa do
+          // cancelamento, volta a receber pedidos agora.
+          await restoreStoreAfterPayment(adminClient, establishment.id);
+          revalidatePublicStore(establishment.slug);
         }
       }
 
@@ -616,6 +627,13 @@ export async function POST(request: Request) {
       500
     );
   }
+
+  // Assinatura vinculada: `paid` reabre a loja que havia sido desativada pelo
+  // cancelamento e o cache de `/[slug]` é descartado para refletir na hora.
+  if (paid) {
+    await restoreStoreAfterPayment(adminClient, establishment.id);
+  }
+  revalidatePublicStore(establishment.slug);
 
   // Contabiliza o uso do cupom só depois de a assinatura estar vinculada à
   // loja. Falha aqui não desfaz a contratação (o uso fica faltando no painel).

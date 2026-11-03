@@ -1,29 +1,34 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 import Storefront from "../components/Storefront";
-import { createAdminClient } from "@/lib/supabase/server";
+import { StoreUnavailable } from "../components/StoreUnavailable";
+import { resolvePublicStore } from "@/lib/storeAvailability";
 
 /**
  * Cardápio público por slug — rota dinâmica `/[slug]`.
  *
- * Cada estabelecimento ativo possui uma URL exclusiva e amigável
- * (ex.: `/la-fuego`). Este Server Component captura o `slug` da URL, valida a
- * existência de uma loja ativa com esse slug e renderiza o `Storefront`, que
- * consulta `/api/menu?slug=...` e exibe o cardápio daquele restaurante.
+ * Cada estabelecimento possui uma URL exclusiva e amigável (ex.: `/la-fuego`).
+ * Este Server Component captura o `slug` da URL e decide o que renderizar:
  *
- * `generateMetadata` usa a mesma validação para definir o título por loja e
- * responder 404 (notFound) para slugs inexistentes/inativos — evita indexar
- * páginas inválidas e melhora o compartilhamento do link.
+ *  - loja `ativo` e com a assinatura em dia → `<Storefront>` (cardápio);
+ *  - loja `inativo` ou com `subscription_status = 'canceled'` → página
+ *    amigável "loja fora do ar" (`<StoreUnavailable>`), com o nome da loja.
+ *    Cardápio, produtos e checkout ficam inacessíveis;
+ *  - slug inexistente → 404 (`notFound()`).
+ *
+ * A regra vive em `lib/storeAvailability.ts` e é compartilhada com as rotas
+ * que alteram o status (`/api/billing/cancel`, webhook do Asaas, painel).
  *
  * Observação: rotas estáticas de primeiro nível (`/painel`, `/login`,
  * `/checkout`, `/api/...`) têm precedência sobre esta rota dinâmica no
  * Next.js, portanto não são capturadas por `[slug]`.
  */
 
-// A validação do slug consulta o banco em runtime; como não há
-// `generateStaticParams` (os slugs são dinâmicos), marcamos a rota como
-// blocking para não tentar pré-renderizar estático — mesmo padrão de
-// `app/painel/layout.tsx`.
+// O slug é validado em runtime (não existe `generateStaticParams` porque as
+// lojas nascem a qualquer momento), então cada acesso consulta o banco.
+// `instant = false` desliga a validação de navegação instantânea do segmento —
+// mesmo padrão de `app/[slug]/checkout/page.tsx`.
 export const instant = false;
 
 interface PageProps {
@@ -31,49 +36,54 @@ interface PageProps {
   params: Promise<{ slug: string }>;
 }
 
-/** Linha mínima de `establishments` necessária para validar o slug. */
-type EstablishmentNameRow = { name?: string | null };
-
 /**
- * Resolve o nome da loja ativa dona do `slug`. Retorna `null` quando o slug
- * não existe ou o estabelecimento está inativo (→ 404 na página).
+ * `generateMetadata` e a página consultam o mesmo slug na mesma requisição:
+ * o `cache` do React garante uma única ida ao banco.
  */
-async function resolveActiveStoreName(
-  slug: string
-): Promise<string | null> {
-  const adminClient = createAdminClient();
-  const { data, error } = await adminClient
-    .from("establishments")
-    .select("name")
-    .eq("slug", slug)
-    .eq("status", "ativo")
-    .limit(1)
-    .maybeSingle<EstablishmentNameRow>();
-
-  if (error || !data) return null;
-  return data.name?.trim() || null;
-}
+const resolveStore = cache(resolvePublicStore);
 
 export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const name = await resolveActiveStoreName(slug);
-  if (!name) {
-    return { title: "Cardápio não encontrado" };
+  const store = await resolveStore(slug);
+
+  if (store.state === "missing") {
+    return {
+      title: "Cardápio não encontrado",
+      robots: { index: false, follow: false },
+    };
   }
+
+  // Loja fora do ar: não indexar (o link pode ser reativado a qualquer
+  // momento) e manter o nome para o compartilhamento não ficar genérico.
+  if (store.state === "offline") {
+    return {
+      title: store.name ? `${store.name} · Indisponível` : "Loja indisponível",
+      description:
+        "Este estabelecimento está temporariamente indisponível no momento.",
+      robots: { index: false, follow: false },
+    };
+  }
+
   return {
-    title: `${name} · Cardápio`,
-    description: `Peça online de ${name}. Veja o cardápio, monte seu pedido e finalize pelo delivery.`,
+    title: `${store.name} · Cardápio`,
+    description: `Peça online de ${store.name}. Veja o cardápio, monte seu pedido e finalize pelo delivery.`,
   };
 }
 
 export default async function SlugStorefrontPage({ params }: PageProps) {
   const { slug } = await params;
 
-  // Valida a existência da loja ativa antes de renderizar (404 se inexistente).
-  const name = await resolveActiveStoreName(slug);
-  if (!name) notFound();
+  const store = await resolveStore(slug);
+
+  // Slug inexistente → 404.
+  if (store.state === "missing") notFound();
+
+  // Loja desativada (manual ou por cancelamento da assinatura): sem cardápio.
+  if (store.state === "offline") {
+    return <StoreUnavailable storeName={store.name} />;
+  }
 
   return <Storefront slug={slug} />;
 }

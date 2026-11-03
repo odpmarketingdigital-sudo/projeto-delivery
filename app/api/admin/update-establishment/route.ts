@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePublicStore } from "@/lib/storeAvailability";
 import { createAdminClient } from "@/lib/supabase/server";
 import { requireSuperAdmin } from "@/lib/supabase/adminGuard";
 
@@ -120,6 +121,10 @@ export async function PUT(request: Request) {
       );
     }
   }
+
+  // 5) O status (`ativo`/`inativo`) e o nome mudam a vitrine pública: invalida
+  //    o cache de `/[slug]` para o cardápio sair do ar / voltar na hora.
+  revalidatePublicStore(updated.slug);
 
   return NextResponse.json({ establishment: updated }, { status: 200 });
 }

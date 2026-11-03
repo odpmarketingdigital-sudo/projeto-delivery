@@ -30,15 +30,29 @@
 
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { toDateOnly } from "@/lib/storeEligibility";
+import {
+  revalidatePublicStore,
+  restoreStoreAfterPayment,
+} from "@/lib/storeAvailability";
 import { createAdminClient } from "@/lib/supabase/server";
 import {
   addTrialDays,
+  todayDateOnly,
   TRIAL_DAYS,
   type SubscriptionStatus,
 } from "@/lib/subscriptions";
 
-/** Colunas de assinatura (migração 20261110000012). */
+/**
+ * Colunas de assinatura (migração 20261110000012) + cobrança
+ * (20261110000023). Bases sem a migração de cobrança recuam para
+ * `BASE_ESTABLISHMENT_COLUMNS`.
+ */
 const ESTABLISHMENT_COLUMNS =
+  "id, subscription_status, trial_ends_at, subscription_id, customer_payment_id, payment_due_date, payment_invoice_url, last_payment_at";
+
+/** Colunas mínimas (bases anteriores à migração 20261110000023). */
+const BASE_ESTABLISHMENT_COLUMNS =
   "id, subscription_status, trial_ends_at, subscription_id, customer_payment_id";
 
 /** Linha lida de `establishments`. */
@@ -48,6 +62,12 @@ interface EstablishmentRow {
   trial_ends_at: string | null;
   subscription_id: string | null;
   customer_payment_id: string | null;
+  /** Vencimento da cobrança em aberto (migração 20261110000023). */
+  payment_due_date?: string | null;
+  /** Link da fatura no Asaas (banner de regularização do painel). */
+  payment_invoice_url?: string | null;
+  /** Momento do último pagamento recebido. */
+  last_payment_at?: string | null;
 }
 
 /** Cobrança embutida no payload do webhook (só os campos usados). */
@@ -59,6 +79,12 @@ interface AsaasWebhookPayment {
   billingType?: string;
   dueDate?: string;
   externalReference?: string | null;
+  /** Link da fatura no Asaas (usado pelo banner de regularização). */
+  invoiceUrl?: string | null;
+  /** Datas de confirmação/recebimento (podem vir só com `YYYY-MM-DD`). */
+  paymentDate?: string | null;
+  clientPaymentDate?: string | null;
+  confirmedDate?: string | null;
 }
 
 /** Assinatura embutida no payload (eventos `SUBSCRIPTION_*`). */
@@ -105,6 +131,7 @@ const HANDLED_EVENTS = new Set<string>([
   ...SUBSCRIPTION_END_EVENTS,
   "PAYMENT_OVERDUE",
   "PAYMENT_DUNNING_RECEIVED",
+  "PAYMENT_DELETED",
 ]);
 
 /** Coluna usada para localizar a loja a partir do evento. */
@@ -127,6 +154,57 @@ interface NextState {
   subscriptionStatus: SubscriptionStatus;
   /** Nova data de renovação (ISO), quando o evento é de pagamento. */
   trialEndsAt?: string;
+  /**
+   * Vencimento da fatura em aberto (`YYYY-MM-DD`).
+   * `null` limpa o campo (pagamento recebido).
+   */
+  paymentDueDate?: string | null;
+  /** Link da fatura no Asaas; `null` limpa quando o pagamento é confirmado. */
+  invoiceUrl?: string | null;
+  /** Momento (ISO) do último pagamento recebido. */
+  lastPaymentAt?: string;
+}
+
+/**
+ * Momento do pagamento informado pelo Asaas.
+ *
+ * O payload pode trazer só a data (`YYYY-MM-DD`) ou o timestamp completo;
+ * quando nenhuma vem, usamos o instante do evento. Assim `PAYMENT_CONFIRMED` e
+ * `PAYMENT_RECEIVED` da mesma cobrança convergem para o mesmo valor.
+ */
+function paymentTimestamp(
+  payment: AsaasWebhookPayment | null,
+  now: Date
+): string {
+  return (
+    payment?.confirmedDate ??
+    payment?.clientPaymentDate ??
+    payment?.paymentDate ??
+    now.toISOString()
+  );
+}
+
+/**
+ * Compara duas datas aceitando formatos diferentes (`ISO` x `YYYY-MM-DD`).
+ * `dateOnly` ignora a hora — usado no vencimento da fatura (coluna `date`).
+ */
+function sameDate(
+  next: string | null | undefined,
+  current: string | null | undefined,
+  dateOnly = false
+): boolean {
+  if (!next && !current) return true;
+  if (!next || !current) return false;
+
+  if (dateOnly) return toDateOnly(next) === toDateOnly(current);
+
+  const nextMs = Date.parse(next);
+  const currentMs = Date.parse(current);
+  if (Number.isFinite(nextMs) && Number.isFinite(currentMs)) {
+    return nextMs === currentMs;
+  }
+
+  return next === current;
 }
 
 /** Formato do `id` de `establishments` (uuid) — `externalReference` é livre. */
@@ -136,6 +214,14 @@ const UUID_PATTERN =
 /** Erro do PostgREST quando a migração de assinaturas ainda não rodou. */
 const MISSING_COLUMN_PATTERN =
   /subscription_status|trial_ends_at|subscription_id|customer_payment_id/i;
+
+/**
+ * Erro do PostgREST quando a migração de cobrança (20261110000023) não rodou.
+ * Nesse caso a loja é relida com `BASE_ESTABLISHMENT_COLUMNS` e os campos de
+ * inadimplência são ignorados — o webhook continua funcionando.
+ */
+const OVERDUE_COLUMN_PATTERN =
+  /payment_due_date|payment_invoice_url|last_payment_at/i;
 
 /** Resposta padrão esperada pelo Asaas. */
 function ack() {
@@ -211,8 +297,13 @@ function buildCandidates(payload: AsaasWebhookPayload): EstablishmentLookup[] {
 /**
  * Localiza a loja no Supabase.
  *
- * Erro de coluna ausente interrompe a busca (todas as tentativas falhariam);
- * qualquer outro erro apenas passa para a próxima tentativa.
+ * Cada candidato é consultado com as colunas completas e, quando o PostgREST
+ * acusa que a migração de cobrança (20261110000023) não rodou, recua para as
+ * colunas base — o webhook nunca deixa de sincronizar o status por causa de
+ * uma migração pendente.
+ *
+ * Erro de coluna de assinatura ausente interrompe a busca (todas as tentativas
+ * falhariam); qualquer outro erro apenas passa para a próxima tentativa.
  */
 async function findEstablishment(
   admin: ReturnType<typeof createAdminClient>,
@@ -221,16 +312,32 @@ async function findEstablishment(
   let lastError: string | null = null;
 
   for (const { column, value } of candidates) {
-    const { data, error } = await admin
-      .from("establishments")
-      .select(ESTABLISHMENT_COLUMNS)
-      .eq(column, value)
-      .limit(1)
-      .maybeSingle();
+    for (const columns of [ESTABLISHMENT_COLUMNS, BASE_ESTABLISHMENT_COLUMNS]) {
+      const { data, error } = await admin
+        .from("establishments")
+        .select(columns)
+        .eq(column, value)
+        .limit(1)
+        .maybeSingle();
 
-    if (error) {
+      if (!error) {
+        // Achou a loja (ou não existe com esse candidato) → próximo candidato.
+        if (data) {
+          return { status: "found", row: data as unknown as EstablishmentRow };
+        }
+        break;
+      }
+
       if (MISSING_COLUMN_PATTERN.test(error.message ?? "")) {
         return { status: "schema-pending" };
+      }
+
+      // Migração de cobrança pendente: tenta de novo com as colunas base.
+      if (
+        columns === ESTABLISHMENT_COLUMNS &&
+        OVERDUE_COLUMN_PATTERN.test(error.message ?? "")
+      ) {
+        continue;
       }
 
       lastError = error.message;
@@ -238,10 +345,8 @@ async function findEstablishment(
         `[webhook/asaas] falha ao consultar establishments por ${column}`,
         error
       );
-      continue;
+      break;
     }
-
-    if (data) return { status: "found", row: data as EstablishmentRow };
   }
 
   return lastError
@@ -298,24 +403,60 @@ function resolveNextState(
       Number.isFinite(currentMs) && currentMs >= Date.parse(paidUntil);
 
     // Pagamento confirmado libera o acesso na hora; a renovação só avança.
-    return alreadyCovered
-      ? { subscriptionStatus: "active" }
-      : { subscriptionStatus: "active", trialEndsAt: paidUntil };
+    // A cobrança em aberto é zerada, encerrando a carência de 15 dias.
+    return {
+      subscriptionStatus: "active",
+      ...(alreadyCovered ? {} : { trialEndsAt: paidUntil }),
+      paymentDueDate: null,
+      invoiceUrl: null,
+      lastPaymentAt: paymentTimestamp(payment, now),
+    };
   }
 
   if (event === "PAYMENT_OVERDUE") {
     if (row.subscription_status === "canceled") return null;
+
+    /**
+     * O vencimento é registrado MESMO com o período pago ainda vigente: é dele
+     * que sai a contagem dos 15 dias de carência quando o acesso expirar.
+     * (`lib/storeEligibility.ts` nunca conta antes do fim do período pago.)
+     */
+    const overdueState: Pick<NextState, "paymentDueDate" | "invoiceUrl"> = {
+      paymentDueDate: toDateOnly(payment?.dueDate) ?? todayDateOnly(now),
+      invoiceUrl:
+        payment?.invoiceUrl ?? row.payment_invoice_url ?? null,
+    };
 
     // Enquanto o período pago (ou o trial) está vigente, a loja continua
     // ativa: o aviso de pagamento pendente só aparece quando o acesso venceu.
     const covered = row.trial_ends_at
       ? Date.parse(row.trial_ends_at) > now.getTime()
       : false;
-    if (covered) return null;
 
-    return row.subscription_status === "past_due"
-      ? null
-      : { subscriptionStatus: "past_due" };
+    return {
+      subscriptionStatus: covered
+        ? row.subscription_status ?? "active"
+        : "past_due",
+      ...overdueState,
+    };
+  }
+
+  /**
+   * Cobrança removida no Asaas (`PAYMENT_DELETED`): a fatura deixa de existir,
+   * então o vencimento registrado é limpo para não suspender a loja por uma
+   * cobrança que não pode mais ser paga. O status NÃO muda — a carência segue
+   * contando a partir do fim do período pago (`trial_ends_at`).
+   */
+  if (event === "PAYMENT_DELETED") {
+    const deletedDue = toDateOnly(payment?.dueDate);
+    if (!deletedDue) return null;
+    if (deletedDue !== toDateOnly(row.payment_due_date)) return null;
+
+    return {
+      subscriptionStatus: row.subscription_status ?? "active",
+      paymentDueDate: null,
+      invoiceUrl: null,
+    };
   }
 
   if (REFUND_EVENTS.has(event) || SUBSCRIPTION_END_EVENTS.has(event)) {
@@ -327,9 +468,17 @@ function resolveNextState(
   // Negativação: cobrança em cobrança administrativa — acesso retido até a
   // conciliação (uma cobrança recebida depois reativa a loja).
   if (event === "PAYMENT_DUNNING_RECEIVED") {
-    return row.subscription_status === "past_due"
-      ? null
-      : { subscriptionStatus: "past_due" };
+    const dueDate = toDateOnly(payment?.dueDate);
+
+    return {
+      subscriptionStatus: "past_due",
+      ...(dueDate
+        ? {
+            paymentDueDate: dueDate,
+            invoiceUrl: payment?.invoiceUrl ?? row.payment_invoice_url ?? null,
+          }
+        : {}),
+    };
   }
 
   return null;
@@ -400,18 +549,36 @@ export async function POST(request: Request) {
     new Date()
   );
 
+  if (!next) return ack();
+
+  // Só grava o que realmente muda — reenvios do Asaas não geram UPDATE.
+  const update: Record<string, string | null> = {};
+  if (next.subscriptionStatus !== lookup.row.subscription_status) {
+    update.subscription_status = next.subscriptionStatus;
+  }
+  if (next.trialEndsAt && !sameDate(next.trialEndsAt, lookup.row.trial_ends_at)) {
+    update.trial_ends_at = next.trialEndsAt;
+  }
   if (
-    !next ||
-    (next.subscriptionStatus === lookup.row.subscription_status &&
-      !next.trialEndsAt)
+    next.paymentDueDate !== undefined &&
+    !sameDate(next.paymentDueDate, lookup.row.payment_due_date, true)
   ) {
-    return ack();
+    update.payment_due_date = next.paymentDueDate;
+  }
+  if (
+    next.invoiceUrl !== undefined &&
+    (lookup.row.payment_invoice_url ?? null) !== next.invoiceUrl
+  ) {
+    update.payment_invoice_url = next.invoiceUrl;
+  }
+  if (
+    next.lastPaymentAt &&
+    !sameDate(next.lastPaymentAt, lookup.row.last_payment_at)
+  ) {
+    update.last_payment_at = next.lastPaymentAt;
   }
 
-  const update: Record<string, string> = {
-    subscription_status: next.subscriptionStatus,
-  };
-  if (next.trialEndsAt) update.trial_ends_at = next.trialEndsAt;
+  if (Object.keys(update).length === 0) return ack();
 
   const { error } = await admin
     .from("establishments")
@@ -419,6 +586,36 @@ export async function POST(request: Request) {
     .eq("id", lookup.row.id);
 
   if (error) {
+    /**
+     * Migração 20261110000023 pendente: grava só o essencial (status e
+     * renovação) para não perder a sincronização da assinatura.
+     */
+    if (OVERDUE_COLUMN_PATTERN.test(error.message ?? "")) {
+      const legacyUpdate: Record<string, string> = {};
+      if (typeof update.subscription_status === "string") {
+        legacyUpdate.subscription_status = update.subscription_status;
+      }
+      if (typeof update.trial_ends_at === "string") {
+        legacyUpdate.trial_ends_at = update.trial_ends_at;
+      }
+
+      if (Object.keys(legacyUpdate).length > 0) {
+        const retry = await admin
+          .from("establishments")
+          .update(legacyUpdate)
+          .eq("id", lookup.row.id);
+
+        if (!retry.error) {
+          console.warn(
+            "[webhook/asaas] migração 20261110000023 pendente — evento aplicado sem os campos de inadimplência."
+          );
+          return ack();
+        }
+      } else {
+        return ack();
+      }
+    }
+
     // Respondemos 200 mesmo assim (o Asaas não deve reenfileirar por um erro
     // nosso); o polling de `/api/billing/status` reconcilia pagamentos pagos.
     console.error(
@@ -430,8 +627,30 @@ export async function POST(request: Request) {
 
   console.info(
     `[webhook/asaas] ${event}: loja ${lookup.row.id} → ${next.subscriptionStatus}` +
-      (next.trialEndsAt ? ` (renovação em ${next.trialEndsAt})` : "")
+      (next.trialEndsAt ? ` (renovação em ${next.trialEndsAt})` : "") +
+      (next.paymentDueDate === null
+        ? " (fatura quitada)"
+        : next.paymentDueDate
+          ? ` (fatura vencendo em ${next.paymentDueDate})`
+          : "")
   );
+
+  // Pagamento aprovado de uma loja que havia sido desativada no cancelamento:
+  // volta para o ar (lojas desligadas manualmente pelo Super Admin não são
+  // afetadas — ver `restoreStoreAfterPayment`).
+  if (next.subscriptionStatus === "active") {
+    await restoreStoreAfterPayment(admin, lookup.row.id);
+  }
+
+  // O status da assinatura controla a vitrine pública (`/[slug]`): descarta o
+  // cache da loja para a mudança valer imediatamente no link do cliente.
+  const { data: slugRow } = await admin
+    .from("establishments")
+    .select("slug")
+    .eq("id", lookup.row.id)
+    .maybeSingle();
+
+  revalidatePublicStore((slugRow as { slug?: string | null } | null)?.slug);
 
   return ack();
 }

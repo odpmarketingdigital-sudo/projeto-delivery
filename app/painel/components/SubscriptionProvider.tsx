@@ -18,6 +18,11 @@ import {
   type BillingCycleId,
   type SubscriptionStatus,
 } from "@/lib/subscriptions";
+import {
+  getDaysOverdue,
+  OVERDUE_GRACE_DAYS,
+  resolveBillingDueDate,
+} from "@/lib/storeEligibility";
 
 /**
  * Colunas de assinatura lidas do estabelecimento selecionado.
@@ -25,7 +30,7 @@ import {
  * garante que o admin só enxerga a própria loja.
  */
 const SUBSCRIPTION_COLUMNS =
-  "id, name, subscription_status, trial_ends_at, plan_id";
+  "id, name, status, subscription_status, trial_ends_at, plan_id";
 
 /**
  * Colunas de ciclo/renovação (migração 20261110000019). São lidas junto das
@@ -33,8 +38,29 @@ const SUBSCRIPTION_COLUMNS =
  */
 const CYCLE_COLUMNS = `${SUBSCRIPTION_COLUMNS}, subscription_cycle, subscription_expires_at`;
 
+/**
+ * Colunas de cobrança/inadimplência (migração 20261110000023): permitem ao
+ * painel avisar sobre o atraso e linkar a fatura no Asaas.
+ */
+const OVERDUE_COLUMNS = `${CYCLE_COLUMNS}, payment_due_date, payment_invoice_url, overdue_suspended_at`;
+
 /** Colunas mínimas usadas quando a migração de assinaturas ainda não rodou. */
 const LEGACY_COLUMNS = "id, name";
+
+/**
+ * Ordem de recuo quando uma migração ainda não rodou. O último conjunto é o
+ * mínimo aceitável (base legada, sem nenhuma coluna de assinatura).
+ */
+const COLUMN_SETS = [
+  OVERDUE_COLUMNS,
+  CYCLE_COLUMNS,
+  SUBSCRIPTION_COLUMNS,
+  LEGACY_COLUMNS,
+] as const;
+
+/** Erro do PostgREST indicando coluna ausente (migração pendente). */
+const MISSING_COLUMN_PATTERN =
+  /subscription_status|trial_ends_at|plan_id|subscription_cycle|subscription_expires_at|payment_due_date|payment_invoice_url|overdue_suspended_at/i;
 
 /** Mensagem única para falhas de leitura (exibida na tela de assinatura). */
 const LOAD_ERROR = "Não foi possível carregar a situação da sua assinatura.";
@@ -43,11 +69,19 @@ const LOAD_ERROR = "Não foi possível carregar a situação da sua assinatura."
 interface EstablishmentSubscriptionRow {
   id: string;
   name: string | null;
+  /** `ativo` | `inativo` (coluna `status`, sempre existente). */
+  status?: string | null;
   subscription_status?: SubscriptionStatus | null;
   trial_ends_at?: string | null;
   plan_id?: string | null;
   subscription_cycle?: string | null;
   subscription_expires_at?: string | null;
+  /** Vencimento da fatura em aberto (migração 20261110000023). */
+  payment_due_date?: string | null;
+  /** Link da fatura no Asaas para o banner de regularização. */
+  payment_invoice_url?: string | null;
+  /** Momento da suspensão automática por atraso. */
+  overdue_suspended_at?: string | null;
 }
 
 /** Situação da assinatura exposta ao painel. */
@@ -67,6 +101,18 @@ export interface PanelSubscription {
   daysRemaining: number;
   /** Resultado de `isSubscriptionActive` para a loja de referência. */
   isActive: boolean;
+  /** `ativo` | `inativo` (suspensão manual ou automática por atraso). */
+  storeStatus: "ativo" | "inativo";
+  /** Data de referência do atraso (`YYYY-MM-DD`), quando houver. */
+  paymentDueDate: string | null;
+  /** Link da fatura no Asaas (banner de regularização). */
+  paymentInvoiceUrl: string | null;
+  /** Momento da suspensão automática por atraso (null quando não suspensa). */
+  overdueSuspendedAt: string | null;
+  /** Dias corridos de atraso (0 quando em dia). */
+  daysOverdue: number;
+  /** `true` quando o atraso passou da carência de 15 dias. */
+  isOverdue: boolean;
   isLoading: boolean;
   /** Falha ao ler a loja (a UI avisa, mas não bloqueia o acesso). */
   error: string | null;
@@ -95,6 +141,12 @@ const EMPTY_SNAPSHOT: SubscriptionSnapshot = {
   expiresAt: null,
   daysRemaining: 0,
   isActive: true,
+  storeStatus: "ativo",
+  paymentDueDate: null,
+  paymentInvoiceUrl: null,
+  overdueSuspendedAt: null,
+  daysOverdue: 0,
+  isOverdue: false,
   error: null,
   isSchemaPending: false,
   isSuperAdmin: false,
@@ -126,6 +178,18 @@ function buildSnapshot(
   const rawCycle = row.subscription_cycle ?? null;
   const now = new Date();
 
+  /**
+   * Inadimplência: a contagem usa o vencimento da fatura em aberto (ou o fim do
+   * período pago, quando posterior) — ver `lib/storeEligibility.ts`.
+   */
+  const paymentDueDate = resolveBillingDueDate({
+    subscription_status: status,
+    trial_ends_at: trialEndsAt,
+    subscription_expires_at: row.subscription_expires_at ?? null,
+    payment_due_date: row.payment_due_date ?? null,
+  });
+  const daysOverdue = paymentDueDate ? getDaysOverdue(paymentDueDate, now) : 0;
+
   return {
     establishmentId: row.id,
     establishmentName: row.name,
@@ -140,6 +204,12 @@ function buildSnapshot(
       { subscription_status: status, trial_ends_at: trialEndsAt },
       now
     ),
+    storeStatus: row.status === "inativo" ? "inativo" : "ativo",
+    paymentDueDate,
+    paymentInvoiceUrl: row.payment_invoice_url ?? null,
+    overdueSuspendedAt: row.overdue_suspended_at ?? null,
+    daysOverdue,
+    isOverdue: daysOverdue > OVERDUE_GRACE_DAYS,
     error: null,
     isSchemaPending: false,
     isSuperAdmin: false,
@@ -185,6 +255,12 @@ function isSameSnapshot(
     a.expiresAt === b.expiresAt &&
     a.daysRemaining === b.daysRemaining &&
     a.isActive === b.isActive &&
+    a.storeStatus === b.storeStatus &&
+    a.paymentDueDate === b.paymentDueDate &&
+    a.paymentInvoiceUrl === b.paymentInvoiceUrl &&
+    a.overdueSuspendedAt === b.overdueSuspendedAt &&
+    a.daysOverdue === b.daysOverdue &&
+    a.isOverdue === b.isOverdue &&
     a.error === b.error &&
     a.isSchemaPending === b.isSchemaPending &&
     a.isSuperAdmin === b.isSuperAdmin
@@ -223,58 +299,37 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
           : base;
       };
 
-      // 1) Leitura completa (inclui ciclo contratado e próxima renovação).
-      const full = await select(CYCLE_COLUMNS).maybeSingle();
+      /**
+       * Leitura com recuo por migração pendente:
+       * cobrança (23) → ciclo (19) → assinatura (12) → base legada.
+       * O último conjunto é o modo legado (`isSchemaPending`), que libera o
+       * acesso em vez de travar o painel.
+       */
+      let lastMessage = "";
 
-      if (!full.error) {
-        return buildSnapshot(
-          full.data as EstablishmentSubscriptionRow | null,
-          false
-        );
-      }
+      for (const [index, columns] of COLUMN_SETS.entries()) {
+        const result = await select(columns).maybeSingle();
 
-      const message = full.error.message ?? "";
-      const missingSubscriptionColumns =
-        /subscription_status|trial_ends_at|plan_id/i.test(message);
-      const missingCycleColumns =
-        /subscription_cycle|subscription_expires_at/i.test(message);
-
-      // 2) Migração 20261110000019 pendente: relê sem as colunas de ciclo (o
-      // restante do card continua funcionando com o status/plano).
-      if (missingCycleColumns && !missingSubscriptionColumns) {
-        const withoutCycle = await select(SUBSCRIPTION_COLUMNS).maybeSingle();
-
-        if (!withoutCycle.error) {
+        if (!result.error) {
           return buildSnapshot(
-            withoutCycle.data as EstablishmentSubscriptionRow | null,
-            false
+            result.data as EstablishmentSubscriptionRow | null,
+            index === COLUMN_SETS.length - 1
           );
         }
 
-        // As colunas base também não existem → segue para o modo legado.
-        if (
-          !/subscription_status|trial_ends_at|plan_id/i.test(
-            withoutCycle.error.message ?? ""
-          )
-        ) {
+        lastMessage = result.error.message ?? "";
+
+        // Erro genérico (rede, RLS, tabela ausente): avisa sem bloquear.
+        if (!MISSING_COLUMN_PATTERN.test(lastMessage)) {
           return { ...EMPTY_SNAPSHOT, isActive: true, error: LOAD_ERROR };
         }
-      } else if (!missingSubscriptionColumns) {
-        // Erro genérico (rede, RLS, tabela ausente): avisa sem bloquear.
-        return {
-          ...EMPTY_SNAPSHOT,
-          isActive: true,
-          error: LOAD_ERROR,
-        };
       }
 
-      // 3) Colunas de assinatura ainda não existem: lê o básico e libera.
-      const legacy = await select(LEGACY_COLUMNS).maybeSingle();
-
-      return buildSnapshot(
-        legacy.data as EstablishmentSubscriptionRow | null,
-        true
+      console.error(
+        "[SubscriptionProvider] falha ao ler a assinatura da loja",
+        lastMessage
       );
+      return { ...EMPTY_SNAPSHOT, isActive: true, error: LOAD_ERROR };
     }, [supabase, establishmentIdFromUrl]);
 
   useEffect(() => {

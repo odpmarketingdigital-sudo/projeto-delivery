@@ -11,12 +11,31 @@ pelo polling da tela de assinatura.
 
 | Evento recebido | Ação no banco |
 | --- | --- |
-| `PAYMENT_RECEIVED`, `PAYMENT_CONFIRMED`, `PAYMENT_RECEIVED_IN_CASH` | `subscription_status = 'active'` e `trial_ends_at` = vencimento da cobrança (ou hoje) + 30 dias — a data só avança, nunca retrocede |
-| `PAYMENT_OVERDUE` | Se o período pago/trial já venceu (`trial_ends_at <= agora`) → `past_due`; caso contrário nada muda |
+| `PAYMENT_RECEIVED`, `PAYMENT_CONFIRMED`, `PAYMENT_RECEIVED_IN_CASH` | `subscription_status = 'active'`, `trial_ends_at` = vencimento da cobrança (ou hoje) + 30 dias — a data só avança, nunca retrocede —, `last_payment_at` = data do recebimento e `payment_due_date`/`payment_invoice_url` limpos (a loja sai da carência de 15 dias) |
+| `PAYMENT_OVERDUE` | Registra `payment_due_date` (vencimento da fatura) e `payment_invoice_url` (link no Asaas). Se o período pago/trial já venceu (`trial_ends_at <= agora`) → `past_due`; caso contrário o status não muda |
 | `PAYMENT_REFUNDED`, `PAYMENT_CHARGEBACK_REQUESTED`, `PAYMENT_CHARGEBACK_DISPUTE` | `canceled` (o chargeback vencido pelo lojista volta a `active` no próximo `PAYMENT_CONFIRMED`/`PAYMENT_RECEIVED`) |
-| `PAYMENT_DUNNING_RECEIVED` | `past_due` (negativação em andamento) |
+| `PAYMENT_DUNNING_RECEIVED` | `past_due` (negativação em andamento) + vencimento/link da fatura, quando vierem no payload |
 | `SUBSCRIPTION_DELETED`, `SUBSCRIPTION_INACTIVATED` | `canceled` |
-| Qualquer outro (`PAYMENT_CREATED`, `PAYMENT_DELETED`, …) | Nenhuma alteração; o evento é apenas confirmado |
+| `PAYMENT_DELETED` | Limpa `payment_due_date`/`payment_invoice_url` **quando** a cobrança removida é a fatura em aberto registrada (mesmo `dueDate`). O status não muda: a carência continua contando a partir do fim do período pago |
+| Qualquer outro (`PAYMENT_CREATED`, transferências, …) | Nenhuma alteração; o evento é apenas confirmado |
+
+> `PAYMENT_DELETED` não é tratado como atraso: a cobrança deixou de existir e
+> não pode mais ser paga, então suspendê-la puniria o lojista por um erro de
+> faturamento. O vencimento é apenas limpo para a loja não ser suspensa por uma
+> fatura fantasma.
+
+### Suspensão por atraso (15 dias)
+
+A regra vive em [`lib/storeEligibility.ts`](../lib/storeEligibility.ts)
+(`OVERDUE_GRACE_DAYS`, `evaluateStoreEligibility`):
+
+1. atraso = dias corridos entre o vencimento da fatura em aberto (ou o fim do
+   período pago/trial, se posterior) e hoje;
+2. atraso **maior que 15 dias** → `/[slug]` responde com a página
+   `StoreUnavailable` e `resolvePublicStore` grava `status = 'inativo'` +
+   `overdue_suspended_at` (fallback para eventos de webhook perdidos);
+3. pagamento aprovado limpa `payment_due_date`/`overdue_suspended_at` e devolve
+   a loja ao ar (`restoreStoreAfterPayment`).
 
 ## 1. Variável de ambiente
 
@@ -62,6 +81,7 @@ está ausente ou divergente.
 - `PAYMENT_CHARGEBACK_REQUESTED`
 - `PAYMENT_CHARGEBACK_DISPUTE`
 - `PAYMENT_DUNNING_RECEIVED`
+- `PAYMENT_DELETED`
 - `SUBSCRIPTION_DELETED`
 - `SUBSCRIPTION_INACTIVATED`
 
@@ -124,6 +144,7 @@ curl -i -X POST http://localhost:3000/api/webhooks/asaas \
       "subscription": "sub_teste_1",
       "status": "RECEIVED",
       "dueDate": "2026-11-10",
+      "invoiceUrl": "https://sandbox.asaas.com/i/123456789",
       "externalReference": "<id-da-loja>"
     }
   }'
@@ -131,6 +152,29 @@ curl -i -X POST http://localhost:3000/api/webhooks/asaas \
 
 Resposta esperada: `200 {"received":true}`. Reenviar o mesmo payload não altera
 `trial_ends_at` (ver seção 7).
+
+Para simular a inadimplência (loja fora do ar após 15 dias), envie
+`PAYMENT_OVERDUE` com um `dueDate` anterior a 15 dias: o próximo acesso a
+`/[slug]` já mostra a página "loja indisponível" e persiste
+`status = 'inativo'` + `overdue_suspended_at`.
+
+```bash
+curl -i -X POST http://localhost:3000/api/webhooks/asaas \
+  -H "Content-Type: application/json" \
+  -H "asaas-access-token: $TOKEN" \
+  -d '{
+    "id": "evt_teste_2",
+    "event": "PAYMENT_OVERDUE",
+    "payment": {
+      "id": "pay_teste_2",
+      "subscription": "sub_teste_1",
+      "status": "OVERDUE",
+      "dueDate": "2026-01-10",
+      "invoiceUrl": "https://sandbox.asaas.com/i/123456789",
+      "externalReference": "<id-da-loja>"
+    }
+  }'
+```
 
 ## 6. Como a loja é localizada
 
@@ -175,7 +219,9 @@ assinatura.
 
 - [ ] `ASAAS_WEBHOOK_TOKEN` preenchido no ambiente (nunca commitado).
 - [ ] Migração `20261110000012_add_subscriptions_to_establishments.sql` aplicada.
-- [ ] Webhook criado no Sandbox com a URL `/api/webhooks/asaas` e os 10 eventos.
+- [ ] Migração `20261110000023_add_overdue_tracking_to_establishments.sql` aplicada
+      (sem ela o webhook funciona, mas não grava vencimento/link da fatura).
+- [ ] Webhook criado no Sandbox com a URL `/api/webhooks/asaas` e os 11 eventos.
 - [ ] Token do painel igual ao da variável de ambiente.
 - [ ] `curl` sem header retorna 401; com header retorna `{"received":true}`.
 - [ ] Pagamento Pix confirmado muda `subscription_status` para `active` e o

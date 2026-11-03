@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/lib/supabase/adminGuard";
 import { createAdminClient } from "@/lib/supabase/server";
 import {
+  revalidatePublicStore,
+  restoreStoreAfterPayment,
+} from "@/lib/storeAvailability";
+import {
   MAX_TRIAL_EXTENSION_DAYS,
   MANUAL_ACTIVATION_DAYS,
   SUBSCRIPTION_STATUSES,
@@ -31,7 +35,7 @@ import {
 
 /** Colunas devolvidas na listagem (inclui os dados de cobrança). */
 const SUBSCRIBER_COLUMNS =
-  "id, name, owner_name, email, phone, whatsapp, status, " +
+  "id, name, slug, owner_name, email, phone, whatsapp, status, " +
   "subscription_status, trial_ends_at, plan_id, subscription_id, " +
   "customer_payment_id, created_at";
 
@@ -46,6 +50,8 @@ const MAX_PAGE_SIZE = 50;
 interface SubscriberRow {
   id: string;
   name: string | null;
+  /** Slug público da vitrine (`/[slug]`). */
+  slug?: string | null;
   owner_name: string | null;
   email: string | null;
   phone: string | null;
@@ -436,6 +442,19 @@ export async function PATCH(request: Request) {
     console.error("[admin/subscriptions] falha ao atualizar a assinatura", updateError);
     return fail("Não foi possível atualizar a assinatura.", 500);
   }
+
+  // Assinatura ativada manualmente (Pix direto, dinheiro ou cortesia): se a
+  // loja havia sido desativada pelo cancelamento, volta ao ar agora.
+  if (nextStatus === "active") {
+    const restored = await restoreStoreAfterPayment(adminClient, id);
+    if (restored) {
+      message += " A loja foi reativada no cardápio público.";
+    }
+  }
+
+  // `canceled` derruba a vitrine e a reativação libera de novo: invalida o
+  // cache de `/[slug]` para o link público refletir a mudança na hora.
+  revalidatePublicStore((updated as { slug?: string | null } | null)?.slug);
 
   return NextResponse.json({ establishment: updated, message });
 }

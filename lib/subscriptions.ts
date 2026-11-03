@@ -67,6 +67,11 @@ export interface SubscriptionFields {
    * Coluna `subscription_expires_at` (migração 20261110000019).
    */
   subscription_expires_at?: string | null;
+  /**
+   * Momento do cancelamento (`canceled_at`, migração 20261110000022).
+   * Preenchido por `POST /api/billing/cancel` depois do ok do Asaas.
+   */
+  canceled_at?: string | null;
 }
 
 /**

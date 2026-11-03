@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
+import { evaluateStoreEligibility } from "@/lib/storeEligibility";
 import { fetchWithOrderFallback } from "@/lib/menuOrder";
 import { normalizeOpeningHours } from "@/lib/openingHours";
 import { normalizeDeliverySettings } from "@/lib/delivery";
@@ -30,6 +31,8 @@ type EstablishmentRow = Partial<StorefrontInfo> & {
   id?: string | null;
   name?: string | null;
   status?: string | null;
+  /** Assinatura (migração 20261110000012): `canceled` tira a loja do ar. */
+  subscription_status?: string | null;
   delivery_fee?: number | string | null;
 };
 
@@ -154,6 +157,17 @@ export async function GET(request: Request) {
         ? "Estabelecimento não encontrado ou indisponível."
         : "Nenhum estabelecimento ativo cadastrado.";
     return errorResponse(message, 404);
+  }
+
+  /**
+   * Mesma regra da vitrine (`lib/storeEligibility.ts`): loja inativa,
+   * assinatura cancelada ou atraso acima de 15 dias não servem o cardápio.
+   * A checagem de `status` acima não basta: ele continua `ativo` quando quem
+   * encerrou a assinatura foi o Asaas (webhook) ou quando a loja entrou em
+   * inadimplência.
+   */
+  if (!evaluateStoreEligibility(establishmentRow).isEligible) {
+    return errorResponse("Esta loja não está online no momento.", 403);
   }
 
   const establishmentId = String(establishmentRow.id);

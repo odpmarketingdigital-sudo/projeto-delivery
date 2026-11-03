@@ -280,6 +280,40 @@ export interface CheckoutResponse {
   boleto?: CheckoutBoletoInfo;
 }
 
+/** Body do `POST /api/billing/cancel` (mesmo alvo do checkout). */
+export interface CancelSubscriptionRequest {
+  /** Necessário apenas para super_admin (o admin usa a própria loja). */
+  establishment_id?: string;
+}
+
+/**
+ * Resposta do `POST /api/billing/cancel`.
+ *
+ * Só é devolvida (HTTP 200) depois de o gateway confirmar o cancelamento — ou
+ * de a loja não ter assinatura no Asaas (trial/ativação manual). Qualquer falha
+ * de comunicação com o gateway vem como `{ error }` e NÃO altera o banco.
+ */
+export interface CancelSubscriptionResponse {
+  /** Mensagem pronta para o toast da tela de assinatura. */
+  message: string;
+  /** Sempre `canceled` quando a operação conclui. */
+  subscriptionStatus: SubscriptionStatus;
+  /** Status do estabelecimento após o cancelamento (`inativo`). */
+  establishmentStatus: "ativo" | "inativo";
+  /** Momento do cancelamento (ISO) — null na base sem a migração 20261110000022. */
+  canceledAt: string | null;
+  /**
+   * `true` quando a assinatura já estava cancelada e nada foi feito no gateway
+   * (chamada idempotente).
+   */
+  alreadyCanceled: boolean;
+  /**
+   * `true` quando o `DELETE /subscriptions/{id}` foi confirmado pelo Asaas.
+   * `false` em trial/ativação manual (não há assinatura no gateway).
+   */
+  gatewayCanceled: boolean;
+}
+
 /** Cobrança resumida devolvida pelo `GET /api/billing/status`. */
 export interface BillingStatusPayment {
   id: string;

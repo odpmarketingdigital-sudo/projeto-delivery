@@ -9,6 +9,7 @@
  *  - `GET  /customers?email/cpfCnpj=`               → reaproveita cliente existente;
  *  - `POST /subscriptions` (e `/subscriptions/`)    → assinatura mensal recorrente;
  *  - `GET  /subscriptions/{id}/payments`            → cobranças geradas pela assinatura;
+ *  - `DELETE /subscriptions/{id}`                   → cancela (remove) a assinatura;
  *  - `GET  /payments/{id}/pixQrCode`                → QR Code dinâmico do Pix.
  *
  * Docs: https://docs.asaas.com/reference
@@ -135,7 +136,7 @@ interface AsaasErrorBody {
  */
 async function asaasRequest<T>(
   path: string,
-  init: { method: "GET" | "POST"; body?: unknown } = { method: "GET" }
+  init: { method: "GET" | "POST" | "DELETE"; body?: unknown } = { method: "GET" }
 ): Promise<T> {
   const { apiKey, baseUrl } = getConfig();
 
@@ -189,6 +190,10 @@ async function asaasRequest<T>(
   }
 
   if (!payload) {
+    // `DELETE` pode responder 204 (sem corpo): não é erro — o Asaas normalmente
+    // devolve `{ deleted: true, id }`, mas o corpo vazio também é sucesso.
+    if (response.status === 204) return {} as T;
+
     throw new AsaasError(
       "O Asaas devolveu uma resposta inválida.",
       502,
@@ -416,6 +421,34 @@ export async function getAsaasSubscription(
   return asaasRequest<AsaasSubscription>(
     `/subscriptions/${encodeURIComponent(subscriptionId)}`
   );
+}
+
+/** Retorno de `DELETE /subscriptions/{id}`. */
+export interface AsaasDeletedSubscription {
+  /** `true` quando o Asaas confirmou a remoção. */
+  deleted: boolean;
+  id: string;
+}
+
+/**
+ * Cancela (remove) a assinatura no Asaas — `DELETE /subscriptions/{id}`.
+ *
+ * É o endpoint oficial de cancelamento: interrompe as PRÓXIMAS cobranças (nada
+ * novo é faturado) sem estornar o período já pago. Assinatura inexistente
+ * responde 404 no Asaas, tratado pela rota de cancelamento como "já cancelada".
+ *
+ * O Asaas devolve `{ deleted: true, id }`; quando responde 204 (sem corpo),
+ * devolvemos o mesmo formato para quem consome não depender do payload.
+ */
+export async function deleteAsaasSubscription(
+  subscriptionId: string
+): Promise<AsaasDeletedSubscription> {
+  const result = await asaasRequest<Partial<AsaasDeletedSubscription>>(
+    `/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    { method: "DELETE" }
+  );
+
+  return { deleted: result.deleted ?? true, id: result.id ?? subscriptionId };
 }
 
 // ---------------------------------------------------------------------------

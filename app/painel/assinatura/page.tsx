@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { AdminHeader } from "@/app/painel/components/AdminHeader";
 import { useSubscription } from "@/app/painel/components/SubscriptionProvider";
-import type { BillingStatusResponse } from "@/lib/billing";
+import type {
+  BillingStatusResponse,
+  CancelSubscriptionResponse,
+} from "@/lib/billing";
 import {
   IPEPPER_PRO_PLAN,
   SUBSCRIPTION_CYCLE_LABELS,
@@ -12,6 +15,7 @@ import {
   getSubscriptionStatusLabel,
   type BillingCycleId,
 } from "@/lib/subscriptions";
+import { CancelSubscriptionModal } from "./CancelSubscriptionModal";
 import { CheckoutModal } from "./CheckoutModal";
 
 /** Converte um ISO em `dd/mm/aaaa` (null quando ausente/inválido). */
@@ -64,6 +68,11 @@ function DetailRow({ label, value }: { label: string; value: string }) {
  * `POST /api/billing/checkout` (Pix, cartão ou boleto no Asaas) e acompanha a
  * confirmação do pagamento por `GET /api/billing/status`. Ao confirmar, a
  * assinatura é relida com `refresh()`.
+ *
+ * O botão "Cancelar assinatura" (visível com plano ativo ou em atraso) abre o
+ * `CancelSubscriptionModal`, que chama `POST /api/billing/cancel` — a rota
+ * cancela a recorrência no Asaas e só então marca a loja como `canceled` e
+ * `inativo` no banco. O resultado aparece em um toast no canto da tela.
  */
 export default function AssinaturaPage() {
   const {
@@ -85,6 +94,9 @@ export default function AssinaturaPage() {
 
   const [notice, setNotice] = useState<string | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [isCancelOpen, setIsCancelOpen] = useState(false);
+  // Toast do cancelamento (some sozinho; também pode ser fechado no "x").
+  const [toast, setToast] = useState<string | null>(null);
 
   // Ciclo e próxima renovação informados pelo gateway. O `SubscriptionProvider`
   // já lê as colunas persistidas em `establishments`; esta consulta garante o
@@ -184,6 +196,54 @@ export default function AssinaturaPage() {
     // ciclo diferente do que estava persistido.
     void loadSubscriptionDetails();
   }, [refresh, loadSubscriptionDetails]);
+
+  // Toast auto-dismiss (8s) — o botão "x" também fecha antes.
+  useEffect(() => {
+    if (!toast) return;
+
+    const timer = window.setTimeout(() => setToast(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const closeCancelModal = useCallback(() => setIsCancelOpen(false), []);
+
+  /**
+   * Confirma o cancelamento em `POST /api/billing/cancel`.
+   *
+   * A rota cancela a assinatura no Asaas e só então desativa a loja, então uma
+   * rejeição aqui significa que NADA mudou: a mensagem do erro volta para
+   * dentro do modal (que fica aberto) e o usuário pode tentar de novo.
+   */
+  const handleConfirmCancel = useCallback(async () => {
+    const response = await fetch("/api/billing/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        establishmentId ? { establishment_id: establishmentId } : {}
+      ),
+    });
+
+    const payload = (await response.json().catch(() => null)) as
+      | (CancelSubscriptionResponse & { error?: string })
+      | null;
+
+    if (!response.ok) {
+      throw new Error(
+        payload?.error ??
+          "Não foi possível cancelar a assinatura. Nenhuma alteração foi feita — tente novamente."
+      );
+    }
+
+    // Sucesso: a loja não tem mais assinatura no gateway nem renovação.
+    setRemoteCycle(null);
+    setRemoteRenewal(null);
+    setHasGatewaySubscription(false);
+    setIsCancelOpen(false);
+    setNotice(null);
+    setToast(payload?.message ?? "Assinatura cancelada.");
+    // Relê a loja: `status`/`isActive` passam a refletir a loja desativada.
+    await refresh();
+  }, [establishmentId, refresh]);
 
   const isTrialExpired = status === "trialing" && !isActive;
 
@@ -508,6 +568,22 @@ export default function AssinaturaPage() {
               >
                 {status === "active" ? "Plano ativo" : "Assinar Agora"}
               </button>
+
+              {/* Cancelamento: só faz sentido com plano contratado (ativo ou em
+                  atraso). No trial não há recorrência no Asaas para encerrar. */}
+              {(status === "active" || status === "past_due") && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNotice(null);
+                    setIsCancelOpen(true);
+                  }}
+                  disabled={isLoading || !establishmentId}
+                  className="w-full rounded-xl border border-red-300 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:border-red-400 hover:bg-red-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancelar assinatura
+                </button>
+              )}
               <p className="text-center text-xs text-slate-500">
                 {selectedCycle.label} · {selectedCycle.totalLabel} por{" "}
                 {selectedCycle.periodLabel} · pagamento seguro, com acesso
@@ -535,6 +611,49 @@ export default function AssinaturaPage() {
           onClose={closeCheckout}
           onConfirmed={handleCheckoutConfirmed}
         />
+      )}
+
+      {isCancelOpen && (
+        <CancelSubscriptionModal
+          establishmentName={establishmentName}
+          planLabel={planLabel}
+          renewalLabel={renewalLabel}
+          hasGatewaySubscription={hasGatewaySubscription}
+          onCancel={closeCancelModal}
+          onConfirm={handleConfirmCancel}
+        />
+      )}
+
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-4 left-1/2 z-[60] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-start gap-3 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 shadow-lg sm:left-auto sm:right-6 sm:translate-x-0"
+        >
+          <svg
+            aria-hidden="true"
+            className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            viewBox="0 0 24 24"
+          >
+            <path d="m5 13 4 4L19 7" />
+          </svg>
+          <p className="min-w-0 flex-1 text-sm font-medium text-emerald-800">
+            {toast}
+          </p>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            aria-label="Fechar aviso"
+            className="shrink-0 rounded-full px-1 text-lg leading-none text-emerald-700 transition hover:text-emerald-900"
+          >
+            ×
+          </button>
+        </div>
       )}
     </>
   );

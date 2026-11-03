@@ -11,6 +11,7 @@ import {
   useSubscription,
 } from "./components/SubscriptionProvider";
 import { PanelShell } from "./components/PanelShell";
+import { OverdueBanner } from "./components/OverdueBanner";
 import { TrialBanner } from "./components/TrialBanner";
 
 /**
@@ -261,6 +262,7 @@ function PanelFrame({
     isSchemaPending,
     error,
     isSuperAdmin,
+    isOverdue,
     establishmentId,
   } = useSubscription();
 
@@ -290,6 +292,7 @@ function PanelFrame({
       isSuperAdmin={isSuperAdmin}
       establishmentId={establishmentId}
     >
+      <OverdueBanner establishmentId={establishmentId} />
       {isLoading ? (
         <PanelStatusScreen
           title="Verificando assinatura..."
@@ -299,7 +302,9 @@ function PanelFrame({
         <PaywallNotice />
       ) : (
         <>
-          <TrialBanner establishmentId={establishmentId} />
+          {/* Com atraso acima da carência o aviso vermelho já cobre o tema;
+              evita duas faixas concorrentes no topo do painel. */}
+          {!isOverdue && <TrialBanner establishmentId={establishmentId} />}
           {children}
         </>
       )}
