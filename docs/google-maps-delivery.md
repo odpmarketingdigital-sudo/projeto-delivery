@@ -29,6 +29,8 @@ aceito. `POST /api/orders` recalcula a taxa exatamente como a pré-visualizaçã
    mensal por conta).
 3. Em **APIs e serviços → Biblioteca**, habilite:
    - **Places API (New)** — sugestões de endereço no checkout;
+   - **Maps JavaScript API** — carrega o widget `<gmp-place-autocomplete>`
+     (Places UI Kit) no navegador;
    - **Routes API** — distância/tempo de carro (`computeRoutes`).
 4. Crie **duas** chaves em **APIs e serviços → Credenciais**:
 
@@ -42,6 +44,27 @@ aceito. `POST /api/orders` recalcula a taxa exatamente como a pré-visualizaçã
 
 Sem `GOOGLE_MAPS_API_KEY`, o servidor tenta `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
 como fallback (útil em desenvolvimento com uma única chave).
+
+### 1.1 Autocomplete: Places API (New), não a legada
+
+O campo de rua usa o Web Component `google.maps.places.PlaceAutocompleteElement`
+(`<gmp-place-autocomplete>`, Places UI Kit), carregado por
+`lib/googleMapsPlaces.ts`.
+
+- A Maps JS API é carregada com `v=weekly` — versão mínima que expõe o
+  `PlaceAutocompleteElement`; `libraries=places` + `loading=async` evitam
+  bloquear a renderização do checkout;
+- a API antiga (`google.maps.places.Autocomplete`) **não** é usada: contas do
+  Google Cloud criadas a partir de março/2025 não conseguem ativar a Places API
+  legada e o console falha com `LegacyApiNotActivatedMapError`;
+- ao selecionar uma sugestão chegam `addressComponents` no formato novo
+  (`longText`/`shortText`) e `location`; o loader normaliza para os campos do
+  formulário e o widget é ligado ao React pelo host `<div>` do
+  `AddressAutocomplete` (`gmp-select` → `placePrediction.toPlace()` →
+  `fetchFields()`);
+- o visual é alinhado pelos custom properties do Places UI Kit em
+  `app/globals.css` (`.ipepper-place-autocomplete`), já que o widget vive em
+  shadow DOM e não recebe as classes Tailwind do input.
 
 ## 2. Variáveis de ambiente
 
@@ -168,8 +191,10 @@ como “sem distância” para nunca cobrar 0 nem exibir “0,0 km”.
   (`lib/googleRoutes.ts`), com chave `origem|destino` arredondada a ~1 m. Digitar
   e trocar o número na mesma rua não gera novas chamadas;
 - o Places Autocomplete é cobrado por sessão de digitação: cada visita ao
-  checkout carrega a biblioteca uma única vez (o script é compartilhado por
-  `window` e o widget é reaproveitado por elemento `<input>`);
+  checkout carrega a Maps JS API uma única vez (promise compartilhada em
+  `lib/googleMapsPlaces.ts`) e o widget `<gmp-place-autocomplete>` é criado no
+  host do `AddressAutocomplete`, com `fetchFields()` restrito a
+  `displayName`, `formattedAddress`, `addressComponents` e `location`;
 - não há chamadas ao Google para lojas de **taxa fixa sem raio**: a cotação
   resolve a taxa localmente.
 
@@ -199,6 +224,8 @@ curl -s -X POST http://localhost:3000/api/delivery-quote \
 | Sintoma | Causa provável | Correção |
 | --- | --- | --- |
 | Nenhuma sugestão aparece | chave pública ausente/inválida ou Places API (New) desabilitada | preencha `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, habilite a API e **rebuilde** |
+| Console: `LegacyApiNotActivatedMapError` | código ainda usando `google.maps.places.Autocomplete` (API legada, indisponível em projetos criados após março/2025) | use o `PlaceAutocompleteElement` (`<gmp-place-autocomplete>`) de `lib/googleMapsPlaces.ts` / `AddressAutocomplete` |
+| Console: `ApiNotActivatedMapError` / `RefererNotAllowedMapError` | *Maps JavaScript API* ou *Places API (New)* desabilitada, ou domínio fora das restrições da chave | habilite as APIs e adicione o domínio (com `/*`) nas restrições da chave |
 | Console: `RefererNotAllowedMapError` | restrição por referrer não inclui o domínio atual | adicione o domínio (com `/*`) nas restrições da chave |
 | `distance_source` sempre `haversine` | `GOOGLE_MAPS_API_KEY` ausente, Routes API desabilitada, chave com restrição de referrer ou limite de cota | veja o `console.warn` `[googleRoutes] computeRoutes falhou` no log do servidor |
 | Taxa some e vira "taxa fixa" | loja sem `store_cep`/coordenadas, ou endereço sem CEP e sem coordenadas | configure a origem em `/painel/configuracoes`; use o autocomplete no checkout |

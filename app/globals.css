@@ -102,3 +102,48 @@ html {
     max-width: 80mm;
   }
 }
+
+/* ==========================================================================
+   Google Places (New) — <gmp-place-autocomplete> (autocomplete de endereço)
+   O widget do Places UI Kit é um Web Component com shadow DOM: as classes
+   Tailwind do input não o alcançam. O visual é alinhado pelos custom
+   properties oficiais do widget, herdáveis para dentro do shadow DOM.
+   ========================================================================== */
+.ipepper-place-autocomplete {
+  display: block;
+  width: 100%;
+  --gmp-mat-font-family: inherit;
+  --gmp-mat-color-primary: #111827;
+  --gmp-mat-color-surface: #ffffff;
+  --gmp-mat-color-on-surface: #111827;
+  --gmp-mat-color-on-surface-variant: #4b5563;
+  --gmp-mat-color-outline: #d1d5db;
+  --gmp-mat-color-outline-decorative: #e5e7eb;
+  --gmp-mat-color-neutral-container: #f3f4f6;
+  --gmp-mat-color-on-neutral-container: #111827;
+  --gmp-mat-color-error: #ef4444;
+  --gmp-mat-corner-size: 12px;
+  --gmp-mat-elevation-1: none;
+}
+
+/* Mesmo esquema de cores escuras usado pelos inputs do checkout. */
+@media (prefers-color-scheme: dark) {
+  .ipepper-place-autocomplete {
+    --gmp-mat-color-primary: #facc15;
+    --gmp-mat-color-surface: #111827;
+    --gmp-mat-color-on-surface: #f9fafb;
+    --gmp-mat-color-on-surface-variant: #9ca3af;
+    --gmp-mat-color-outline: #374151;
+    --gmp-mat-color-outline-decorative: #1f2937;
+    --gmp-mat-color-neutral-container: #1f2937;
+    --gmp-mat-color-on-neutral-container: #f9fafb;
+    --gmp-mat-color-error: #f87171;
+  }
+}
+
+/* Erro de validação: o host marca o próprio widget via aria-invalid. */
+.ipepper-place-autocomplete[aria-invalid="true"] {
+  --gmp-mat-color-outline: #f87171;
+  --gmp-mat-color-primary: #ef4444;
+}
+
