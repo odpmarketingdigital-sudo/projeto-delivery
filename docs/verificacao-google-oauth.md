@@ -185,6 +185,14 @@ O cadastro é **autenticação primeiro, loja depois**:
 4. `/completar-cadastro` grava a loja via `POST /api/signup/establishment`, já
    vinculada ao `user_id` da sessão, e abre o painel.
 
+Os caminhos que terminam com a sessão criada **no navegador** (e-mail + senha em
+`/cadastro` e `/login`, "Já confirmei" em `/confirmar-email` e o fim da
+redefinição em `/nova-senha`) passam por `/auth/continuar`, resolvido no
+middleware (`lib/supabase/middleware.ts`, `decidePostAuth`), que repete a
+consulta a `establishments` e manda a conta para `/painel` (tem loja),
+`/completar-cadastro` (sem loja) ou `/painel/admin` (super_admin). Nenhum desses
+caminhos usa `user_metadata.onboarding_complete` para decidir.
+
 Não existe mais rascunho em cookie: nenhum dado do cadastro depende de o
 navegador guardar algo antes do OAuth. Cookies bloqueados, troca de aba ou abrir
 o link do Google em outro dispositivo não deixam mais a conta "sem

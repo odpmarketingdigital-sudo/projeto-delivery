@@ -1,16 +1,26 @@
 "use client";
 
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { CNPJ_SITUACAO_ATIVA, lookupCnpj, type CnpjInfo } from "@/lib/cnpj";
 import {
   DOCUMENT_PLACEHOLDERS,
   DOCUMENT_TYPE_LABELS,
+  MAX_NAME_LENGTH,
   MAX_SLUG_LENGTH,
   formatDocumentInput,
   formatWhatsappInput,
   normalizeEstablishmentDraft,
+  onlyDigits,
   ownerNameError,
   validateEstablishmentDraft,
   type DocumentType,
@@ -39,6 +49,45 @@ interface FormState {
 }
 
 type Errors = Partial<Record<Field, string>>;
+
+/**
+ * Estado da consulta de CNPJ na BrasilAPI (`lib/cnpj.ts`).
+ *
+ * - `idle`        → nada a consultar (CPF escolhido, poucos dígitos ou CNPJ inválido);
+ * - `loading`     → consulta em andamento;
+ * - `active`      → empresa ATIVA na Receita (libera o cadastro);
+ * - `inactive`    → BAIXADA/INAPTA/SUSPENSA/NULA (bloqueia o cadastro);
+ * - `not_found`   → a Receita não tem esse CNPJ (bloqueia o cadastro);
+ * - `unavailable` → BrasilAPI fora do ar/timeout: apenas avisa, não bloqueia.
+ */
+type CnpjCheck =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "active"; info: CnpjInfo }
+  | { status: "inactive"; info: CnpjInfo }
+  | { status: "not_found" }
+  | { status: "unavailable" };
+
+/** Classe do aviso da consulta (cor por gravidade). */
+const CNPJ_NOTICE_CLASSES: Record<CnpjCheck["status"], string> = {
+  idle: "hidden",
+  loading: "text-gray-400",
+  active: "text-emerald-400",
+  inactive: "text-red-400",
+  not_found: "text-red-400",
+  unavailable: "text-amber-300",
+};
+
+/** Resumo da empresa devolvida pela BrasilAPI (`Razão social · Cidade/UF`). */
+function describeCompany(info: CnpjInfo): string {
+  const name = info.razaoSocial ?? info.nomeFantasia;
+  const location =
+    info.municipio && info.uf ? `${info.municipio}/${info.uf}` : null;
+
+  return [name, location].filter(Boolean).join(" · ");
+}
+
+
 
 /** Ordem usada para focar o primeiro campo inválido. */
 const FIELD_ORDER: Field[] = [
@@ -174,9 +223,12 @@ const FIELD_IDS: Record<Field, string> = {
  *  1. Pré-preenche o responsável com o nome do perfil (Google) ou derivado do
  *     e-mail (editável).
  *  2. Valida no cliente com `lib/registration.ts` (mesmas mensagens da API).
- *  3. Envia para `POST /api/signup/establishment`, que cria/atualiza a loja,
+ *  3. Com CNPJ, consulta a situação cadastral na BrasilAPI (`lib/cnpj.ts`) e só
+ *     deixa seguir quando a empresa está ATIVA — CNPJ baixado/inapto/suspenso ou
+ *     inexistente fica bloqueado antes do envio.
+ *  4. Envia para `POST /api/signup/establishment`, que cria/atualiza a loja,
  *     promove o perfil a `admin` e marca `onboarding_complete`.
- *  4. Abre o painel.
+ *  5. Abre o painel.
  */
 export function CompleteSignupForm({
   email,
@@ -209,8 +261,142 @@ export function CompleteSignupForm({
   const [isSigningOut, setIsSigningOut] = useState(false);
   // Enquanto o usuário não editar o link manualmente, ele acompanha o nome.
   const [slugTouched, setSlugTouched] = useState(false);
+  /**
+   * Última consulta de CNPJ concluída: a qual número ela se refere e o
+   * resultado. Guardar os dígitos permite derivar "carregando" sem `setState`
+   * dentro do efeito (ver `cnpjCheck`).
+   */
+  const [cnpjResult, setCnpjResult] = useState<{
+    digits: string;
+    check: CnpjCheck;
+  } | null>(null);
+
+  /**
+   * Espelho de `slugTouched` para uso dentro do efeito de consulta do CNPJ
+   * (evita reexecutar a consulta só porque o link passou a ser manual).
+   */
+  const slugTouchedRef = useRef(false);
 
   const slugPreview = slugify(form.slug || form.establishment_name);
+
+  /** Dígitos do documento (a consulta só roda com CNPJ completo). */
+  const documentDigits = onlyDigits(form.document_number);
+
+  /** CNPJ válido e com os 14 dígitos: hora de consultar a Receita. */
+  const isCnpjComplete =
+    form.document_type === "cnpj" && documentDigits.length === 14;
+
+  /**
+   * Estado efetivo da consulta, **derivado** (nada de `setState` no efeito):
+   *  - CPF/incompleto → `idle`;
+   *  - resultado já conhecido para este número → usa o resultado;
+   *  - caso contrário → `loading` (a consulta está em andamento).
+   */
+  const cnpjCheck: CnpjCheck = !isCnpjComplete
+    ? { status: "idle" }
+    : cnpjResult && cnpjResult.digits === documentDigits
+      ? cnpjResult.check
+      : { status: "loading" };
+
+  /**
+   * Consulta a situação cadastral quando os 14 dígitos do CNPJ estão completos.
+   *
+   * A chamada sai do navegador (a BrasilAPI libera CORS) e é cancelada assim
+   * que o número muda. Falha de rede/timeout nunca bloqueia o cadastro; só a
+   * reprovação da Receita (situação ≠ ATIVA ou CNPJ inexistente) impede o
+   * envio — ver `blockingDocumentError`.
+   */
+  useEffect(() => {
+    if (!isCnpjComplete) return;
+
+    const digits = documentDigits;
+    const controller = new AbortController();
+
+    void lookupCnpj(digits, { signal: controller.signal }).then((result) => {
+      if (controller.signal.aborted) return;
+
+      if (!result.ok) {
+        setCnpjResult({
+          digits,
+          check:
+            result.reason === "not_found"
+              ? { status: "not_found" }
+              : result.reason === "invalid"
+                ? // Dígitos verificadores: o erro local de validação já explica.
+                  { status: "idle" }
+                : { status: "unavailable" },
+        });
+        return;
+      }
+
+      const isActive = result.info.situacao === CNPJ_SITUACAO_ATIVA;
+
+      setCnpjResult({
+        digits,
+        check: isActive
+          ? { status: "active", info: result.info }
+          : { status: "inactive", info: result.info },
+      });
+
+      if (!isActive) return;
+
+      // Empresa ATIVA: sugere o nome e mantém o link em sincronia, sem
+      // sobrescrever nada que o usuário já tenha digitado.
+      const companyName = (result.info.nomeFantasia ?? result.info.razaoSocial)
+        ?.trim()
+        .slice(0, MAX_NAME_LENGTH);
+
+      if (!companyName) return;
+
+      setForm((prev) => {
+        if (prev.establishment_name.trim()) return prev;
+
+        return {
+          ...prev,
+          establishment_name: companyName,
+          slug: slugTouchedRef.current
+            ? prev.slug
+            : slugify(companyName).slice(0, MAX_SLUG_LENGTH),
+        };
+      });
+    });
+
+    return () => controller.abort();
+  }, [isCnpjComplete, documentDigits]);
+
+  /** Texto do aviso da consulta (vazio quando não há nada a mostrar). */
+  const cnpjNotice =
+    cnpjCheck.status === "loading"
+      ? "Consultando CNPJ na Receita Federal..."
+      : cnpjCheck.status === "active"
+        ? `CNPJ ativo na Receita${describeCompany(cnpjCheck.info) ? `: ${describeCompany(cnpjCheck.info)}` : ""}.`
+        : cnpjCheck.status === "inactive"
+          ? `Situação cadastral na Receita: ${cnpjCheck.info.situacao ?? "irregular"}. Só empresas ATIVAS podem cadastrar uma loja.`
+          : cnpjCheck.status === "not_found"
+            ? "CNPJ não encontrado na Receita Federal. Confira os números digitados."
+            : cnpjCheck.status === "unavailable"
+              ? "Não foi possível consultar a Receita Federal agora. Você pode continuar: o documento é validado novamente ao salvar."
+              : "";
+
+  /**
+   * Trava o envio quando a Receita reprova o CNPJ consultado.
+   * `null` para CPF, consulta pendente/indisponível ou CNPJ ATIVO.
+   */
+  const blockingDocumentError = (): string | null => {
+    if (form.document_type !== "cnpj") return null;
+
+    if (cnpjCheck.status === "inactive") {
+      return `CNPJ com situação cadastral ${
+        cnpjCheck.info.situacao ?? "irregular"
+      } na Receita Federal. Regularize o documento para continuar.`;
+    }
+
+    if (cnpjCheck.status === "not_found") {
+      return "CNPJ não encontrado na Receita Federal. Confira os números digitados.";
+    }
+
+    return null;
+  };
 
   const clearError = (field: Field) => {
     setErrors((prev) => {
@@ -238,6 +424,7 @@ export function CompleteSignupForm({
 
   const handleSlugChange = (value: string) => {
     setSlugTouched(true);
+    slugTouchedRef.current = true;
     setForm((prev) => ({ ...prev, slug: sanitizeSlugInput(value) }));
     clearError("slug");
   };
@@ -263,6 +450,17 @@ export function CompleteSignupForm({
       setFormError(null);
       const first = FIELD_ORDER.find((field) => nextErrors[field]);
       if (first) document.getElementById(FIELD_IDS[first])?.focus();
+      return;
+    }
+
+    // Consulta da Receita reprovou o CNPJ (baixado/inapta/suspenso ou
+    // inexistente): não faz sentido mandar para a API — a loja não poderia ser
+    // criada com um documento inválido.
+    const documentBlock = blockingDocumentError();
+    if (documentBlock) {
+      setErrors({ document_number: documentBlock });
+      setFormError(null);
+      document.getElementById(FIELD_IDS.document_number)?.focus();
       return;
     }
 
@@ -535,6 +733,17 @@ export function CompleteSignupForm({
                       : INPUT_OK
                   }`}
                 />
+
+                {form.document_type === "cnpj" && cnpjNotice && (
+                  <p
+                    aria-live="polite"
+                    className={`mt-2 text-xs font-medium ${
+                      CNPJ_NOTICE_CLASSES[cnpjCheck.status]
+                    }`}
+                  >
+                    {cnpjNotice}
+                  </p>
+                )}
               </FieldShell>
 
               <FieldShell

@@ -141,12 +141,12 @@ export function ResetPasswordForm({
     };
   }, [supabase, linkError]);
 
-  // Após o sucesso, leva o usuário ao painel (o guard cuida do super_admin).
+  // Após o sucesso, leva o usuário adiante (o servidor decide painel × onboarding).
   useEffect(() => {
     if (status !== "done") return;
 
     const timer = setTimeout(() => {
-      router.replace("/painel");
+      router.replace("/auth/continuar");
       router.refresh();
     }, REDIRECT_DELAY_MS);
 
@@ -202,7 +202,7 @@ export function ResetPasswordForm({
   };
 
   const goToPanel = () => {
-    router.replace("/painel");
+    router.replace("/auth/continuar");
     router.refresh();
   };
 

@@ -53,7 +53,13 @@ confirmação enviado pelo Supabase Auth.
          └─ 201 { email_confirmation_required: true | false }
 
    ├─ email_confirmation_required = true  → /confirmar-email?email=…
-   └─ email_confirmation_required = false → login automático + /completar-cadastro
+   └─ email_confirmation_required = false → login automático → /auth/continuar
+
+/auth/continuar (decisão no servidor — middleware, responde 307)
+   ├─ consulta establishments pelo user_id da sessão
+   ├─ conta com loja    → /painel
+   ├─ conta sem loja    → /completar-cadastro
+   └─ super_admin       → /painel/admin
 
 /completar-cadastro (etapa 2: loja)
    └─ POST /api/signup/establishment → cria a loja do user_id da sessão → /painel
@@ -73,7 +79,7 @@ estabelecimento: a loja nasce na etapa 2, sempre com a sessão ativa. Consequên
 
 | Camada | Arquivo | Regra |
 | --- | --- | --- |
-| Servidor (todas as rotas `/painel*`) | `lib/supabase/middleware.ts` | `getUser().email_confirmed_at` nulo → redirect `/confirmar-email`; `/login` e `/cadastro` com sessão pendente também vão para lá; sessão confirmada em `/confirmar-email` volta para `/painel` |
+| Servidor (todas as rotas `/painel*`) | `lib/supabase/middleware.ts` | `getUser().email_confirmed_at` nulo → redirect `/confirmar-email`; `/login` e `/cadastro` com sessão pendente também vão para lá; sessão confirmada em `/confirmar-email` volta para `/auth/continuar` |
 | Estado no cliente | `context/AuthContext.tsx` | expõe `emailConfirmed` (`true`/`false`/`undefined`), consultando `GET /api/auth/confirmation` quando o JWT não traz `email_confirmed_at` |
 | Cliente (dentro do painel) | `app/painel/PainelGuard.tsx` | `currentUser.emailConfirmed === false` → tela de bloqueio + `router.replace("/confirmar-email")` |
 | Login | `app/login/page.tsx` | erro `email_not_confirmed` → mensagem + atalho para `/confirmar-email`; sessão criada sem confirmação é encerrada |
@@ -95,7 +101,8 @@ verdade.
   (envio no servidor, ver §5). Em caso de sucesso o botão entra em contagem
   regressiva (`Aguarde 60s para reenviar`);
 - **Já confirmei** → `refreshSession()` + `getUser()`. Confirmado: vai para
-  `/painel`; sem sessão no navegador: vai para `/login`;
+  `/auth/continuar` (painel ou onboarding, conforme a loja existir); sem sessão
+  no navegador: vai para `/login`;
 - erros tratados: `429` (rate limit — "Aguarde 1 minuto antes de solicitar um
   novo e-mail"), `email_already_confirmed`, e-mail sem conta, falha de envio e
   link inválido (`?erro=link-invalido`).

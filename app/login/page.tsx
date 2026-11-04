@@ -5,13 +5,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GoogleAuthButton } from "@/app/components/GoogleAuthButton";
 import { createClient } from "@/lib/supabase/client";
-import type { AuthRole } from "@/context/AuthContext";
 import { ForgotPasswordDialog } from "./ForgotPasswordDialog";
 
-/** Rota de destino conforme o papel do usuário autenticado. */
-function redirectForRole(role: AuthRole): string {
-  return role === "super_admin" ? "/painel/admin" : "/painel";
-}
+/**
+ * Decisão pós-login, tomada no servidor (`lib/supabase/middleware.ts`, rota
+ * `/auth/continuar`): conta com loja → `/painel`, sem loja →
+ * `/completar-cadastro`, `super_admin` → `/painel/admin`.
+ */
+const POST_AUTH_PATH = "/auth/continuar";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -71,37 +72,13 @@ export default function LoginPage() {
       return;
     }
 
-    // 2) Resolve o papel (role) do usuário.
-    //    Usamos `.maybeSingle()`: quando não há linha em `profiles`, ele
-    //    retorna `null` em vez de lançar erro (comportamento de `.single()`).
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("role")
-      .eq("id", data.user.id)
-      .maybeSingle();
-
-    // 3) Fallback para os metadados do Auth. Se a linha em `profiles` ainda
-    //    não existir (ex.: trigger não executado), usamos o `role`/dados
-    //    gravados em `user_metadata` na criação do usuário.
-    const meta = data.user.user_metadata ?? {};
-    const metaRole = typeof meta.role === "string" ? meta.role : undefined;
-    const role = (profile?.role ?? metaRole) as AuthRole | undefined;
-
-    if (role !== "super_admin" && role !== "admin") {
-      // Sem papel válido conhecido: encerra a sessão de forma limpa para não
-      // deixar um estado autenticado "preso" e evitar laços de redirecionamento.
-      await supabase.auth.signOut();
-      setIsSubmitting(false);
-      setError(
-        "Não foi possível carregar seu perfil de acesso. Verifique se seu usuário possui um perfil válido."
-      );
-      return;
-    }
-
-    setIsSubmitting(false);
-
-    // 4) Redireciona conforme o papel.
-    router.replace(redirectForRole(role));
+    /**
+     * Destino decidido no servidor (`/auth/continuar`): consulta
+     * `establishments` pelo `user_id` da sessão e escolhe entre `/painel`
+     * (tem loja), `/completar-cadastro` (não tem) e `/painel/admin`
+     * (super_admin).
+     */
+    router.replace(POST_AUTH_PATH);
     router.refresh();
   };
 

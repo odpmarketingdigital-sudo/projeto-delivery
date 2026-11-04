@@ -25,9 +25,10 @@ import { TRIAL_DAYS } from "@/lib/subscriptions";
  * O fluxo do Ipepper é autenticação primeiro, loja depois:
  *
  *  1. **aqui** — o usuário escolhe como entrar (Google ou e-mail + senha);
- *  2. **`/auth/callback`** — depois do Google, ou **este formulário** depois do
- *     `signInWithPassword`, o destino é decidido pelo servidor: conta com loja
- *     vai para `/painel`, conta sem loja vai para `/completar-cadastro`;
+ *  2. **`/auth/callback`** (Google) ou **`/auth/continuar`** (depois do
+ *     `signInWithPassword` deste formulário) — o servidor consulta
+ *     `establishments` e decide: conta com loja vai para `/painel`, conta sem
+ *     loja vai para `/completar-cadastro`;
  *  3. **`/completar-cadastro`** — nome da loja, CPF/CNPJ, WhatsApp e link do
  *     cardápio, já vinculados ao `user_id` da sessão.
  *
@@ -45,11 +46,12 @@ type Errors = Partial<Record<Field, string>>;
 /** Ordem usada para focar o primeiro campo inválido. */
 const FIELD_ORDER: Field[] = ["email", "password"];
 
-/** Destino de quem já tem loja. */
-const PANEL_PATH = "/painel";
-
-/** Destino de quem ainda precisa cadastrar a loja (etapa 2). */
-const ONBOARDING_PATH = "/completar-cadastro";
+/**
+ * Decisão pós-login, tomada no servidor (`lib/supabase/middleware.ts`, rota
+ * `/auth/continuar`): `/painel` para quem tem loja, `/completar-cadastro` para
+ * quem não tem.
+ */
+const POST_AUTH_PATH = "/auth/continuar";
 
 const INPUT_BASE =
   "w-full rounded-xl border bg-[#0d0f12] px-3.5 py-2.5 text-sm text-white placeholder-gray-500 transition focus:outline-none focus:ring-1";
@@ -170,12 +172,11 @@ function SignupView() {
   };
 
   /**
-   * Entra com e-mail + senha e segue para o destino conforme o estado da conta.
+   * Entra com e-mail + senha e segue para `/auth/continuar`.
    *
-   * `onboarding_complete` é gravado em `user_metadata` por
-   * `saveEstablishmentForUser` quando a loja é criada. Sem a marca, a etapa 2
-   * ainda está pendente — e o próprio `/completar-cadastro` devolve ao painel
-   * se a loja existir, então este destino nunca deixa o usuário preso.
+   * A decisão entre `/painel` e `/completar-cadastro` é do **servidor**, que
+   * consulta `establishments` pelo `user_id` da sessão — `user_metadata` não é
+   * fonte confiável (pode estar desatualizado e levar conta sem loja ao painel).
    */
   const signInAndRedirect = async (): Promise<
     "done" | "unconfirmed" | "failed"
@@ -189,10 +190,7 @@ function SignupView() {
       return error?.code === "email_not_confirmed" ? "unconfirmed" : "failed";
     }
 
-    const needsOnboarding =
-      data.user.user_metadata?.onboarding_complete !== true;
-
-    router.replace(needsOnboarding ? ONBOARDING_PATH : PANEL_PATH);
+    router.replace(POST_AUTH_PATH);
     router.refresh();
 
     return "done";

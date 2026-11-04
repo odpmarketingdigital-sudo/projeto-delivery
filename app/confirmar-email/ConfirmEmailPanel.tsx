@@ -100,7 +100,7 @@ export function ConfirmEmailPanel({
 
       // Confirmação concluída enquanto esta tela estava aberta.
       if (user.email_confirmed_at ?? user.confirmed_at) {
-        router.replace("/painel");
+        router.replace("/auth/continuar");
         router.refresh();
       }
     });
@@ -201,7 +201,7 @@ export function ConfirmEmailPanel({
 
     const user = data.user;
     if (user && (user.email_confirmed_at ?? user.confirmed_at)) {
-      router.replace("/painel");
+      router.replace("/auth/continuar");
       router.refresh();
       return;
     }
