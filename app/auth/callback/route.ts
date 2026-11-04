@@ -1,7 +1,20 @@
 import { NextResponse, type NextRequest } from "next/server";
-import type { EmailOtpType } from "@supabase/supabase-js";
-import { findEstablishmentForUser } from "@/lib/supabase/establishments";
+import type { EmailOtpType, User } from "@supabase/supabase-js";
+import { sendWelcomeEmailSafely } from "@/lib/email/welcome";
+import {
+  ownerNameError,
+  resolveOwnerName,
+  validateEstablishmentDraft,
+} from "@/lib/registration";
+import {
+  findEstablishmentForUser,
+  saveEstablishmentForUser,
+} from "@/lib/supabase/establishments";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
+import {
+  decodeSignupDraftCookie,
+  SIGNUP_DRAFT_COOKIE,
+} from "@/lib/signupDraft";
 
 /** Destino padrão de links de recuperação de senha. */
 const DEFAULT_RECOVERY_NEXT = "/nova-senha";
@@ -106,7 +119,10 @@ function isPostAuthDestination(value: string): boolean {
  * `next` é usado quando é um caminho interno válido; caso contrário (ausente,
  * externo ou uma tela de entrada) cai em `DEFAULT_OAUTH_NEXT` (`/painel`).
  * Depois de trocar o código pela sessão, a rota consulta `establishments`:
- *  - conta **sem** loja (primeiro acesso pelo Google) → `/completar-cadastro`,
+ *  - conta **sem** loja, mas com rascunho salvo por `/cadastro` antes do OAuth
+ *    (cookie `SIGNUP_DRAFT_COOKIE`, ver `lib/signupDraft.ts`) → a loja é criada
+ *    AQUI, já vinculada ao `user_id` do Google, e o usuário vai para `/painel`;
+ *  - conta **sem** loja e sem rascunho (ex.: login direto) → `/completar-cadastro`,
  *    onde o usuário informa os dados do estabelecimento (a tela conclui em
  *    `/painel`);
  *  - conta **com** loja → `next` (painel).
@@ -114,15 +130,120 @@ function isPostAuthDestination(value: string): boolean {
  * Se o usuário cancelar no Google, o provedor devolve `?error=access_denied`;
  * nesse caso voltamos para `/cadastro?erro=google`.
  */
-async function hasEstablishment(userId: string): Promise<boolean> {
+
+/**
+ * `true` = já existe loja; `false` = pode criar; `null` = não deu para consultar
+ * o banco (falha de infraestrutura não deve bloquear o acesso).
+ */
+async function hasEstablishment(userId: string): Promise<boolean | null> {
   try {
     const adminClient = createAdminClient();
     return Boolean(await findEstablishmentForUser(adminClient, userId));
   } catch (error) {
     // Falha de infraestrutura não deve bloquear o acesso: segue para `next`.
     console.error("[auth/callback] falha ao verificar estabelecimento", error);
-    return true;
+    return null;
   }
+}
+
+/**
+ * Cria o estabelecimento do usuário recém-criado pelo Google a partir do
+ * rascunho que `/cadastro` guardou antes do redirect (sessionStorage + cookie).
+ *
+ * O servidor NÃO confia no conteúdo do cookie: o rascunho é revalidado com as
+ * mesmas regras do formulário (`lib/registration.ts`) antes da gravação.
+ *
+ * `true` = loja salva (o usuário pode ir direto para o painel); `false` = não
+ * foi possível concluir e o fluxo continua em `/completar-cadastro`.
+ */
+async function createEstablishmentFromDraft(
+  userId: string,
+  user: User,
+  draftToken: string
+): Promise<boolean> {
+  const draft = decodeSignupDraftCookie(draftToken);
+
+  if (!draft) {
+    console.warn("[auth/callback] rascunho de cadastro inválido — indo ao onboarding");
+    return false;
+  }
+
+  const draftErrors = validateEstablishmentDraft(draft);
+  if (Object.keys(draftErrors).length > 0) {
+    console.warn("[auth/callback] rascunho reprovado na validação", draftErrors);
+    return false;
+  }
+
+  const email = user.email ?? "";
+  const ownerName = resolveOwnerName(user.user_metadata, email);
+
+  // Sem nome de responsável utilizável a loja ficaria sem dono em `profiles`.
+  if (ownerNameError(ownerName)) {
+    console.warn("[auth/callback] conta do Google sem nome de responsável");
+    return false;
+  }
+
+  try {
+    const saved = await saveEstablishmentForUser(createAdminClient(), userId, {
+      name: draft.name,
+      ownerName,
+      email,
+      whatsapp: draft.whatsapp,
+      documentType: draft.document_type,
+      documentNumber: draft.document_number,
+      slug: draft.slug,
+    });
+
+    if (!saved.ok) {
+      console.error(
+        "[auth/callback] falha ao salvar a loja do Google:",
+        saved.code,
+        saved.error
+      );
+      return false;
+    }
+
+    if (saved.warning) console.warn("[auth/callback]", saved.warning);
+
+    // Mesmo e-mail de boas-vindas do cadastro por e-mail (`POST /api/signup`),
+    // sempre best effort — uma falha do Resend não desfaz a loja.
+    if (saved.created && email) {
+      await sendWelcomeEmailSafely({
+        to: email,
+        ownerName,
+        establishmentName: saved.establishment.name,
+        slug: saved.establishment.slug,
+        trialEndsAt: saved.establishment.trial_ends_at,
+      });
+    }
+
+    return true;
+  } catch (error) {
+    console.error("[auth/callback] falha ao salvar a loja do Google", error);
+    return false;
+  }
+}
+
+/**
+ * Redirect de saída do fluxo de cadastro.
+ *
+ * O rascunho é de uso único: depois que a sessão existe (e a loja foi criada ou
+ * o usuário seguiu para o onboarding) não há motivo para manter CPF/CNPJ e
+ * WhatsApp no navegador — o cookie é apagado junto com a resposta.
+ */
+function redirectEndingSignup(url: URL): NextResponse {
+  const response = NextResponse.redirect(url);
+
+  // Mesmos atributos usados na escrita (`lib/signupDraft.ts`): um cookie
+  // `Secure` só pode ser sobrescrito (inclusive para apagar) por outro `Secure`.
+  response.cookies.set(SIGNUP_DRAFT_COOKIE, "", {
+    path: "/",
+    maxAge: 0,
+    sameSite: "lax",
+    secure: url.protocol === "https:",
+  });
+
+  return response;
 }
 
 export async function GET(request: NextRequest) {
@@ -162,12 +283,12 @@ export async function GET(request: NextRequest) {
 
   const supabase = await createClient();
 
-  let userId: string | null = null;
+  let user: User | null = null;
 
   if (code) {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      userId = data.user?.id ?? data.session?.user.id ?? null;
+      user = data.user ?? data.session?.user ?? null;
     }
   } else if (tokenHash && otpType) {
     const { data, error } = await supabase.auth.verifyOtp({
@@ -175,22 +296,42 @@ export async function GET(request: NextRequest) {
       type: otpType,
     });
     if (!error) {
-      userId = data.user?.id ?? data.session?.user.id ?? null;
+      user = data.user ?? data.session?.user ?? null;
     }
   }
 
-  if (userId) {
+  if (user) {
     // Recuperação de senha nunca passa pelo onboarding — a conta já existe.
     if (otpType === "recovery") {
       return NextResponse.redirect(new URL(next, origin));
     }
 
-    // Primeiro acesso pelo Google: falta criar a loja.
-    if (!(await hasEstablishment(userId))) {
-      return NextResponse.redirect(new URL(ONBOARDING_NEXT, origin));
+    const hasStore = await hasEstablishment(user.id);
+
+    // Conta que já tem loja (login comum) — e também o caso em que não deu para
+    // consultar o banco (`null`) — segue direto para o destino pedido.
+    if (hasStore !== false) {
+      return redirectEndingSignup(new URL(next, origin));
     }
 
-    return NextResponse.redirect(new URL(next, origin));
+    // Conta sem loja: se `/cadastro` guardou o rascunho antes do OAuth, a loja
+    // é criada agora e o usuário cai direto no painel, sem refazer o cadastro.
+    const draftToken = request.cookies.get(SIGNUP_DRAFT_COOKIE)?.value;
+
+    if (draftToken) {
+      const created = await createEstablishmentFromDraft(
+        user.id,
+        user,
+        draftToken
+      );
+
+      if (created) {
+        return redirectEndingSignup(new URL(DEFAULT_OAUTH_NEXT, origin));
+      }
+    }
+
+    // Sem rascunho (ou rascunho recusado): completa os dados numa tela própria.
+    return redirectEndingSignup(new URL(ONBOARDING_NEXT, origin));
   }
 
   // Falhou (link expirado/reutilizado): manda para a tela que permite pedir

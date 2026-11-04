@@ -62,8 +62,10 @@ function normalizePostAuthNext(next: string): string {
  *
  * Quem trata o retorno é `app/auth/callback/route.ts`, que troca o `code` pela
  * sessão e decide o destino:
- *  - conta **sem** estabelecimento (primeiro acesso) → `/completar-cadastro`,
- *    onde o usuário informa loja, CPF/CNPJ, WhatsApp e link do cardápio (a tela
+ *  - usuário novo vindo de `/cadastro` **com rascunho da loja** → a loja é criada
+ *    ali mesmo (`lib/signupDraft.ts`) e o usuário abre o `/painel`;
+ *  - conta **sem** estabelecimento e sem rascunho → `/completar-cadastro`, onde
+ *    o usuário informa loja, CPF/CNPJ, WhatsApp e link do cardápio (a tela
  *    conclui em `/painel`);
  *  - conta **com** estabelecimento → `next` (padrão `/painel`).
  *
@@ -75,12 +77,21 @@ export function GoogleAuthButton({
   label = "Continuar com Google",
   theme = "dark",
   className = "",
+  beforeRedirect,
 }: {
   /** Destino pós-OAuth quando a conta já tem estabelecimento (padrão `/painel`). */
   next?: string;
   label?: string;
   theme?: keyof typeof THEMES;
   className?: string;
+  /**
+   * Gancho executado antes de sair da página.
+   *
+   * `/cadastro` usa para validar os dados do estabelecimento e gravá-los no
+   * `sessionStorage`/cookie do rascunho. Devolver `false` (ou lançar erro)
+   * cancela o redirect e mantém o usuário no formulário.
+   */
+  beforeRedirect?: () => boolean | Promise<boolean>;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [isLoading, setIsLoading] = useState(false);
@@ -91,6 +102,25 @@ export function GoogleAuthButton({
 
     setError(null);
     setIsLoading(true);
+
+    if (beforeRedirect) {
+      let allowed = true;
+
+      try {
+        allowed = (await beforeRedirect()) !== false;
+      } catch {
+        allowed = false;
+        setError(
+          "Não foi possível preparar o cadastro da sua loja. Tente novamente."
+        );
+      }
+
+      // Validação reprovada: o formulário já mostra os erros por campo.
+      if (!allowed) {
+        setIsLoading(false);
+        return;
+      }
+    }
 
     const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
       normalizePostAuthNext(next)
