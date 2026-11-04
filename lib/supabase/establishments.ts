@@ -159,6 +159,44 @@ export async function findEstablishmentForUser(
 }
 
 /**
+ * O usuário já tem estabelecimento?
+ *
+ * - `true`  → existe linha em `establishments` com `user_id` do usuário;
+ * - `false` → não existe;
+ * - `null`  → não deu para consultar (rede/credenciais/migração pendente).
+ *
+ * Diferente de `findEstablishmentForUser` — que devolve `null` tanto para "sem
+ * loja" quanto para erro — aqui a dúvida é explícita. O `/auth/callback` usa
+ * essa distinção para decidir entre painel e onboarding (sem assumir loja
+ * quando não conseguiu confirmar) e o guard do painel para não redirecionar
+ * quem tem loja por causa de uma falha passageira de leitura.
+ *
+ * Deve ser chamada com um cliente capaz de **enxergar** a linha:
+ * `createAdminClient()` (service role, no servidor) ou o cliente da sessão do
+ * próprio usuário (RLS `establishments_select_own`).
+ */
+export async function hasEstablishmentForUser(
+  client: SupabaseClient,
+  userId: string
+): Promise<boolean | null> {
+  const { data, error } = await client
+    .from("establishments")
+    .select("id")
+    .eq("user_id", userId)
+    .limit(1);
+
+  if (error) {
+    console.error(
+      "[establishments] falha ao verificar a loja do usuário",
+      error
+    );
+    return null;
+  }
+
+  return Array.isArray(data) && data.length > 0;
+}
+
+/**
  * `true` quando o slug já pertence a outra loja.
  *
  * `ignoreId` permite que a própria loja salve novamente com o mesmo slug.

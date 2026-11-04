@@ -38,6 +38,7 @@ import {
 } from "@/lib/registration";
 import {
   clearSignupDraft,
+  hasSignupDraftCookie,
   readSignupDraft,
   saveSignupDraft,
 } from "@/lib/signupDraft";
@@ -402,6 +403,11 @@ function SignupView() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [errors, setErrors] = useState<Errors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  /**
+   * Falha ao preparar o cadastro pelo Google (rascunho não gravado no
+   * navegador). Fica junto do botão do Google, que é a ação que falhou.
+   */
+  const [googlePrepError, setGooglePrepError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   /**
@@ -692,6 +698,7 @@ function SignupView() {
 
     setErrors(storeErrors);
     setFormError(null);
+    setGooglePrepError(null);
     setOauthErrorDismissed(true);
 
     if (Object.keys(storeErrors).length > 0 || cnpjBlocked) {
@@ -704,6 +711,19 @@ function SignupView() {
     }
 
     saveSignupDraft(toEstablishmentDraft(form));
+
+    /**
+     * O cookie é o único transporte do rascunho até o `/auth/callback`
+     * (Route Handler, sem acesso ao `sessionStorage`). Se o navegador recusou a
+     * gravação, seguir para o Google criaria a conta **sem** loja — exatamente
+     * o cenário que deixa o painel sem estabelecimento. Melhor parar aqui.
+     */
+    if (!hasSignupDraftCookie()) {
+      setGooglePrepError(
+        "Não conseguimos guardar os dados da sua loja neste navegador. Ative os cookies (ou saia do modo anônimo) e tente novamente — ou crie a conta com e-mail e senha."
+      );
+      return false;
+    }
 
     return true;
   };
@@ -1007,6 +1027,14 @@ function SignupView() {
                       beforeRedirect={prepareGoogleSignup}
                       label="Criar minha conta com Google"
                     />
+                    {googlePrepError ? (
+                      <p
+                        role="alert"
+                        className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3.5 py-2.5 text-xs font-medium leading-relaxed text-amber-200"
+                      >
+                        {googlePrepError}
+                      </p>
+                    ) : null}
                     <div className="mt-4 flex items-center gap-3">
                       <span aria-hidden className="h-px flex-1 bg-white/10" />
                       <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-gray-500">

@@ -179,9 +179,16 @@ const FIELD_IDS: Record<Field, string> = {
 export function CompleteSignupForm({
   email,
   initialOwnerName,
+  notice,
 }: {
   email: string;
   initialOwnerName: string;
+  /**
+   * Aviso opcional vindo de `?erro=` (rascunho do cadastro expirado/ausente).
+   * Aparece acima do formulário para explicar por que os dados precisam ser
+   * informados de novo.
+   */
+  notice?: string | null;
 }) {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []);
@@ -402,6 +409,15 @@ export function CompleteSignupForm({
               <span className="font-semibold text-gray-200">{email}</span>.
               Informe os dados do estabelecimento para começar a usar o painel.
             </p>
+
+            {notice ? (
+              <p
+                role="status"
+                className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-3 text-xs font-medium leading-relaxed text-amber-200"
+              >
+                {notice}
+              </p>
+            ) : null}
 
             <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-4">
               <FieldShell

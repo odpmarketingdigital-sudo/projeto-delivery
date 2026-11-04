@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ensurePainelStore } from "@/lib/supabase/painelStoreGuard";
 import { OrderSoundProvider } from "./components/OrderSoundProvider";
 import { PainelGuard } from "./PainelGuard";
 
@@ -11,6 +12,11 @@ import { PainelGuard } from "./PainelGuard";
  * validação de Instant Navigation para o segmento (ele ainda é pré-renderizado
  * quando possível).
  *
+ * Antes de qualquer render, `ensurePainelStore()` (servidor) confirma que a
+ * conta autenticada tem estabelecimento. Contas sem loja — típico de quem criou
+ * a conta pelo Google e perdeu o rascunho do cadastro — são levadas para
+ * `/completar-cadastro` em vez de ver o painel vazio.
+ *
  * A lógica interativa do guard vive em <PainelGuard> (Client Component), que
  * envolve {children} — o padrão recomendado para não remover o segmento da
  * árvore de renderização.
@@ -21,7 +27,13 @@ import { PainelGuard } from "./PainelGuard";
  */
 export const instant = false;
 
-export default function PainelLayout({ children }: { children: ReactNode }) {
+export default async function PainelLayout({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  await ensurePainelStore();
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <PainelGuard>

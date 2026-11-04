@@ -170,3 +170,34 @@ Supabase como intermediário, com retorno em
 | *Terms of service URL is invalid* | `/termos` inexistente ou protegida | conferir `next build` e Deployment Protection |
 | Verificação do redirect | `redirect_uri_mismatch` no login | usar exatamente `https://<ref>.supabase.co/auth/v1/callback` |
 
+---
+
+## 7. Cadastro pelo Google sem estabelecimento (diagnóstico)
+
+Sintoma: o usuário preenche a Etapa 1 em `/cadastro`, entra com o Google e cai
+no painel com a mensagem "Nenhum estabelecimento associado à sua conta".
+
+O `/auth/callback` registra cada passo no log do servidor (`[auth/callback]`):
+
+| Log | Significado | O que verificar |
+| --- | --- | --- |
+| `draftCookie: presente` + `loja criada a partir do rascunho` | fluxo normal | — |
+| `draftCookie: ausente` + `rascunho ausente — indo completar o cadastro` | o cookie `ipepper_signup_draft` não chegou ao servidor | cookies bloqueados, domínio do `redirectTo` e *Redirect URLs* |
+| `rascunho não aplicado — indo completar o cadastro` | rascunho inválido, slug em uso ou falha de gravação | o erro seguinte no log (`[establishments]`) |
+| `loja não encontrada após o salvamento` | gravação e leitura em projetos Supabase diferentes | `NEXT_PUBLIC_SUPABASE_URL` do build vs. `SUPABASE_SERVICE_ROLE_KEY` do runtime |
+| `[painel] … sem estabelecimento — indo para o onboarding` | conta autenticada sem linha em `establishments` | RLS/políticas da tabela |
+
+Checagens de configuração:
+
+1. **Supabase → Authentication → URL Configuration → Redirect URLs** precisa
+   cobrir o domínio usado no cadastro (com e sem `www`). Fora da lista, o
+   Supabase descarta o `code` e o retorno nunca chega a `/auth/callback` — não
+   há como criar a loja.
+2. **Cookies do navegador**: `/cadastro` aborta o redirect para o Google quando
+   o navegador recusa o cookie do rascunho (aviso "Não conseguimos guardar os
+   dados da sua loja neste navegador…"). O rascunho dura 30 minutos.
+3. **Painel**: o layout do painel reconsulta `establishments` no servidor. Conta
+   sem loja é levada a `/completar-cadastro?erro=loja_ausente` em vez de ver o
+   painel vazio.
+
+

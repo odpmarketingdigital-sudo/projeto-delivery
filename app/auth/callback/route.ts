@@ -7,7 +7,7 @@ import {
   validateEstablishmentDraft,
 } from "@/lib/registration";
 import {
-  findEstablishmentForUser,
+  hasEstablishmentForUser,
   saveEstablishmentForUser,
 } from "@/lib/supabase/establishments";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
@@ -118,14 +118,22 @@ function isPostAuthDestination(value: string): boolean {
  * retorno chega como `?code=...` (PKCE). O destino pós-login é SEMPRE o painel:
  * `next` é usado quando é um caminho interno válido; caso contrário (ausente,
  * externo ou uma tela de entrada) cai em `DEFAULT_OAUTH_NEXT` (`/painel`).
- * Depois de trocar o código pela sessão, a rota consulta `establishments`:
+ * Depois de trocar o código pela sessão, a rota consulta `establishments`
+ * (service role) e registra o resultado em log:
+ *  - conta **com** loja → `next` (painel);
  *  - conta **sem** loja, mas com rascunho salvo por `/cadastro` antes do OAuth
  *    (cookie `SIGNUP_DRAFT_COOKIE`, ver `lib/signupDraft.ts`) → a loja é criada
- *    AQUI, já vinculada ao `user_id` do Google, e o usuário vai para `/painel`;
- *  - conta **sem** loja e sem rascunho (ex.: login direto) → `/completar-cadastro`,
- *    onde o usuário informa os dados do estabelecimento (a tela conclui em
- *    `/painel`);
- *  - conta **com** loja → `next` (painel).
+ *    AQUI, já vinculada ao `user_id` do Google, é confirmada no banco e só
+ *    então o usuário vai para `/painel`;
+ *  - conta **sem** loja e sem rascunho (cookie ausente, expirado, inválido ou
+ *    bloqueado pelo navegador) → `/completar-cadastro?erro=...`, onde o usuário
+ *    informa os dados do estabelecimento (a tela conclui em `/painel`).
+ *
+ * Regra de ouro: **nunca** mandar para o painel uma conta que não tem loja
+ * confirmada. Se a consulta ao banco falhar (`null`), o fluxo é tratado como
+ * "sem loja" e segue para o onboarding (que reconsulta e devolve ao painel se a
+ * loja existir), em vez de deixar o usuário preso numa tela sem
+ * estabelecimento.
  *
  * Se o usuário cancelar no Google, o provedor devolve `?error=access_denied`;
  * nesse caso voltamos para `/cadastro?erro=google`.
@@ -133,17 +141,52 @@ function isPostAuthDestination(value: string): boolean {
 
 /**
  * `true` = já existe loja; `false` = pode criar; `null` = não deu para consultar
- * o banco (falha de infraestrutura não deve bloquear o acesso).
+ * o banco.
+ *
+ * A consulta usa a **service role** (bypass de RLS): o que importa é a linha
+ * existir de fato, não o que a sessão do usuário recém-criada enxerga. Sempre
+ * registra o resultado — é este log que explica, em produção, por que o
+ * usuário foi para o painel ou para o onboarding.
  */
-async function hasEstablishment(userId: string): Promise<boolean | null> {
+async function confirmEstablishment(userId: string): Promise<boolean | null> {
   try {
-    const adminClient = createAdminClient();
-    return Boolean(await findEstablishmentForUser(adminClient, userId));
+    const hasStore = await hasEstablishmentForUser(
+      createAdminClient(),
+      userId
+    );
+
+    console.log(
+      "[auth/callback] loja do usuário:",
+      hasStore === null
+        ? "desconhecida (falha na consulta)"
+        : hasStore
+          ? "encontrada"
+          : "ausente",
+      { userId }
+    );
+
+    return hasStore;
   } catch (error) {
-    // Falha de infraestrutura não deve bloquear o acesso: segue para `next`.
-    console.error("[auth/callback] falha ao verificar estabelecimento", error);
+    // Falha de infraestrutura: quem chama decide (nunca assumimos "tem loja").
+    console.error(
+      "[auth/callback] falha ao verificar estabelecimento",
+      error,
+      { userId }
+    );
     return null;
   }
+}
+
+/**
+ * `/completar-cadastro` com o motivo da queda.
+ *
+ * A tela lê `?erro=` e mostra um aviso explicando por que o usuário precisa
+ * informar os dados da loja de novo (rascunho expirado, cookies bloqueados…).
+ */
+function onboardingRedirectUrl(origin: string, reason: string): URL {
+  const url = new URL(ONBOARDING_NEXT, origin);
+  url.searchParams.set("erro", reason);
+  return url;
 }
 
 /**
@@ -306,32 +349,106 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL(next, origin));
     }
 
-    const hasStore = await hasEstablishment(user.id);
+    const draftToken = request.cookies.get(SIGNUP_DRAFT_COOKIE)?.value ?? null;
 
-    // Conta que já tem loja (login comum) — e também o caso em que não deu para
-    // consultar o banco (`null`) — segue direto para o destino pedido.
-    if (hasStore !== false) {
+    /**
+     * Diagnóstico do rascunho no servidor.
+     *
+     * Loga apenas a PRESENÇA/tamanho do cookie (nunca o valor, que contém
+     * CPF/CNPJ e WhatsApp) e os nomes dos cookies recebidos: se
+     * `ipepper_signup_draft` não aparecer nesta lista, o problema está na
+     * gravação (navegador) ou no envio (SameSite/domínio), não na decodificação.
+     */
+    console.log("[auth/callback] sessão criada", {
+      userId: user.id,
+      email: user.email,
+      provider: user.app_metadata?.provider,
+      otpType,
+      isCodeFlow,
+      next,
+      draftCookie: draftToken
+        ? `presente (${draftToken.length} caracteres)`
+        : "ausente",
+      cookies: request.cookies.getAll().map((cookie) => cookie.name),
+    });
+
+    const hasStore = await confirmEstablishment(user.id);
+
+    // Conta com loja (login comum): segue direto para o destino pedido.
+    if (hasStore === true) {
+      console.log("[auth/callback] conta com loja — indo para", next);
       return redirectEndingSignup(new URL(next, origin));
     }
 
-    // Conta sem loja: se `/cadastro` guardou o rascunho antes do OAuth, a loja
-    // é criada agora e o usuário cai direto no painel, sem refazer o cadastro.
-    const draftToken = request.cookies.get(SIGNUP_DRAFT_COOKIE)?.value;
-
-    if (draftToken) {
-      const created = await createEstablishmentFromDraft(
-        user.id,
-        user,
-        draftToken
+    if (hasStore === null) {
+      console.warn(
+        "[auth/callback] não foi possível confirmar a loja; seguindo como conta sem loja",
+        { userId: user.id }
       );
-
-      if (created) {
-        return redirectEndingSignup(new URL(DEFAULT_OAUTH_NEXT, origin));
-      }
     }
 
-    // Sem rascunho (ou rascunho recusado): completa os dados numa tela própria.
-    return redirectEndingSignup(new URL(ONBOARDING_NEXT, origin));
+    /**
+     * Sem loja confirmada e sem rascunho: NÃO mandar para o painel.
+     *
+     * O painel consulta `establishments` pela sessão do usuário; sem linha
+     * vinculada ele só teria a mensagem "Nenhum estabelecimento associado à sua
+     * conta". O onboarding reconsulta o banco e devolve ao painel quando a loja
+     * existir, então este destino é sempre seguro.
+     */
+    if (!draftToken) {
+      console.warn(
+        "[auth/callback] rascunho ausente — indo completar o cadastro",
+        { userId: user.id }
+      );
+      return redirectEndingSignup(
+        onboardingRedirectUrl(origin, "rascunho_ausente")
+      );
+    }
+
+    // Conta sem loja com rascunho: a loja é criada AQUI, antes de qualquer
+    // redirect para o painel, e vinculada ao `user_id` do Google.
+    const created = await createEstablishmentFromDraft(
+      user.id,
+      user,
+      draftToken
+    );
+
+    if (!created) {
+      console.warn(
+        "[auth/callback] rascunho não aplicado — indo completar o cadastro",
+        { userId: user.id }
+      );
+      return redirectEndingSignup(
+        onboardingRedirectUrl(origin, "rascunho_nao_aplicado")
+      );
+    }
+
+    /**
+     * Confirma a gravação no banco antes de liberar o painel.
+     *
+     * `saveEstablishmentForUser` já devolve a linha lida de volta, mas a
+     * checagem extra cobre ambientes com `NEXT_PUBLIC_SUPABASE_URL` divergente
+     * (gravação em um projeto e leitura em outro): com `false` aqui, o painel
+     * ficaria sem estabelecimento.
+     */
+    const confirmed = await confirmEstablishment(user.id);
+
+    if (confirmed === false) {
+      console.error(
+        "[auth/callback] loja não encontrada após o salvamento — indo completar o cadastro",
+        { userId: user.id }
+      );
+      return redirectEndingSignup(
+        onboardingRedirectUrl(origin, "rascunho_nao_aplicado")
+      );
+    }
+
+    console.log(
+      "[auth/callback] loja criada a partir do rascunho — indo para",
+      DEFAULT_OAUTH_NEXT
+    );
+
+    return redirectEndingSignup(new URL(DEFAULT_OAUTH_NEXT, origin));
   }
 
   // Falhou (link expirado/reutilizado): manda para a tela que permite pedir

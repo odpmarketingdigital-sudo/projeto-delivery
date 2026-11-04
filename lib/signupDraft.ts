@@ -209,6 +209,23 @@ export function saveSignupDraft(draft: EstablishmentDraft): SignupDraft {
 }
 
 /**
+ * O cookie do rascunho está realmente gravado neste navegador?
+ *
+ * Checagem final antes de sair para o Google: `document.cookie` é síncrono,
+ * mas o navegador pode **recusar** a gravação (cookies bloqueados, modo
+ * privado restritivo, política corporativa). Nesse caso o `/auth/callback`
+ * nunca receberia o rascunho e a conta terminaria sem estabelecimento — o
+ * `/cadastro` usa esta função para abortar o redirect e avisar o usuário.
+ */
+export function hasSignupDraftCookie(): boolean {
+  if (typeof window === "undefined") return false;
+
+  return document.cookie
+    .split(";")
+    .some((entry) => entry.trim().startsWith(`${SIGNUP_DRAFT_COOKIE}=`));
+}
+
+/**
  * Descarta o rascunho (cadastro concluído ou abandonado).
  *
  * No caminho do Google a limpeza do cookie acontece na resposta de redirect da

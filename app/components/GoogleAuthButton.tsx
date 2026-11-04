@@ -58,6 +58,26 @@ function normalizePostAuthNext(next: string): string {
 }
 
 /**
+ * Caminho da Route Handler que troca o `code` pela sessão (e cria a loja a
+ * partir do rascunho). A URL de retorno é SEMPRE `origin + este caminho`.
+ */
+const AUTH_CALLBACK_PATH = "/auth/callback";
+
+/**
+ * URLs absolutas de retorno do OAuth.
+ *
+ * O Supabase exige `redirectTo` absoluto e o compara com a lista de *Redirect
+ * URLs* do projeto, por isso o caminho é montado de forma explícita
+ * (`${origin}/auth/callback`) em vez de concatenar string na mão. `next` vai
+ * como query e é revalidado no servidor antes de qualquer redirect.
+ */
+function buildRedirectTo(next: string): string {
+  const url = new URL(`${window.location.origin}${AUTH_CALLBACK_PATH}`);
+  url.searchParams.set("next", normalizePostAuthNext(next));
+  return url.toString();
+}
+
+/**
  * Botão "Continuar com Google" (OAuth pelo Supabase Auth).
  *
  * Quem trata o retorno é `app/auth/callback/route.ts`, que troca o `code` pela
@@ -68,6 +88,9 @@ function normalizePostAuthNext(next: string): string {
  *    o usuário informa loja, CPF/CNPJ, WhatsApp e link do cardápio (a tela
  *    conclui em `/painel`);
  *  - conta **com** estabelecimento → `next` (padrão `/painel`).
+ *
+ * O callback nunca manda para o painel uma conta sem loja **confirmada** — é
+ * por isso que `next` só é usado quando `establishments` devolve a linha.
  *
  * `redirectTo` precisa ser absoluto, então o `origin` é lido apenas no clique
  * (dentro do handler) — assim não há divergência entre SSR e hidratação.
@@ -122,9 +145,13 @@ export function GoogleAuthButton({
       }
     }
 
-    const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(
-      normalizePostAuthNext(next)
-    )}`;
+    /**
+     * O rascunho (quando existe, em `/cadastro`) já está gravado neste ponto:
+     * `beforeRedirect` acima é aguardado antes de sair da página. Montamos a URL
+     * de retorno explicitamente e só então chamamos o Supabase — nada de
+     * navegação antes da gravação do cookie.
+     */
+    const redirectTo = buildRedirectTo(next);
 
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
