@@ -33,7 +33,10 @@ import {
 } from "@/lib/whatsappOrder";
 import { WhatsAppSendHint } from "@/app/components/WhatsAppSendHint";
 import { AddressAutocomplete } from "@/app/components/AddressAutocomplete";
-import type { GooglePlaceAddress } from "@/lib/googleMapsPlaces";
+import {
+  isGooglePlacesEnabled,
+  type GooglePlaceAddress,
+} from "@/lib/googleMapsPlaces";
 
 type PaymentMethod = "pix" | "cartao" | "dinheiro";
 
@@ -739,7 +742,8 @@ export function CheckoutForm({ slug }: { slug?: string }) {
    *
    * Os campos são sobrescritos de propósito: o cliente acabou de confirmar um
    * endereço completo no dropdown e espera ver os dados corretos no formulário
-   * (inclusive o número, que costuma vir da sugestão).
+   * (inclusive o número, que costuma vir da sugestão). O CEP vem de
+   * `address.cep` (`readSelectedPlaceAddress`) e é preenchido automaticamente.
    */
   const handlePlaceSelected = (address: GooglePlaceAddress) => {
     const cep = address.cep;
@@ -750,7 +754,9 @@ export function CheckoutForm({ slug }: { slug?: string }) {
 
     setForm((prev) => ({
       ...prev,
-      cep: cep ? formatCep(cep) : prev.cep,
+      // Sugestão sem CEP: limpa o valor antigo, que pertencia a outro endereço
+      // (rua/número acabaram de ser trocados pelos da sugestão).
+      cep: cep ? formatCep(cep) : "",
       rua: street || prev.rua,
       numero: number || prev.numero,
       bairro: neighborhood || prev.bairro,
@@ -770,7 +776,8 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       setDeliveryPoint(null);
     }
 
-    if (cep) setDeliveryCep(cep);
+    // Mantém a sacola sincronizada com o CEP do endereço escolhido.
+    setDeliveryCep(cep ?? "");
     setErrors((prev) => ({
       ...prev,
       cep: undefined,
@@ -1838,6 +1845,63 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                 {errorText("telefone")}
               </div>
 
+              <div className="flex flex-col gap-4 sm:flex-row">
+                <div id="field-rua" className="flex-1">
+                  <label
+                    htmlFor="rua"
+                    className="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >
+                    Rua
+                  </label>
+                  <AddressAutocomplete
+                    id="rua"
+                    name="rua"
+                    placeholder="Ex.: Rua das Flores, 123"
+                    autoComplete="address-line1"
+                    value={form.rua}
+                    onChange={(value) => updateField("rua", value)}
+                    onPlaceSelected={handlePlaceSelected}
+                    ariaInvalid={Boolean(errors.rua)}
+                    className={inputClassName("rua")}
+                  />
+                  {errorText("rua")}
+                  {/*
+                    A rua vem antes do CEP: a sugestão do Google devolve o CEP
+                    junto com o endereço, então o campo abaixo é preenchido
+                    automaticamente ao escolher uma sugestão.
+                  */}
+                  {!errors.rua && isGooglePlacesEnabled() && (
+                    <p className="mt-1 text-xs leading-relaxed text-gray-400 dark:text-gray-500">
+                      Escolha uma sugestão para preencher CEP, bairro e cidade
+                      automaticamente.
+                    </p>
+                  )}
+                </div>
+
+                <div id="field-numero" className="sm:w-32">
+                  <label
+                    htmlFor="numero"
+                    className="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                  >
+                    Número
+                  </label>
+                  <input
+                    id="numero"
+                    name="numero"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="123"
+                    value={form.numero}
+                    onChange={(event) =>
+                      updateField("numero", event.target.value)
+                    }
+                    aria-invalid={errors.numero ? true : undefined}
+                    className={inputClassName("numero")}
+                  />
+                  {errorText("numero")}
+                </div>
+              </div>
+
               <div id="field-cep">
                 <label
                   htmlFor="cep"
@@ -1904,52 +1968,6 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                       — entrega de {formatBRL(deliveryQuote.fee)}.
                     </p>
                   )}
-              </div>
-
-              <div className="flex flex-col gap-4 sm:flex-row">
-                <div id="field-rua" className="flex-1">
-                  <label
-                    htmlFor="rua"
-                    className="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-                  >
-                    Rua
-                  </label>
-                  <AddressAutocomplete
-                    id="rua"
-                    name="rua"
-                    placeholder="Ex.: Rua das Flores, 123"
-                    autoComplete="address-line1"
-                    value={form.rua}
-                    onChange={(value) => updateField("rua", value)}
-                    onPlaceSelected={handlePlaceSelected}
-                    ariaInvalid={Boolean(errors.rua)}
-                    className={inputClassName("rua")}
-                  />
-                  {errorText("rua")}
-                </div>
-
-                <div id="field-numero" className="sm:w-32">
-                  <label
-                    htmlFor="numero"
-                    className="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
-                  >
-                    Número
-                  </label>
-                  <input
-                    id="numero"
-                    name="numero"
-                    type="text"
-                    inputMode="numeric"
-                    placeholder="123"
-                    value={form.numero}
-                    onChange={(event) =>
-                      updateField("numero", event.target.value)
-                    }
-                    aria-invalid={errors.numero ? true : undefined}
-                    className={inputClassName("numero")}
-                  />
-                  {errorText("numero")}
-                </div>
               </div>
 
               <div className="flex flex-col gap-4 sm:flex-row">

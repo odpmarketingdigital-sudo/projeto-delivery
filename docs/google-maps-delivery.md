@@ -6,6 +6,11 @@ taxa por rota (Google Places + Google Routes API).
 ## Visão geral
 
 ```
+Sacola (/[slug])
+  └─ AddressAutocomplete ──► Places API (New)      [navegador, chave pública]
+        └─ lat/lng + place_id + CEP
+              └─ POST /api/delivery-quote → taxa e tempo ANTES do checkout
+
 Checkout (/[slug]/checkout)
   └─ AddressAutocomplete ──► Places API (New)      [navegador, chave pública]
         └─ rua, número, bairro, cidade, UF, CEP, lat/lng
@@ -65,6 +70,19 @@ O campo de rua usa o Web Component `google.maps.places.PlaceAutocompleteElement`
 - o visual é alinhado pelos custom properties do Places UI Kit em
   `app/globals.css` (`.ipepper-place-autocomplete`), já que o widget vive em
   shadow DOM e não recebe as classes Tailwind do input.
+
+### 1.2 Onde o autocomplete aparece
+
+| Tela | Posição | O que acontece ao selecionar uma sugestão |
+| --- | --- | --- |
+| Checkout (`/[slug]/checkout`) | campo **Rua**, logo **acima do CEP** | preenche rua, número, bairro, cidade e **CEP**; guarda lat/lng/`place_id` e dispara `POST /api/delivery-quote` |
+| Sacola (`CartDrawer` — lojas por distância ou com raio máximo) | bloco **Calcular entrega**, antes do campo de CEP (que continua disponível) | guarda lat/lng/`place_id`, grava o CEP no contexto do carrinho e cota **taxa + tempo** pela rota antes do checkout |
+
+O campo de CEP continua obrigatório quando a taxa depende de distância: o
+endereço escolhido apenas deixa a cotação mais precisa (coordenadas exatas em
+vez do centroide do CEP). Sem `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` o bloco de
+endereço da sacola não é renderizado (fica só o CEP) e no checkout o
+`AddressAutocomplete` cai para um input comum — nenhum fluxo quebra.
 
 ## 2. Variáveis de ambiente
 
@@ -196,7 +214,11 @@ como “sem distância” para nunca cobrar 0 nem exibir “0,0 km”.
   host do `AddressAutocomplete`, com `fetchFields()` restrito a
   `displayName`, `formattedAddress`, `addressComponents` e `location`;
 - não há chamadas ao Google para lojas de **taxa fixa sem raio**: a cotação
-  resolve a taxa localmente.
+  resolve a taxa localmente;
+- a sacola e o checkout compartilham o mesmo loader (`lib/googleMapsPlaces.ts`)
+  e o mesmo cache de rota do servidor (`origem|destino`): abrir a sacola e depois
+  o checkout com o mesmo endereço não duplica chamadas de `computeRoutes` dentro
+  da janela de 10 minutos.
 
 ## 8. Verificação rápida (local)
 
