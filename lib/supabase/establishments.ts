@@ -1,10 +1,10 @@
 /**
  * Persistência do estabelecimento do usuário logado.
  *
- * Centraliza as duas entradas de cadastro:
- *  - `POST /api/signup` (e-mail + senha), que cria o usuário e a loja juntos;
- *  - `POST /api/signup/establishment` (onboarding pós-Google), que completa a
- *    loja de um usuário já autenticado.
+ * Ponto único de entrada da loja: `POST /api/signup/establishment` (etapa 2 do
+ * cadastro, já com a sessão ativa). Tanto o cadastro por e-mail + senha quanto
+ * o login com Google passam por aqui — o dono vem sempre do `user_id` da
+ * sessão, nunca de um rascunho no navegador.
  *
  * Regras:
  *  - um usuário tem no máximo UM estabelecimento (`establishments.user_id`);

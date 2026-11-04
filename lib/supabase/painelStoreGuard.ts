@@ -10,10 +10,11 @@ const ONBOARDING_PATH = "/completar-cadastro";
  * Recuperação de contas autenticadas **sem estabelecimento** no `/painel`.
  *
  * Chamada pelo `app/painel/layout.tsx` (Server Component), portanto vale para
- * `/painel` e todas as subrotas (`/painel/produtos`, `/painel/pedidos`…). Sem
- * essa checagem, uma conta criada pelo Google que perdeu o rascunho do cadastro
- * entra no painel e só encontra avisos do tipo "Nenhum estabelecimento
- * associado à sua conta" — sem nenhuma ação possível na tela.
+ * `/painel` e todas as subrotas (`/painel/produtos`, `/painel/pedidos`…). É a
+ * rede de proteção do onboarding: mesmo que o usuário chegue ao painel por um
+ * link direto, `/auth/callback` antigo ou metadata desatualizada, ele só entra
+ * se a loja existir de fato — sem isso encontraria apenas avisos do tipo
+ * "Nenhum estabelecimento associado à sua conta", sem ação possível na tela.
  *
  * Regras:
  *  - sem sessão → nada a fazer (o middleware manda para `/login`);

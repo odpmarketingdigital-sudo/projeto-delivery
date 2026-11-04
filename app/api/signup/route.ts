@@ -1,68 +1,46 @@
 import { NextResponse } from "next/server";
 import { getAppUrl } from "@/lib/email/config";
-import { sendWelcomeEmailSafely } from "@/lib/email/welcome";
-import {
-  emailError,
-  normalizeEstablishmentDraft,
-  ownerNameError,
-  passwordError,
-  validateEstablishmentDraft,
-  type DocumentType,
-  type EstablishmentDraft,
-} from "@/lib/registration";
+import { emailError, passwordError } from "@/lib/registration";
 import {
   buildEmailConfirmationRedirect,
   getRequestOrigin,
   resendSignupConfirmation,
 } from "@/lib/supabase/confirmation";
-import { saveEstablishmentForUser } from "@/lib/supabase/establishments";
 import { createAdminClient } from "@/lib/supabase/server";
 
 /**
- * POST /api/signup — cadastro público de restaurantes (SaaS de autoatendimento).
+ * POST /api/signup — criação da **conta de acesso** (e-mail + senha).
+ *
+ * Primeira etapa do cadastro: o usuário cria o acesso e só depois informa os
+ * dados da loja em `/completar-cadastro`. Nada é gravado em `establishments`
+ * aqui — a loja nasce em `POST /api/signup/establishment`, já com a sessão do
+ * usuário, o que garante o vínculo correto (`establishments.user_id`) em
+ * qualquer caminho de entrada (Google, e-mail/senha, link de confirmação).
  *
  * Fluxo (tudo no servidor, com a service role key):
- *  1. Valida os dados do formulário de `/cadastro`.
- *  2. Garante que o slug do cardápio está livre (e não colide com rotas fixas).
- *  3. Cria a conta de acesso no Supabase Auth com `user_metadata.role =
- *     'admin'` — o trigger `handle_new_user` cria o perfil. A conta NÃO é
- *     auto-confirmada: com a opção "Confirm email" ativa no projeto ela nasce
- *     pendente (`email_confirmed_at` nulo) e o painel fica bloqueado até o
- *     clique no link enviado por e-mail.
- *  4. Dispara o e-mail de confirmação (`lib/supabase/confirmation.ts`) somente
+ *  1. Valida e-mail e senha (`lib/registration.ts` — mesmas regras da tela).
+ *  2. Cria a conta no Supabase Auth com `user_metadata.role = 'admin'` — o
+ *     trigger `handle_new_user` cria a linha em `profiles`. A conta NÃO é
+ *     auto-confirmada: com "Confirm email" ativo no projeto ela nasce pendente
+ *     (`email_confirmed_at` nulo) e o painel fica bloqueado até o clique no
+ *     link enviado por e-mail.
+ *  3. Dispara o e-mail de confirmação (`lib/supabase/confirmation.ts`) somente
  *     quando a conta ainda está pendente. Ver `docs/confirmacao-email.md`.
- *  5. Insere o estabelecimento já em trial: `subscription_status = 'trialing'`
- *     e `trial_ends_at = now() + 30 dias`.
- *  6. Envia o e-mail de boas-vindas (Resend) — best effort: sem chave
- *     configurada ou com falha do provedor o cadastro segue normalmente,
- *     apenas registrando um aviso no log. Ver `docs/email-boas-vindas.md`.
  *
- * Resposta 201: `{ establishment, email_confirmation_required }`.
- *  - `email_confirmation_required: true` → o cliente NÃO faz login automático:
- *    redireciona para `/confirmar-email` e aguarda a confirmação.
+ * Resposta 201: `{ email_confirmation_required }`.
+ *  - `true` → o cliente redireciona para `/confirmar-email` e aguarda o clique
+ *    no link (o `/auth/callback` depois decide entre painel e onboarding);
  *  - `false` (projeto sem confirmação obrigatória) → o cliente faz
- *    `signInWithPassword` e entra direto no painel, como antes.
+ *    `signInWithPassword` e segue para `/completar-cadastro`.
  *
- * Rollback: se o insert em `establishments` falhar, a conta criada em
- * `auth.users` é removida, evitando um usuário órfão ocupando o e-mail.
+ * E-mail de boas-vindas: NÃO é enviado aqui. Ele pertence à criação da loja
+ * (`POST /api/signup/establishment`), quando já existe cardápio para divulgar.
  *
- * Body: { owner_name, email, password, establishment_name, document_type,
- *         document_number, whatsapp, slug }
- *
- * Validações e máscaras vêm de `lib/registration.ts` — o mesmo módulo usado
- * pelo formulário `/cadastro` e pelo onboarding `/completar-cadastro`.
+ * Body: { email, password }
  */
 
 /** Campos do formulário — devolvidos em `field` para destacar o erro na tela. */
-type SignupField =
-  | "owner_name"
-  | "email"
-  | "password"
-  | "establishment_name"
-  | "document_type"
-  | "document_number"
-  | "whatsapp"
-  | "slug";
+type SignupField = "email" | "password";
 
 /** Resposta de erro padronizada (com o campo culpado, quando houver). */
 function fail(message: string, status = 400, field?: SignupField) {
@@ -97,82 +75,24 @@ function isWeakPasswordError(
 
 export async function POST(request: Request) {
   // 1) Corpo da requisição.
-  let body: {
-    owner_name?: string;
-    email?: string;
-    password?: string;
-    establishment_name?: string;
-    /** Alias aceito para `establishment_name` (mesmo nome da coluna). */
-    name?: string;
-    document_type?: string;
-    document_number?: string;
-    whatsapp?: string;
-    /** Alias legado de `whatsapp` (formulário antigo). */
-    phone?: string;
-    slug?: string;
-  };
+  let body: { email?: unknown; password?: unknown };
 
   try {
-    body = await request.json();
+    body = (await request.json()) as { email?: unknown; password?: unknown };
   } catch {
     return fail("Corpo da requisição inválido (JSON esperado).");
   }
 
-  const ownerName = body.owner_name?.trim() ?? "";
-  const email = body.email?.trim().toLowerCase() ?? "";
-  const password = body.password ?? "";
-  const establishmentName = (body.establishment_name ?? body.name ?? "").trim();
-  const rawWhatsapp = (body.whatsapp ?? body.phone ?? "").trim();
-  const rawSlug = body.slug?.trim() ?? "";
-  const rawDocumentType = (body.document_type ?? "").trim().toLowerCase();
+  const email =
+    typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  const password = typeof body.password === "string" ? body.password : "";
 
   // 2) Validação dos campos — mesmas regras/mensagens do formulário.
-  const ownerMessage = ownerNameError(ownerName);
-  if (ownerMessage) return fail(ownerMessage, 400, "owner_name");
-
   const emailMessage = emailError(email);
   if (emailMessage) return fail(emailMessage, 400, "email");
 
   const passwordMessage = passwordError(password);
   if (passwordMessage) return fail(passwordMessage, 400, "password");
-
-  if (
-    rawDocumentType &&
-    rawDocumentType !== "cpf" &&
-    rawDocumentType !== "cnpj"
-  ) {
-    return fail("Escolha CPF ou CNPJ.", 400, "document_type");
-  }
-
-  const documentType: DocumentType =
-    rawDocumentType === "cnpj" ? "cnpj" : "cpf";
-
-  const draft: EstablishmentDraft = {
-    name: establishmentName,
-    document_type: documentType,
-    document_number: body.document_number ?? "",
-    whatsapp: rawWhatsapp,
-    slug: rawSlug,
-  };
-
-  // O slug é derivado do nome quando o campo vem vazio.
-  const draftErrors = validateEstablishmentDraft(draft);
-
-  if (draftErrors.name) {
-    return fail(draftErrors.name, 400, "establishment_name");
-  }
-  if (draftErrors.document_number) {
-    return fail(draftErrors.document_number, 400, "document_number");
-  }
-  if (draftErrors.whatsapp) {
-    return fail(draftErrors.whatsapp, 400, "whatsapp");
-  }
-  if (draftErrors.slug) {
-    return fail(draftErrors.slug, 400, "slug");
-  }
-
-  const normalized = normalizeEstablishmentDraft(draft);
-  const slug = normalized.slug;
 
   const adminClient = createAdminClient();
 
@@ -180,22 +100,12 @@ export async function POST(request: Request) {
    * Origem pública usada no `emailRedirectTo` do link de confirmação.
    *
    * Em produção o `request.url` já traz o domínio correto (inclusive atrás do
-   * proxy da Vercel); `NEXT_PUBLIC_APP_URL` fica como fallback.
+   * proxy da Vercel); `NEXT_PUBLIC_APP_URL` fica como fallback. O destino do
+   * link é `/auth/callback`, que decide entre painel e onboarding.
    */
   const appOrigin = getRequestOrigin(request) ?? getAppUrl();
 
-  const { data: slugOwner } = await adminClient
-    .from("establishments")
-    .select("id")
-    .eq("slug", slug)
-    .limit(1)
-    .maybeSingle();
-
-  if (slugOwner) {
-    return fail(`O link "${slug}" já está em uso. Escolha outro.`, 409, "slug");
-  }
-
-  // 4) Conta de acesso (Supabase Auth).
+  // 3) Conta de acesso (Supabase Auth).
   //
   //    NÃO passamos `email_confirm: true`: isso confirmava o e-mail na criação
   //    e anulava a opção "Confirm email" do projeto. Sem o parâmetro, o GoTrue
@@ -205,19 +115,20 @@ export async function POST(request: Request) {
     await adminClient.auth.admin.createUser({
       email,
       password,
-      user_metadata: {
-        name: ownerName,
-        establishment: establishmentName,
-        role: "admin",
-      },
+      user_metadata: { role: "admin" },
     });
 
   if (createError || !created.user) {
     if (isDuplicateEmailError(createError)) {
-      return fail(
-        "Este e-mail já possui uma conta. Faça login para continuar.",
-        409,
-        "email"
+      // `code` permite à tela oferecer o login com a senha digitada em vez de
+      // deixar o usuário num beco sem saída.
+      return NextResponse.json(
+        {
+          error: "Este e-mail já possui uma conta.",
+          field: "email",
+          code: "email_exists",
+        },
+        { status: 409 }
       );
     }
 
@@ -234,14 +145,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const userId = created.user.id;
-
   /**
    * Conta pendente de confirmação?
    *
    * O `admin.createUser` NÃO envia e-mail de confirmação (diferente do signup
    * público). Por isso disparamos o `resend` explicitamente, apontando o link
-   * para `/auth/callback`, que troca o token pela sessão e abre o painel.
+   * para `/auth/callback?next=/painel`, que troca o token pela sessão e decide
+   * o destino conforme a loja existir ou não.
    *
    * Em projetos com "Confirm email" desligado o GoTrue já confirma o usuário na
    * criação e nada é enviado — o cliente pode fazer o login automático.
@@ -259,8 +169,8 @@ export async function POST(request: Request) {
     });
 
     if (!confirmation.ok) {
-      // Best effort: sem SMTP configurado (ou com limite do provedor) o
-      // cadastro continua válido e a tela `/confirmar-email` permite reenviar.
+      // Best effort: sem SMTP configurado (ou com limite do provedor) a conta
+      // continua válida e a tela `/confirmar-email` permite reenviar.
       console.warn(
         "[api/signup] falha ao enviar o e-mail de confirmação:",
         confirmation.code,
@@ -269,59 +179,9 @@ export async function POST(request: Request) {
     }
   }
 
-  // 5) Estabelecimento já em trial (30 dias grátis).
-  //
-  //    `saveEstablishmentForUser` (lib/supabase/establishments.ts) concentra o
-  //    insert/update, o trial, a checagem de slug e a sincronização de
-  //    `profiles` + metadados (`role: admin` / `onboarding_complete: true`).
-  const saved = await saveEstablishmentForUser(adminClient, userId, {
-    name: normalized.name,
-    ownerName,
-    email,
-    whatsapp: normalized.whatsapp,
-    documentType: normalized.documentType,
-    documentNumber: normalized.documentNumber,
-    slug,
-  });
-
-  if (!saved.ok) {
-    // Rollback: sem loja a conta não serve para nada — remove para liberar o
-    // e-mail e não deixar usuário órfão.
-    await adminClient.auth.admin.deleteUser(userId);
-
-    // `saved.field` cobre slug e CPF/CNPJ (índices únicos) para destacar o
-    // campo certo no formulário de `/cadastro`.
-    if (saved.field) {
-      return fail(saved.error, saved.status, saved.field);
-    }
-
-    return fail(saved.error, saved.status);
-  }
-
-  const inserted = saved.establishment;
-
-  if (saved.warning) {
-    console.warn("[api/signup]", saved.warning);
-  }
-
-  // 6) E-mail de boas-vindas (Resend).
-  //    Best effort: a conta e a loja já existem, então uma falha do provedor é
-  //    apenas registrada no log (`console.warn`) — o cadastro responde 201 e o
-  //    usuário entra no painel normalmente. Sem `RESEND_API_KEY` o envio é
-  //    ignorado (ver docs/email-boas-vindas.md).
-  await sendWelcomeEmailSafely({
-    to: email,
-    ownerName,
-    establishmentName: inserted.name,
-    slug: inserted.slug,
-    trialEndsAt: inserted.trial_ends_at,
-  });
-
   return NextResponse.json(
-    {
-      establishment: inserted,
-      email_confirmation_required: emailConfirmationRequired,
-    },
+    { email_confirmation_required: emailConfirmationRequired },
     { status: 201 }
   );
 }
+

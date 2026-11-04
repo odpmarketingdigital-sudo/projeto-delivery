@@ -1,12 +1,14 @@
 /**
  * Contrato compartilhado do cadastro de estabelecimentos (Ipepper).
  *
- * Módulo **isomórfico** (sem APIs de navegador/servidor): as mesmas regras,
- * máscaras e limites são usados
- *  - pelo formulário público `/cadastro` (Client Component),
- *  - pela etapa de onboarding pós-OAuth `/completar-cadastro` (Client Component),
- *  - pela rota `POST /api/signup` (e-mail + senha) e
- *  - pela rota `POST /api/signup/establishment` (Google/OAuth).
+ * O cadastro acontece em duas etapas, e as mesmas regras valem em todas elas:
+ *  - `/cadastro` — criação do **acesso** (Google ou e-mail + senha);
+ *  - `/completar-cadastro` — **dados da loja** (Client Component);
+ *  - `POST /api/signup` — cria a conta de e-mail/senha no servidor;
+ *  - `POST /api/signup/establishment` — grava a loja do usuário autenticado.
+ *
+ * Módulo **isomórfico** (sem APIs de navegador/servidor): pode ser importado
+ * por Client Components e por Route Handlers sem nenhum cuidado extra.
  *
  * Assim o cliente valida antes de enviar e o servidor revalida com exatamente
  * o mesmo código — sem mensagens divergentes.
@@ -298,7 +300,7 @@ export interface NormalizedEstablishmentDraft {
 }
 
 /**
- * Normaliza o rascunho para persistência: remove máscaras, gera o slug a partir
+ * Normaliza o formulário para persistência: remove máscaras, gera o slug a partir
  * do nome quando o campo está vazio e limita o tamanho.
  *
  * Deve ser chamado **depois** de `validateEstablishmentDraft`.
@@ -318,8 +320,9 @@ export function normalizeEstablishmentDraft(
 /**
  * Nome do responsável a partir dos metadados do Supabase Auth.
  *
- * O Google entrega `full_name`/`name`; contas criadas por e-mail usam
- * `owner_name` (definido em `/api/signup`). Sem metadados, deriva do e-mail.
+ * O Google entrega `full_name`/`name`. Contas criadas por e-mail + senha não
+ * têm nome no cadastro (etapa 1 só pede e-mail e senha), então o valor é
+ * derivado do endereço e confirmado/editado na etapa 2 (`owner_name`).
  */
 export function resolveOwnerName(
   metadata: Record<string, unknown> | null | undefined,

@@ -1,8 +1,8 @@
 # E-mail de boas-vindas — cadastro de novas lojas
 
-Enviado automaticamente por `POST /api/signup` quando uma loja é criada:
-confirma que a conta está no ar, mostra o cardápio público, o prazo do teste
-grátis e os três primeiros passos no painel.
+Enviado automaticamente por `POST /api/signup/establishment` quando uma loja é
+criada (etapa 2 do cadastro): confirma que a conta está no ar, mostra o cardápio
+público, o prazo do teste grátis e os três primeiros passos no painel.
 
 - Template: `lib/email/templates/welcome.tsx` (HTML em tabelas + CSS inline)
 - Envio: `lib/email/welcome.ts` (`sendWelcomeEmail`, `sendWelcomeEmailSafely`)

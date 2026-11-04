@@ -36,85 +36,34 @@ function GoogleIcon() {
 }
 
 /**
- * Destino padrão pós-OAuth (Google): o painel.
- *
- * É o mesmo fallback usado por `/auth/callback` quando `next` não vem na URL.
- */
-const DEFAULT_POST_AUTH_NEXT = "/painel";
-
-/**
- * Só aceita caminhos internos (`/painel`, `/painel/produtos`...).
- *
- * Um `next` externo (`https://...`, `//evil.com`) seria um open redirect;
- * nesses casos voltamos ao padrão `/painel`. O `/auth/callback` revalida o
- * valor no servidor antes de redirecionar.
- */
-function normalizePostAuthNext(next: string): string {
-  const trimmed = next.trim();
-  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) {
-    return DEFAULT_POST_AUTH_NEXT;
-  }
-  return trimmed;
-}
-
-/**
- * Caminho da Route Handler que troca o `code` pela sessão (e cria a loja a
- * partir do rascunho). A URL de retorno é SEMPRE `origin + este caminho`.
+ * Caminho da Route Handler que troca o `code` pela sessão e decide o destino
+ * consultando `establishments`. A URL de retorno é SEMPRE `origin + caminho`.
  */
 const AUTH_CALLBACK_PATH = "/auth/callback";
 
 /**
- * URLs absolutas de retorno do OAuth.
- *
- * O Supabase exige `redirectTo` absoluto e o compara com a lista de *Redirect
- * URLs* do projeto, por isso o caminho é montado de forma explícita
- * (`${origin}/auth/callback`) em vez de concatenar string na mão. `next` vai
- * como query e é revalidado no servidor antes de qualquer redirect.
- */
-function buildRedirectTo(next: string): string {
-  const url = new URL(`${window.location.origin}${AUTH_CALLBACK_PATH}`);
-  url.searchParams.set("next", normalizePostAuthNext(next));
-  return url.toString();
-}
-
-/**
  * Botão "Continuar com Google" (OAuth pelo Supabase Auth).
  *
- * Quem trata o retorno é `app/auth/callback/route.ts`, que troca o `code` pela
- * sessão e decide o destino:
- *  - usuário novo vindo de `/cadastro` **com rascunho da loja** → a loja é criada
- *    ali mesmo (`lib/signupDraft.ts`) e o usuário abre o `/painel`;
- *  - conta **sem** estabelecimento e sem rascunho → `/completar-cadastro`, onde
- *    o usuário informa loja, CPF/CNPJ, WhatsApp e link do cardápio (a tela
- *    conclui em `/painel`);
- *  - conta **com** estabelecimento → `next` (padrão `/painel`).
+ * `redirectTo` é sempre `${origin}/auth/callback`: o destino final **não** vem
+ * do navegador. Quem decide é `app/auth/callback/route.ts`, que consulta o banco
+ * pelo `user_id` da sessão e manda para:
+ *  - `/painel` quando a conta já tem estabelecimento;
+ *  - `/completar-cadastro` quando ainda não tem (onboarding obrigatório).
  *
- * O callback nunca manda para o painel uma conta sem loja **confirmada** — é
- * por isso que `next` só é usado quando `establishments` devolve a linha.
+ * Assim o cadastro funciona igual para quem chega pelo Google e para quem chega
+ * por e-mail + senha: autentica primeiro, cadastra a loja depois.
  *
  * `redirectTo` precisa ser absoluto, então o `origin` é lido apenas no clique
  * (dentro do handler) — assim não há divergência entre SSR e hidratação.
  */
 export function GoogleAuthButton({
-  next = DEFAULT_POST_AUTH_NEXT,
   label = "Continuar com Google",
   theme = "dark",
   className = "",
-  beforeRedirect,
 }: {
-  /** Destino pós-OAuth quando a conta já tem estabelecimento (padrão `/painel`). */
-  next?: string;
   label?: string;
   theme?: keyof typeof THEMES;
   className?: string;
-  /**
-   * Gancho executado antes de sair da página.
-   *
-   * `/cadastro` usa para validar os dados do estabelecimento e gravá-los no
-   * `sessionStorage`/cookie do rascunho. Devolver `false` (ou lançar erro)
-   * cancela o redirect e mantém o usuário no formulário.
-   */
-  beforeRedirect?: () => boolean | Promise<boolean>;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const [isLoading, setIsLoading] = useState(false);
@@ -126,32 +75,10 @@ export function GoogleAuthButton({
     setError(null);
     setIsLoading(true);
 
-    if (beforeRedirect) {
-      let allowed = true;
-
-      try {
-        allowed = (await beforeRedirect()) !== false;
-      } catch {
-        allowed = false;
-        setError(
-          "Não foi possível preparar o cadastro da sua loja. Tente novamente."
-        );
-      }
-
-      // Validação reprovada: o formulário já mostra os erros por campo.
-      if (!allowed) {
-        setIsLoading(false);
-        return;
-      }
-    }
-
-    /**
-     * O rascunho (quando existe, em `/cadastro`) já está gravado neste ponto:
-     * `beforeRedirect` acima é aguardado antes de sair da página. Montamos a URL
-     * de retorno explicitamente e só então chamamos o Supabase — nada de
-     * navegação antes da gravação do cookie.
-     */
-    const redirectTo = buildRedirectTo(next);
+    const redirectTo = new URL(
+      AUTH_CALLBACK_PATH,
+      window.location.origin
+    ).toString();
 
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",

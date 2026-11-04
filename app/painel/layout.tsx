@@ -13,9 +13,9 @@ import { PainelGuard } from "./PainelGuard";
  * quando possível).
  *
  * Antes de qualquer render, `ensurePainelStore()` (servidor) confirma que a
- * conta autenticada tem estabelecimento. Contas sem loja — típico de quem criou
- * a conta pelo Google e perdeu o rascunho do cadastro — são levadas para
- * `/completar-cadastro` em vez de ver o painel vazio.
+ * conta autenticada tem estabelecimento. Contas que ainda não concluíram a
+ * etapa 2 do cadastro são levadas para `/completar-cadastro` em vez de ver o
+ * painel vazio: o usuário não sai do onboarding até a loja existir.
  *
  * A lógica interativa do guard vive em <PainelGuard> (Client Component), que
  * envolve {children} — o padrão recomendado para não remover o segmento da

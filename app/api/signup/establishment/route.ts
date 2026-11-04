@@ -1,14 +1,20 @@
 /**
  * POST /api/signup/establishment
  *
- * Completa o cadastro de um usuário **já autenticado** — caso típico do login
- * com Google: o OAuth cria o usuário, mas não conhece nome da loja, CPF/CNPJ,
- * WhatsApp nem o link do cardápio. A tela `/completar-cadastro` envia esses
- * dados para cá.
+ * Etapa 2 do cadastro: grava o estabelecimento de um usuário **já autenticado**.
+ * É o único caminho que cria loja, e vale para os dois modos de entrada:
+ *  - Google (`/auth/callback` manda para `/completar-cadastro` quando a conta
+ *    não tem loja);
+ *  - e-mail + senha (`/cadastro` autentica e segue para a mesma tela).
+ *
+ * Ou seja: o OAuth/GoTrue criam a conta em `auth.users`, mas não conhecem nome
+ * da loja, CPF/CNPJ, WhatsApp nem o link do cardápio. A tela
+ * `/completar-cadastro` envia esses dados para cá, e o vínculo é feito pelo
+ * `user_id` da sessão.
  *
  * Regras:
  *  - exige sessão válida (401 sem usuário);
- *  - revalida o payload com `lib/registration.ts` (mesmas regras do `/cadastro`);
+ *  - revalida o payload com `lib/registration.ts` (mesmas regras do formulário);
  *  - cria a loja na primeira vez e ATUALIZA nas seguintes (idempotente);
  *  - promove o perfil a `admin` e marca `onboarding_complete` (necessário para
  *    o painel, já que o trigger de `profiles` cria o papel `cliente`);

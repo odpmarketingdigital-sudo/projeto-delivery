@@ -6,18 +6,20 @@ import { createClient } from "@/lib/supabase/server";
 import { CompleteSignupForm } from "./CompleteSignupForm";
 
 /**
- * Onboarding pós-OAuth (`/completar-cadastro`).
+ * Onboarding obrigatório (`/completar-cadastro`) — **etapa 2 do cadastro**.
  *
- * O login com Google cria a conta em `auth.users`, mas não traz nome da loja,
- * CPF/CNPJ, WhatsApp nem o link do cardápio. Esta tela coleta esses dados e
- * envia para `POST /api/signup/establishment`.
+ * A conta já existe (Google ou e-mail + senha), mas ainda não tem loja: o
+ * Google não traz nome do estabelecimento, CPF/CNPJ, WhatsApp nem o link do
+ * cardápio, e o cadastro por e-mail também não pede mais esses dados antes da
+ * autenticação. Esta tela coleta tudo e envia para
+ * `POST /api/signup/establishment`, que grava a loja com o `user_id` da sessão.
  *
  * Guards (no servidor):
  *  - sem sessão → `/login`;
  *  - conta que já tem estabelecimento → `/painel` (não há o que completar).
  *
- * `?erro=<código>` (enviado pelo `/auth/callback` e pelo guard do painel) é
- * traduzido em um aviso no topo do formulário — ver `ONBOARDING_NOTICES`.
+ * `?erro=loja_ausente` (enviado pelo guard do painel) é traduzido em um aviso
+ * no topo do formulário — ver `ONBOARDING_NOTICES`.
  *
  * As demais checagens (e-mail confirmado, redirecionamentos) ficam no
  * middleware — ver `lib/supabase/middleware.ts`.
@@ -30,16 +32,12 @@ export const metadata: Metadata = {
 };
 
 /**
- * Avisos mostrados quando o usuário chega do `/auth/callback` sem a loja
- * criada (`?erro=`). Sem isso a tela apareceria vazia, como se ele tivesse
- * começado o cadastro do zero — e a pessoa não entenderia por que perdeu o que
- * digitou.
+ * Aviso mostrado quando o usuário chega ao onboarding por uma rota protegida
+ * (`?erro=loja_ausente`, enviado pelo guard do painel). Sem ele a tela
+ * apareceria como se o cadastro tivesse começado do zero, e a pessoa não
+ * entenderia por que foi trazida para cá.
  */
 const ONBOARDING_NOTICES: Record<string, string> = {
-  rascunho_ausente:
-    "Não encontramos os dados da loja que você preencheu antes de entrar com o Google (o rascunho dura 30 minutos e pode ter sido bloqueado pelo navegador). Confirme as informações abaixo para concluir o cadastro.",
-  rascunho_nao_aplicado:
-    "Não conseguimos criar sua loja automaticamente com os dados anteriores. Revise as informações abaixo e confirme para concluir o cadastro.",
   loja_ausente:
     "Sua conta ainda não tem um estabelecimento. Preencha os dados da loja para liberar o painel.",
 };

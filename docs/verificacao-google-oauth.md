@@ -127,7 +127,7 @@ caso deste app, que só usa o e-mail/nome do Google para criar a conta.
 O login deste projeto **não** volta direto do Google para o app: o
 `supabase.auth.signInWithOAuth` (`app/components/GoogleAuthButton.tsx`) usa o
 Supabase como intermediário, com retorno em
-`https://www.ipepper.com.br/auth/callback?next=...`.
+`https://www.ipepper.com.br/auth/callback`.
 
 | Onde | URI |
 | --- | --- |
@@ -172,32 +172,44 @@ Supabase como intermediário, com retorno em
 
 ---
 
-## 7. Cadastro pelo Google sem estabelecimento (diagnóstico)
+## 7. Cadastro pelo Google: o banco decide o destino
 
-Sintoma: o usuário preenche a Etapa 1 em `/cadastro`, entra com o Google e cai
-no painel com a mensagem "Nenhum estabelecimento associado à sua conta".
+O cadastro é **autenticação primeiro, loja depois**:
 
-O `/auth/callback` registra cada passo no log do servidor (`[auth/callback]`):
+1. `/cadastro` — o usuário entra com Google (`signInWithOAuth` com
+   `redirectTo = ${origin}/auth/callback`) ou cria e-mail + senha;
+2. `/auth/callback` — troca o `code` pela sessão e consulta `establishments`
+   (service role) pelo `user_id`;
+3. conta **com** loja → `next` (padrão `/painel`); conta **sem** loja →
+   `/completar-cadastro`;
+4. `/completar-cadastro` grava a loja via `POST /api/signup/establishment`, já
+   vinculada ao `user_id` da sessão, e abre o painel.
+
+Não existe mais rascunho em cookie: nenhum dado do cadastro depende de o
+navegador guardar algo antes do OAuth. Cookies bloqueados, troca de aba ou abrir
+o link do Google em outro dispositivo não deixam mais a conta "sem
+estabelecimento".
+
+Logs do `/auth/callback` (`[auth/callback]`):
 
 | Log | Significado | O que verificar |
 | --- | --- | --- |
-| `draftCookie: presente` + `loja criada a partir do rascunho` | fluxo normal | — |
-| `draftCookie: ausente` + `rascunho ausente — indo completar o cadastro` | o cookie `ipepper_signup_draft` não chegou ao servidor | cookies bloqueados, domínio do `redirectTo` e *Redirect URLs* |
-| `rascunho não aplicado — indo completar o cadastro` | rascunho inválido, slug em uso ou falha de gravação | o erro seguinte no log (`[establishments]`) |
-| `loja não encontrada após o salvamento` | gravação e leitura em projetos Supabase diferentes | `NEXT_PUBLIC_SUPABASE_URL` do build vs. `SUPABASE_SERVICE_ROLE_KEY` do runtime |
-| `[painel] … sem estabelecimento — indo para o onboarding` | conta autenticada sem linha em `establishments` | RLS/políticas da tabela |
+| `sessão criada` + `loja do usuário: encontrada` | fluxo normal de login | — |
+| `loja do usuário: desconhecida (falha na consulta)` | não deu para ler `establishments` | `SUPABASE_SERVICE_ROLE_KEY` e `NEXT_PUBLIC_SUPABASE_URL` do **mesmo** projeto |
+| `conta sem loja confirmada — indo para o onboarding` | conta nova (ou loja em outro ambiente) | concluir a etapa 2; se a loja já existir, ver item 3 abaixo |
+| `[painel] a loja do usuário existe mas não está visível para a sessão` | RLS impedindo a leitura pela sessão | políticas de `establishments` |
+| `[painel] usuário autenticado sem estabelecimento` | conta sem linha em `establishments` | deve cair no onboarding |
 
 Checagens de configuração:
 
 1. **Supabase → Authentication → URL Configuration → Redirect URLs** precisa
    cobrir o domínio usado no cadastro (com e sem `www`). Fora da lista, o
-   Supabase descarta o `code` e o retorno nunca chega a `/auth/callback` — não
-   há como criar a loja.
-2. **Cookies do navegador**: `/cadastro` aborta o redirect para o Google quando
-   o navegador recusa o cookie do rascunho (aviso "Não conseguimos guardar os
-   dados da sua loja neste navegador…"). O rascunho dura 30 minutos.
-3. **Painel**: o layout do painel reconsulta `establishments` no servidor. Conta
+   Supabase descarta o `code` e o retorno nunca chega a `/auth/callback`.
+2. **Painel**: o layout do painel reconsulta `establishments` no servidor. Conta
    sem loja é levada a `/completar-cadastro?erro=loja_ausente` em vez de ver o
-   painel vazio.
+   painel vazio — e o onboarding só libera o painel depois de gravar a loja.
+3. **Loja em outro projeto/ambiente**: se a loja foi criada com um
+   `NEXT_PUBLIC_SUPABASE_URL` diferente do runtime atual, a consulta não a
+   encontra e o usuário volta ao onboarding.
 
 

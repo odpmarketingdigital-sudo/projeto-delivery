@@ -42,22 +42,32 @@ confirmação enviado pelo Supabase Auth.
 ## 2. Fluxo do cadastro
 
 ```
-/cadastro (SignupForm)
-   └─ POST /api/signup
-        ├─ cria usuário (SEM email_confirm) + establishment em trial
-        ├─ dispara o e-mail de confirmação (lib/supabase/confirmation.ts) → link com token_hash
-        └─ 201 { establishment, email_confirmation_required: true }
+/cadastro (SignupView — etapa 1: acesso)
+   ├─ Google → signInWithOAuth({ redirectTo: ${origin}/auth/callback })
+   │     └─ /auth/callback: sessão + consulta establishments
+   │           ├─ conta com loja    → /painel
+   │           └─ conta sem loja    → /completar-cadastro
+   └─ E-mail + senha → POST /api/signup
+         ├─ cria usuário (SEM email_confirm)
+         ├─ dispara o e-mail de confirmação (lib/supabase/confirmation.ts) → link com token_hash
+         └─ 201 { email_confirmation_required: true | false }
 
    ├─ email_confirmation_required = true  → /confirmar-email?email=…
-   └─ email_confirmation_required = false → login automático + /painel
+   └─ email_confirmation_required = false → login automático + /completar-cadastro
+
+/completar-cadastro (etapa 2: loja)
+   └─ POST /api/signup/establishment → cria a loja do user_id da sessão → /painel
 ```
 
-`app/api/signup/route.ts` **não** envia mais `email_confirm: true`. Consequências:
+`app/api/signup/route.ts` **não** envia mais `email_confirm: true` e **não** cria
+estabelecimento: a loja nasce na etapa 2, sempre com a sessão ativa. Consequências:
 
 - projeto com confirmação obrigatória → conta nasce pendente e o `resend`
   envia o link;
 - projeto sem confirmação obrigatória → o GoTrue já confirma na criação, nada é
-  enviado e o cliente faz `signInWithPassword` como antes.
+  enviado e o cliente faz `signInWithPassword` e segue para a etapa 2;
+- o link de confirmação aponta para `/auth/callback`, que decide entre painel e
+  onboarding conforme a loja exista.
 
 ## 3. Bloqueios
 

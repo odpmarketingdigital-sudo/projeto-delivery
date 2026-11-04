@@ -167,10 +167,12 @@ const FIELD_IDS: Record<Field, string> = {
 };
 
 /**
- * Etapa de conclusão do cadastro (`/completar-cadastro`).
+ * Etapa 2 do cadastro (`/completar-cadastro`).
  *
- * Usada por quem entrou com Google: a conta já existe, falta a loja.
- *  1. Pré-preenche o responsável com o nome do perfil Google (editável).
+ * Usada por quem já criou o acesso (Google ou e-mail + senha): a conta existe,
+ * falta a loja.
+ *  1. Pré-preenche o responsável com o nome do perfil (Google) ou derivado do
+ *     e-mail (editável).
  *  2. Valida no cliente com `lib/registration.ts` (mesmas mensagens da API).
  *  3. Envia para `POST /api/signup/establishment`, que cria/atualiza a loja,
  *     promove o perfil a `admin` e marca `onboarding_complete`.
@@ -184,9 +186,9 @@ export function CompleteSignupForm({
   email: string;
   initialOwnerName: string;
   /**
-   * Aviso opcional vindo de `?erro=` (rascunho do cadastro expirado/ausente).
-   * Aparece acima do formulário para explicar por que os dados precisam ser
-   * informados de novo.
+   * Aviso opcional vindo de `?erro=loja_ausente` (guard do painel).
+   * Aparece acima do formulário para explicar por que o usuário foi
+   * encaminhado ao onboarding.
    */
   notice?: string | null;
 }) {

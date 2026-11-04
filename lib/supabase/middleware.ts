@@ -6,7 +6,8 @@ import { NextResponse, type NextRequest } from "next/server";
  * painel no nível do middleware.
  *
  * - Sem sessão, qualquer rota /painel* é redirecionada para /login.
- * - Com sessão, /login e /cadastro redirecionam para /painel.
+ * - Com sessão, /login e /cadastro levam a `/painel` (conta com loja) ou a
+ *   `/completar-cadastro` (etapa 2 pendente).
  * - Sessão com e-mail pendente (`email_confirmed_at` nulo) NÃO entra no
  *   painel: é levada para `/confirmar-email`, onde pode reenviar o link de
  *   confirmação. Isso vale mesmo que o cliente consiga abrir a rota, porque a
@@ -57,7 +58,7 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/login") || pathname.startsWith("/cadastro");
   // Tela de aviso + reenvio do e-mail de confirmação.
   const isConfirmEmailRoute = pathname.startsWith("/confirmar-email");
-  // Onboarding pós-OAuth (Google): dados do estabelecimento.
+  // Onboarding obrigatório (etapa 2 do cadastro): dados do estabelecimento.
   const isOnboardingRoute = pathname.startsWith("/completar-cadastro");
 
   /**
