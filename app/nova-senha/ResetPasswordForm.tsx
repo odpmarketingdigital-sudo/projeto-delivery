@@ -88,20 +88,25 @@ function PasswordField({
 }
 
 interface ResetPasswordFormProps {
-  /** True quando o callback informou `?erro=link-invalido`. */
+  /** True quando o link informou `?erro=link-invalido`. */
   linkError?: boolean;
+  /** `?code=` do link de recuperação (fluxo PKCE aberto no navegador). */
+  recoveryCode?: string;
 }
 
 /**
  * Formulário público de criação de nova senha (`/nova-senha`).
  *
- * O acesso acontece pelo link do e-mail: `/auth/callback` troca o código pela
- * sessão de recuperação e redireciona para cá. Sem essa sessão a tela mostra
- * um aviso amigável e o caminho para pedir um novo link — evitando que o
- * usuário preencha o formulário para receber um erro no envio.
+ * O acesso acontece pelo link do e-mail: `/nova-senha?code=…` — o próprio
+ * formulário troca o código pela sessão de recuperação (`exchangeCodeForSession`)
+ * antes de liberar os campos. Links por `token_hash` são resolvidos no
+ * `/auth/callback`, que já chega aqui com a sessão criada. Sem essa sessão a
+ * tela mostra um aviso amigável e o caminho para pedir um novo link — evitando
+ * que o usuário preencha o formulário para receber um erro no envio.
  */
 export function ResetPasswordForm({
   linkError = false,
+  recoveryCode,
 }: ResetPasswordFormProps) {
   const supabase = createClient();
   const router = useRouter();
@@ -114,19 +119,43 @@ export function ResetPasswordForm({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Confirma se a sessão de recuperação está ativa (criada pelo callback).
+  /**
+   * Garante a sessão de recuperação antes de liberar o formulário.
+   *
+   * Dois caminhos chegam aqui:
+   * - `/nova-senha?code=…` — link novo do e-mail (PKCE): o código é trocado
+   *   aqui mesmo, no navegador que pediu o e-mail (`code_verifier` em cookie);
+   * - `/nova-senha` — sessão já gravada (link por `token_hash` resolvido no
+   *   `/auth/callback`, reenvio do e-mail ou recarregamento da página).
+   *
+   * Sem sessão a tela mostra o aviso de link inválido, em vez de deixar o
+   * usuário digitar a senha para receber um erro só no envio.
+   */
   useEffect(() => {
     if (linkError) return;
 
     let active = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
+    const applySession = (hasSession: boolean) => {
       setStatus((current) => {
         if (current === "done") return current;
-        return data.session ? "ready" : "missing";
+        return hasSession ? "ready" : "missing";
       });
-    });
+    };
+
+    if (recoveryCode) {
+      void (async () => {
+        await supabase.auth.exchangeCodeForSession(recoveryCode);
+        // Mesmo com erro (código já usado/expirado) vale conferir a sessão: em
+        // um F5 o código se repete, mas a sessão da primeira troca continua.
+        const { data } = await supabase.auth.getSession();
+        if (active) applySession(Boolean(data.session));
+      })();
+    } else {
+      void supabase.auth.getSession().then(({ data }) => {
+        if (active) applySession(Boolean(data.session));
+      });
+    }
 
     const {
       data: { subscription },
@@ -139,7 +168,7 @@ export function ResetPasswordForm({
       active = false;
       subscription.unsubscribe();
     };
-  }, [supabase, linkError]);
+  }, [supabase, linkError, recoveryCode]);
 
   // Após o sucesso, leva o usuário adiante (o servidor decide painel × onboarding).
   useEffect(() => {

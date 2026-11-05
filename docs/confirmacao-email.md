@@ -25,15 +25,16 @@ confirmação enviado pelo Supabase Auth.
    <h2>Confirme seu e-mail</h2>
    <p>Falta pouco para liberar o painel do Ipepper.</p>
    <p>
-     <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=signup&next=/painel">
+     <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=signup">
        Confirmar e-mail
      </a>
    </p>
    ```
 
    O `/auth/callback` valida o token (`verifyOtp`), grava a sessão nos cookies e
-   redireciona para `next` (padrão `/painel`). Links expirados/reutilizados caem
-   em `/confirmar-email?erro=link-invalido`.
+   responde **307 para `/auth/continuar`** — o destino final (painel ×
+   onboarding) é decidido no middleware, nunca na URL do link. Links
+   expirados/reutilizados caem em `/confirmar-email?erro=link-invalido`.
 
 > Em `next dev` o `{{ .SiteURL }}` continua apontando para o domínio de produção
 > cadastrado no Supabase. Para testar localmente, troque temporariamente o
@@ -44,9 +45,8 @@ confirmação enviado pelo Supabase Auth.
 ```
 /cadastro (SignupView — etapa 1: acesso)
    ├─ Google → signInWithOAuth({ redirectTo: ${origin}/auth/callback })
-   │     └─ /auth/callback: sessão + consulta establishments
-   │           ├─ conta com loja    → /painel
-   │           └─ conta sem loja    → /completar-cadastro
+   │     └─ /auth/callback: troca o code pela sessão e responde 307
+   │           └─ /auth/continuar  (decisão no servidor)
    └─ E-mail + senha → POST /api/signup
          ├─ cria usuário (SEM email_confirm)
          ├─ dispara o e-mail de confirmação (lib/supabase/confirmation.ts) → link com token_hash
@@ -65,6 +65,12 @@ confirmação enviado pelo Supabase Auth.
    └─ POST /api/signup/establishment → cria a loja do user_id da sessão → /painel
 ```
 
+`app/auth/callback/route.ts` **só autentica**: depois de `exchangeCodeForSession`
+(ou `verifyOtp`) responde **307 `/auth/continuar`** — não consulta o banco e não
+aceita destino vindo da URL (`?next=` foi removido; nunca redireciona para `/`
+nem para a origem da requisição). A única exceção é recuperação de senha
+(`type=recovery`), que abre `/nova-senha`.
+
 `app/api/signup/route.ts` **não** envia mais `email_confirm: true` e **não** cria
 estabelecimento: a loja nasce na etapa 2, sempre com a sessão ativa. Consequências:
 
@@ -72,8 +78,9 @@ estabelecimento: a loja nasce na etapa 2, sempre com a sessão ativa. Consequên
   envia o link;
 - projeto sem confirmação obrigatória → o GoTrue já confirma na criação, nada é
   enviado e o cliente faz `signInWithPassword` e segue para a etapa 2;
-- o link de confirmação aponta para `/auth/callback`, que decide entre painel e
-  onboarding conforme a loja exista.
+- o link de confirmação aponta para `/auth/callback`, que apenas grava a sessão e
+  segue para `/auth/continuar` — quem decide painel × onboarding é o middleware,
+  consultando `establishments`.
 
 ## 3. Bloqueios
 
@@ -135,9 +142,10 @@ Detalhes:
 - O GoTrue responde 429 com `For security purposes, you can only request this
   after N seconds.`; a rota extrai o `N` e o devolve em `retry_after`, então o
   botão mostra exatamente quanto falta.
-- O `emailRedirectTo` é montado por `buildEmailConfirmationRedirect(origem)`
-  → `<origem>/auth/callback?next=/painel`, com a origem vinda de
-  `getRequestOrigin(request)` e fallback em `NEXT_PUBLIC_APP_URL`.
+- O `emailRedirectTo` é montado por `buildEmailConfirmationRedirect(origem)` →
+  `<origem>/auth/callback`, com a origem vinda de `getRequestOrigin(request)` e
+  fallback em `NEXT_PUBLIC_APP_URL`. Sem `?next=`: o destino é sempre decidido
+  depois, em `/auth/continuar`.
 - `/api/signup` usa a **mesma** função (`resendSignupConfirmation`) logo após
   criar a conta pendente, então cadastro e reenvio nunca divergem.
 
@@ -146,7 +154,8 @@ Detalhes:
 1. `npm run dev`, cadastre uma loja nova → deve cair em `/confirmar-email`
    (sem sessão) e receber o e-mail "Confirm signup".
 2. Acessar `/painel` direto → volta para `/confirmar-email`.
-3. Clicar no link do e-mail → `/auth/callback` grava a sessão e abre `/painel`.
+3. Clicar no link do e-mail → `/auth/callback` grava a sessão e responde 307
+   para `/auth/continuar` (painel se a loja existir, onboarding se não).
 4. Tentar login antes de confirmar → "Confirme o seu e-mail antes de acessar o
    painel" + botão de reenvio.
 5. Reenviar duas vezes seguidas → a segunda chamada recebe `429` com "Aguarde 1

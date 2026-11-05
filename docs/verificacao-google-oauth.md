@@ -178,33 +178,41 @@ O cadastro é **autenticação primeiro, loja depois**:
 
 1. `/cadastro` — o usuário entra com Google (`signInWithOAuth` com
    `redirectTo = ${origin}/auth/callback`) ou cria e-mail + senha;
-2. `/auth/callback` — troca o `code` pela sessão e consulta `establishments`
-   (service role) pelo `user_id`;
-3. conta **com** loja → `next` (padrão `/painel`); conta **sem** loja →
-   `/completar-cadastro`;
+2. `/auth/callback` — troca o `code` pela sessão (sem consultar o banco) e
+   responde **307 para `/auth/continuar`**;
+3. `/auth/continuar` (middleware) — consulta `establishments` pelo `user_id` da
+   sessão: conta **com** loja → `/painel`; **sem** loja → `/completar-cadastro`;
+   `super_admin` → `/painel/admin`;
 4. `/completar-cadastro` grava a loja via `POST /api/signup/establishment`, já
    vinculada ao `user_id` da sessão, e abre o painel.
 
-Os caminhos que terminam com a sessão criada **no navegador** (e-mail + senha em
-`/cadastro` e `/login`, "Já confirmei" em `/confirmar-email` e o fim da
-redefinição em `/nova-senha`) passam por `/auth/continuar`, resolvido no
-middleware (`lib/supabase/middleware.ts`, `decidePostAuth`), que repete a
-consulta a `establishments` e manda a conta para `/painel` (tem loja),
-`/completar-cadastro` (sem loja) ou `/painel/admin` (super_admin). Nenhum desses
-caminhos usa `user_metadata.onboarding_complete` para decidir.
+Todos os caminhos que terminam com a sessão criada — Google em `/cadastro`,
+e-mail + senha em `/cadastro` e `/login`, link de confirmação, "Já confirmei" em
+`/confirmar-email` e o fim da redefinição em `/nova-senha` — terminam em
+`/auth/continuar`, resolvido no middleware (`lib/supabase/middleware.ts`,
+`decidePostAuth`), que consulta `establishments` e manda a conta para `/painel`
+(tem loja), `/completar-cadastro` (sem loja) ou `/painel/admin` (super_admin).
+Nenhum desses caminhos usa `user_metadata.onboarding_complete` para decidir.
+
+A recuperação de senha é a única exceção: o link abre `/nova-senha` (o
+formulário troca o `?code=` pela sessão de recuperação) e só depois de salvar a
+nova senha o usuário segue para `/auth/continuar`.
 
 Não existe mais rascunho em cookie: nenhum dado do cadastro depende de o
 navegador guardar algo antes do OAuth. Cookies bloqueados, troca de aba ou abrir
 o link do Google em outro dispositivo não deixam mais a conta "sem
 estabelecimento".
 
-Logs do `/auth/callback` (`[auth/callback]`):
+Logs do `/auth/callback` (`[auth/callback]`) e do `/auth/continuar`
+(`[auth/continuar]`, no middleware):
 
 | Log | Significado | O que verificar |
 | --- | --- | --- |
-| `sessão criada` + `loja do usuário: encontrada` | fluxo normal de login | — |
-| `loja do usuário: desconhecida (falha na consulta)` | não deu para ler `establishments` | `SUPABASE_SERVICE_ROLE_KEY` e `NEXT_PUBLIC_SUPABASE_URL` do **mesmo** projeto |
-| `conta sem loja confirmada — indo para o onboarding` | conta nova (ou loja em outro ambiente) | concluir a etapa 2; se a loja já existir, ver item 3 abaixo |
+| `[auth/callback] sessão criada` (`flow: pkce` ou `otp`) | código/token trocado com sucesso | — |
+| `[auth/continuar] conta com loja — indo para o painel` | fluxo normal de login | — |
+| `[auth/continuar] conta sem loja confirmada — indo para o onboarding` | conta nova (ou loja em outro ambiente) | concluir a etapa 2; se a loja já existir, ver item 3 abaixo |
+| `[auth/continuar] super_admin — indo para o painel admin` | conta administrativa | — |
+| `[auth/continuar] falha ao ler o perfil` | não deu para ler `profiles` | tabela/RLS de `profiles` (o fluxo cai no onboarding) |
 | `[painel] a loja do usuário existe mas não está visível para a sessão` | RLS impedindo a leitura pela sessão | políticas de `establishments` |
 | `[painel] usuário autenticado sem estabelecimento` | conta sem linha em `establishments` | deve cair no onboarding |
 

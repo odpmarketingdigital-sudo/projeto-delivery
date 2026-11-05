@@ -5,10 +5,12 @@ import { ResetPasswordForm } from "./ResetPasswordForm";
 /**
  * Tela pública de criação de nova senha.
  *
- * O usuário chega aqui pelo link do e-mail de recuperação: o Supabase manda o
- * código para `/auth/callback`, que troca o código pela sessão de recuperação e
- * redireciona para cá. `?erro=link-invalido` sinaliza um link expirado/já usado
- * para que o formulário mostre um aviso em vez de um erro no envio.
+ * O usuário chega aqui pelo link do e-mail de recuperação:
+ * `/nova-senha?code=…` (PKCE) — o próprio formulário troca o código pela sessão
+ * de recuperação. Links por `token_hash` passam pelo `/auth/callback`, que
+ * autentica e abre esta tela. `?erro=link-invalido` sinaliza um link
+ * expirado/já usado para que o formulário mostre um aviso em vez de um erro no
+ * envio.
  */
 export const metadata: Metadata = {
   title: "Criar nova senha — Ipepper",
@@ -18,7 +20,10 @@ export const metadata: Metadata = {
 };
 
 interface NovaSenhaPageProps {
-  searchParams: Promise<{ erro?: string | string[] }>;
+  searchParams: Promise<{
+    erro?: string | string[];
+    code?: string | string[];
+  }>;
 }
 
 /**
@@ -28,8 +33,15 @@ interface NovaSenhaPageProps {
 async function NovaSenhaContent({ searchParams }: NovaSenhaPageProps) {
   const params = await searchParams;
   const rawError = Array.isArray(params.erro) ? params.erro[0] : params.erro;
+  // `?code=` do link de recuperação (PKCE): trocado pelo próprio formulário.
+  const recoveryCode = Array.isArray(params.code) ? params.code[0] : params.code;
 
-  return <ResetPasswordForm linkError={rawError === "link-invalido"} />;
+  return (
+    <ResetPasswordForm
+      linkError={rawError === "link-invalido"}
+      recoveryCode={recoveryCode}
+    />
+  );
 }
 
 export default function NovaSenhaPage({ searchParams }: NovaSenhaPageProps) {

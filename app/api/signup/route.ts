@@ -150,8 +150,8 @@ export async function POST(request: Request) {
    *
    * O `admin.createUser` NÃO envia e-mail de confirmação (diferente do signup
    * público). Por isso disparamos o `resend` explicitamente, apontando o link
-   * para `/auth/callback?next=/painel`, que troca o token pela sessão e decide
-   * o destino conforme a loja existir ou não.
+   * para `/auth/callback`, que troca o token pela sessão e responde 307 para
+   * `/auth/continuar` — lá o middleware decide entre painel e onboarding.
    *
    * Em projetos com "Confirm email" desligado o GoTrue já confirma o usuário na
    * criação e nada é enviado — o cliente pode fazer o login automático.

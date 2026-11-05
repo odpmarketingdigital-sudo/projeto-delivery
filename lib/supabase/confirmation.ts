@@ -32,23 +32,17 @@ export const CONFIRMATION_RESEND_COOLDOWN_SECONDS = 60;
 export const CONFIRMATION_RATE_LIMIT_MESSAGE =
   "Aguarde 1 minuto antes de solicitar um novo e-mail";
 
-/** Destino do link de confirmação (o callback troca o token e abre o painel). */
-export const CONFIRMATION_REDIRECT_PATH = "/painel";
-
 /**
- * Monta o `emailRedirectTo` do link de confirmação:
- * `${origin}/auth/callback?next=/painel`.
+ * Monta o `emailRedirectTo` do link de confirmação: `${origin}/auth/callback`.
  *
- * O formato `?next=` é o que `app/auth/callback/route.ts` entende; o template do
- * e-mail no Supabase deve apontar para o mesmo caminho com `token_hash` (ver
- * `docs/confirmacao-email.md`).
+ * O destino final **não** vai na URL: `/auth/callback` troca o código/token pela
+ * sessão e responde sempre com 307 para `/auth/continuar`, onde o middleware
+ * decide entre `/painel` e `/completar-cadastro` consultando `establishments`
+ * (ver `docs/confirmacao-email.md`).
  */
-export function buildEmailConfirmationRedirect(
-  origin: string,
-  next: string = CONFIRMATION_REDIRECT_PATH
-): string {
+export function buildEmailConfirmationRedirect(origin: string): string {
   const base = origin.replace(/\/+$/, "");
-  return `${base}/auth/callback?next=${encodeURIComponent(next)}`;
+  return `${base}/auth/callback`;
 }
 
 /**

@@ -19,9 +19,11 @@ interface ForgotPasswordDialogProps {
 /**
  * Modal de recuperação de senha da tela de login.
  *
- * Envia o e-mail de redefinição pelo Supabase Auth. O link aponta para
- * `/auth/callback?next=/nova-senha`: o callback troca o código pela sessão de
- * recuperação e só então libera a tela `/nova-senha` para definir a senha.
+ * Envia o e-mail de redefinição pelo Supabase Auth. O link aponta direto para
+ * `/nova-senha?code=…`: o próprio formulário troca o código pela sessão de
+ * recuperação (`exchangeCodeForSession`) e só então libera a definição da
+ * senha — `/auth/callback` agora serve apenas para autenticar e seguir para
+ * `/auth/continuar`.
  *
  * Por segurança, o Supabase não informa se o e-mail existe — a confirmação é
  * sempre genérica ("se existir uma conta com este e-mail...").
@@ -68,7 +70,7 @@ export function ForgotPasswordDialog({
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(
       cleanEmail,
       {
-        redirectTo: `${window.location.origin}/auth/callback?next=/nova-senha`,
+        redirectTo: `${window.location.origin}/nova-senha`,
       }
     );
 
