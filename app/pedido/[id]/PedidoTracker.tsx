@@ -13,7 +13,13 @@ import {
 } from "@/lib/deliveryEstimate";
 import { getCustomerProfile } from "@/lib/storage";
 import { OrderProgressStepper } from "@/app/components/OrderProgressStepper";
+import {
+  BOTTOM_NAV_CONTENT_PADDING,
+  BOTTOM_NAV_FIXED_CONTAINER,
+  StorefrontBottomNav,
+} from "@/app/components/StorefrontBottomNav";
 import { WhatsAppSendHint } from "@/app/components/WhatsAppSendHint";
+import { useIsMounted } from "@/app/components/useIsMounted";
 import {
   clearPendingOrderWhatsAppUrl,
   readPendingOrderWhatsAppUrl,
@@ -208,6 +214,10 @@ function isSameTrackerOrder(
 export function PedidoTracker({ orderId }: { orderId: string }) {
   const router = useRouter();
   const { clearCart } = useCart();
+  // Proteção de hidratação: o servidor não tem acesso ao `sessionStorage`
+  // (link do resumo no WhatsApp) nem ao `localStorage` (telefone do cliente).
+  // Tudo que depende deles só é renderizado depois da montagem.
+  const isMounted = useIsMounted();
   const [order, setOrder] = useState<TrackerOrder | null>(null);
   const [estName, setEstName] = useState("Estabelecimento");
   const [whatsapp, setWhatsapp] = useState<string | null>(null);
@@ -296,10 +306,16 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
    * compra anterior. `dismissedWhatsAppUrl` esconde o card após o clique.
    */
   const orderStatus = order?.status ?? null;
+  // `readPendingOrderWhatsAppUrl` lê o `sessionStorage`: só pode rodar depois da
+  // montagem. Sem a guarda `isMounted`, o servidor (sem storage) e o cliente
+  // (com o link salvo) produziriam HTML diferentes na hidratação sempre que o
+  // pedido já chegasse como `pendente`.
   const storedWhatsAppUrl = useMemo(
     () =>
-      orderStatus === "pendente" ? readPendingOrderWhatsAppUrl(orderId) : null,
-    [orderId, orderStatus]
+      isMounted && orderStatus === "pendente"
+        ? readPendingOrderWhatsAppUrl(orderId)
+        : null,
+    [isMounted, orderId, orderStatus]
   );
   const orderWhatsAppUrl =
     storedWhatsAppUrl && storedWhatsAppUrl !== dismissedWhatsAppUrl
@@ -312,7 +328,37 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
    * ou quando a base é legada e a coluna `slug` está vazia — a raiz resolve a
    * primeira loja ativa (mesmo fallback do AdminHeader).
    */
-  const menuHref = estSlug ? `/${estSlug}` : "/";
+  /**
+   * Vitrine da loja do pedido (`/[slug]`) — destino da aba "Cardápio" da barra
+   * inferior. `null` enquanto o estabelecimento ainda não chegou: nesse caso a
+   * aba fica desabilitada (com aviso) em vez de apontar para uma página errada.
+   */
+  const storeHref = estSlug ? `/${estSlug}` : null;
+
+  /**
+   * Destino do botão explícito "Voltar ao cardápio" (estado de erro). Usa a raiz
+   * como escape hatch quando o pedido não carrega e o slug é desconhecido —
+   * mesmo comportamento anterior a esta tela.
+   */
+  const menuHref = storeHref ?? "/";
+
+  /**
+   * Barra inferior persistente do cliente: o MESMO componente das telas de
+   * cardápio e histórico, com a aba "Acompanhar pedido" marcada como atual.
+   * Fica montada também durante o carregamento e em caso de erro — o cliente
+   * nunca perde a navegação no meio do fluxo (e o carrinho continua intacto,
+   * pois vive no layout raiz).
+   */
+  const bottomNav = (
+    <div className={BOTTOM_NAV_FIXED_CONTAINER}>
+      <StorefrontBottomNav
+        active="track"
+        menuHref={storeHref}
+        trackHref={`/pedido/${orderId}`}
+        ordersHref={estSlug ? `/${estSlug}/pedidos` : null}
+      />
+    </div>
+  );
 
   const waHref = useMemo(() => {
     if (!whatsapp || !order) return null;
@@ -406,22 +452,32 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950">
-        <p className="text-sm font-medium text-gray-400">Carregando pedido...</p>
+      <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-gray-950">
+        <div
+          className={`flex flex-1 items-center justify-center ${BOTTOM_NAV_CONTENT_PADDING}`}
+        >
+          <p className="text-sm font-medium text-gray-400">Carregando pedido...</p>
+        </div>
+        {bottomNav}
       </div>
     );
   }
 
   if (error || !order) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-gray-50 px-4 dark:bg-gray-950">
-        <p className="text-sm text-red-400">{error ?? "Pedido não encontrado."}</p>
-        <Link
-          href={menuHref}
-          className="rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white dark:bg-yellow-400 dark:text-gray-950"
+      <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-gray-950">
+        <div
+          className={`flex flex-1 flex-col items-center justify-center gap-4 px-4 ${BOTTOM_NAV_CONTENT_PADDING}`}
         >
-          Voltar ao cardápio
-        </Link>
+          <p className="text-sm text-red-400">{error ?? "Pedido não encontrado."}</p>
+          <Link
+            href={menuHref}
+            className="rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white dark:bg-yellow-400 dark:text-gray-950"
+          >
+            Voltar ao cardápio
+          </Link>
+        </div>
+        {bottomNav}
       </div>
     );
   }
@@ -446,7 +502,9 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 antialiased dark:bg-gray-950">
-      <main className="mx-auto flex w-full max-w-md flex-1 flex-col gap-4 px-4 py-8">
+      <main
+        className={`customer-view-enter mx-auto flex w-full max-w-md flex-1 flex-col gap-4 px-4 pt-8 ${BOTTOM_NAV_CONTENT_PADDING}`}
+      >
         <p className="text-center text-xs font-semibold uppercase tracking-widest text-gray-400">
           {estName} · Pedido {order.id.slice(0, 8)}
         </p>
@@ -638,6 +696,10 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
           </Link>
         </div>
       </main>
+
+      {/* Barra inferior fixa (mesma das outras abas do cliente). Fica ANTES do
+          diálogo de cancelamento para o modal (z-50) pintar por cima dela. */}
+      {bottomNav}
 
       {isCancelDialogOpen && (
         <div

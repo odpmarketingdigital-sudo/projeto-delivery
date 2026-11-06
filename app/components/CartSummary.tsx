@@ -18,10 +18,14 @@ const formatBRL = (value: number) =>
   `R$ ${value.toFixed(2).replace(".", ",")}`;
 
 /**
- * Barra fixa de resumo da sacola.
+ * Barra de resumo da sacola.
  *
  * O CTA apenas abre o `CartDrawer`; o checkout fica dentro dele, depois que o
  * frete foi calculado/validado. Assim o cliente nunca avança sem ver a taxa.
+ *
+ * O posicionamento é responsabilidade de quem renderiza: na vitrine ele é
+ * empilhado acima da barra de navegação inferior (`StorefrontBottomNav`), dentro
+ * do mesmo container `fixed bottom-0`.
  */
 export function CartSummary({
   onOpen,
@@ -62,7 +66,7 @@ export function CartSummary({
   if (!hasItems) return null;
 
   return (
-    <footer className="fixed inset-x-0 bottom-0 z-50 border-t border-gray-200/70 bg-white/95 px-4 pb-6 pt-3 backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-900/95 sm:px-6">
+    <footer className="border-t border-gray-200/70 bg-white/95 px-4 pb-3 pt-3 backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-900/95 sm:px-6">
       {storeClosed && (
         <p
           role="status"

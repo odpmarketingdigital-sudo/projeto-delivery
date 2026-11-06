@@ -90,6 +90,73 @@ Passo a passo de configuração do webhook (Sandbox e Produção):
   a `canceled_at`/`overdue_suspended_at`) — lojas desligadas manualmente pelo
   Super Admin continuam offline.
 
+### Marca e navegação inferior (visão do cliente)
+
+- A vitrine é **white-label**: o topo do cardápio não exibe o logotipo/marca
+  Ipepper (o mesmo vale para o topo do checkout em
+  [`app/components/CheckoutForm.tsx`](app/components/CheckoutForm.tsx)). Sem
+  `logo_url` cadastrado, o avatar circular usa um ícone neutro de loja em vez de
+  `public/logotipo.webp`;
+- O rodapé fixo da vitrine empilha, em um único container `fixed bottom-0`, o
+  resumo da sacola ([`app/components/CartSummary.tsx`](app/components/CartSummary.tsx))
+  e a barra de navegação inferior
+  ([`app/components/StorefrontBottomNav.tsx`](app/components/StorefrontBottomNav.tsx))
+  com os itens **Cardápio** (rola a página ao topo), **Acompanhar pedido**
+  (`/pedido/[id]` quando a sessão tem pedido em andamento ou concluído hoje —
+  regra em [`app/components/useTrackableOrder.ts`](app/components/useTrackableOrder.ts))
+  e **Meus Pedidos** (`/[slug]/pedidos`);
+- A **mesma barra acompanha o cliente nas três telas** do fluxo: cardápio
+  (`/[slug]` e `/demo`), acompanhamento (`/pedido/[id]`) e histórico
+  (`/[slug]/pedidos`). O componente é único — só muda a prop `active`, que
+  destaca a aba com `aria-current="page"` e um traço âmbar; tocar na aba atual
+  apenas rola a tela ao topo. Em `PedidoTracker` a barra também aparece durante
+  o carregamento e em caso de erro, e fica **antes** do diálogo de cancelamento
+  para o modal (`z-50`) pintar por cima dela;
+- A troca de aba é navegação de cliente (`next/link`): o `CartProvider` do
+  layout raiz não remonta e o carrinho (estado + `localStorage` `@delivery:cart`)
+  continua intacto. Para suavizar a troca, o conteúdo de cada aba usa a classe
+  `customer-view-enter` (`app/globals.css`, fade de 220 ms que anima **só**
+  `opacity` — animar `transform` criaria bloco de contenção e deslocaria a barra
+  `fixed`), respeitando `prefers-reduced-motion`;
+- Item sem destino (sem pedido ativo, ou sem slug público no `/demo`) mostra uma
+  faixa de aviso temporária em vez de um toque sem resposta;
+- O espaço do rodapé é reservado no conteúdo: `pb-24` sem sacola, `pb-40` com a
+  barra da sacola e `pb-56` com a sacola + aviso de loja fechada na vitrine;
+  `pb-28` (`BOTTOM_NAV_CONTENT_PADDING`) nas telas de acompanhamento e
+  histórico, então o último item nunca fica coberto.
+
+### Hidratação (SSR × primeiro render do cliente)
+
+A barra inferior e as telas do cliente são renderizadas no servidor (a vitrine
+inclusive com Cache Components/PPR). Para o HTML do servidor ser **idêntico** ao
+primeiro render do cliente, nada que dependa do navegador entra nessa primeira
+passada:
+
+- [`app/components/useIsMounted.ts`](app/components/useIsMounted.ts) expõe
+  `useIsMounted()` — `false` no servidor e na hidratação, `true` logo depois.
+  É implementado com `useSyncExternalStore` (mesmo padrão do `isHydrated` em
+  [`context/CartContext.tsx`](context/CartContext.tsx)), porque
+  `useEffect(() => setState(true), [])` é reprovado pela regra
+  `react-hooks/set-state-in-effect` do projeto;
+- **Relógio do navegador** (`new Date()`, fuso local) só é lido com `isMounted`:
+  o selo "Aberto agora"/"Fechado no momento" e o texto "Abre hoje às …" da
+  vitrine ([`app/components/Storefront.tsx`](app/components/Storefront.tsx)) e o
+  aviso de loja fechada do checkout
+  ([`app/components/CheckoutForm.tsx`](app/components/CheckoutForm.tsx)) são
+  calculados depois da montagem — no servidor o mesmo horário seria avaliado em
+  outro instante/fuso e divergiria;
+- **`localStorage` / `sessionStorage`** idem: telefone do cliente em
+  `/[slug]/pedidos`, perfil salvo no checkout e o link de resumo no WhatsApp em
+  `/pedido/[id]` só aparecem após a montagem (nesse intervalo vale o esqueleto de
+  carregamento, igual nos dois lados);
+- O carrinho e o CEP usam `useSyncExternalStore` com `getServerSnapshot` vazio,
+  então SSR e hidratação sempre concordam (o valor real entra no render
+  seguinte);
+- `suppressHydrationWarning` existe **apenas** em `<html>` e `<body>`
+  ([`app/layout.tsx`](app/layout.tsx)), onde extensões de navegador, tradutores
+  automáticos e gerenciadores de senha injetam atributos antes da hidratação.
+  Nenhum componente do fluxo do cliente usa essa escape hatch.
+
 ## Modo catálogo (pedido direto no WhatsApp)
 
 Recurso em que a sacola deixa de abrir o checkout e passa a enviar o
@@ -174,6 +241,54 @@ Migração relacionada: `20261110000024_add_delivery_distance_to_orders.sql`
 (colunas `delivery_distance_km`, `delivery_duration_minutes` e
 `delivery_distance_source` em `orders`; sem ela o pedido é gravado normalmente,
 apenas sem esses campos).
+
+## Importar cardápio com IA (Google Gemini)
+
+> **⚠️ Desativada temporariamente:** a chave `GEMINI_API_KEY` está sem créditos,
+> então o botão **Importar com IA** e o modal não são renderizados no painel. O
+> controle é a constante `MENU_AI_IMPORT_ENABLED` em
+> [`app/painel/produtos/PainelProdutos.tsx`](app/painel/produtos/PainelProdutos.tsx)
+> (`false` = oculto). As rotas, o modal e o restante do fluxo continuam no
+> código e voltam a funcionar ao trocar a constante para `true`; nada mais
+> precisa ser alterado. O cadastro manual de categorias, produtos e preços não
+> é afetado.
+
+Em **Painel → Cardápio**, o botão **Importar com IA** abre o envio de um PDF ou
+foto do cardápio atual. O fluxo tem duas etapas, sempre com revisão humana:
+
+1. **Upload** — `ImportMenuModal.tsx` aceita PDF, PNG e JPG de até 10 MB
+   (mesmo limite da rota) e envia o arquivo por `multipart/form-data` para
+   `POST /api/ai/import-menu`;
+2. **Extração** — a rota valida a sessão/permissão (`requireMenuAccess`,
+   `resolveMenuEstablishment`, `canManageEstablishment`), envia o arquivo ao
+   Gemini (`@google/genai`, padrão `gemini-2.5-flash`) via `inlineData` com
+   **Structured Output** (`responseMimeType: "application/json"` +
+   `responseSchema`) e devolve `{ menu, establishment_id }`. O prompt e o
+   schema vivem em [`lib/ai/menuImport.ts`](lib/ai/menuImport.ts), junto da
+   sanitização (limites de categorias/produtos, preço `number`, nome
+   normalizado) e do mapeamento de erros (`429` cota, `401` chave inválida,
+   `400` arquivo ilegível);
+3. **Revisão** — o modal mostra categorias e produtos em campos editáveis
+   (nome, descrição e preço com máscara BRL via [`lib/currency.ts`](lib/currency.ts)),
+   permite remover linhas e bloqueia o salvamento com nome/preço inválido;
+4. **Gravação em lote** — `POST /api/ai/import-menu/save` reaproveita
+   categorias do estabelecimento com o mesmo nome (comparação sem
+   caixa/espaços), cria as demais com `position`/`sort_order` (detectado
+   automaticamente conforme a migração aplicada) e insere os produtos na mesma
+   coluna de ordenação, continuando a numeração existente. Se a inserção de
+   produtos falhar, as categorias criadas na mesma chamada são removidas
+   (rollback manual) e a API responde erro.
+
+Variáveis de ambiente: `GEMINI_API_KEY` (secreta, só no servidor) e
+`GEMINI_MODEL` (opcional, padrão `gemini-2.5-flash`). Sem a chave a rota
+responde **500** com `"A variável de ambiente GEMINI_API_KEY não está
+configurada no servidor."` — o cadastro manual continua funcionando normalmente.
+
+> **Limites de hospedagem:** a rota declara `maxDuration = 60` porque a leitura
+> do arquivo pode levar dezenas de segundos. O upload aceita até 10 MB
+> (`MENU_IMPORT_MAX_BYTES`), mas plataformas serverless impõem teto próprio ao
+> corpo da requisição (na Vercel, ~4,5 MB) — acima disso a importação falha
+> antes de chegar ao código; nesse caso envie um PDF/foto menor.
 
 ## Sessão e cookies (`431 Request Header Fields Too Large`)
 

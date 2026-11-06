@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/context/CartContext";
 import type { StorefrontMenu } from "@/lib/types";
@@ -33,6 +32,7 @@ import {
 } from "@/lib/whatsappOrder";
 import { WhatsAppSendHint } from "@/app/components/WhatsAppSendHint";
 import { AddressAutocomplete } from "@/app/components/AddressAutocomplete";
+import { useIsMounted } from "@/app/components/useIsMounted";
 import {
   isGooglePlacesEnabled,
   type GooglePlaceAddress,
@@ -261,6 +261,12 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   const [recognizedName] = useState<string | null>(
     () => getCustomerProfile()?.name ?? null
   );
+  // Flag de montagem (hidratação): o checkout é renderizado no SERVIDOR, que
+  // não tem `localStorage` nem o relógio do navegador. `isMounted` garante que
+  // nada derivado dessas duas fontes apareça no primeiro render do cliente —
+  // servidor e cliente emitem exatamente o mesmo HTML e só depois a página
+  // troca para os dados reais.
+  const isMounted = useIsMounted();
   // Relógio local para o status aberto/fechado (atualiza a cada minuto).
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -611,10 +617,15 @@ export function CheckoutForm({ slug }: { slug?: string }) {
 
   // Status de funcionamento (horário de Brasília). Sem horários cadastrados,
   // a loja é considerada aberta (compatibilidade com bases legadas).
+  // Depende de `isMounted` porque `now` vem do relógio do navegador: avaliado no
+  // servidor (ou em build estático) o resultado divergiria do cliente e o aviso
+  // "loja fechada" apareceria/sumiria na hidratação.
   const storeStatus = useMemo(
     () =>
-      establishment ? isStoreOpen(establishment.opening_hours, now) : null,
-    [establishment, now]
+      isMounted && establishment
+        ? isStoreOpen(establishment.opening_hours, now)
+        : null,
+    [isMounted, establishment, now]
   );
   const storeClosed = storeStatus ? !storeStatus.isOpen : false;
   const nextOpeningLabel = storeStatus
@@ -1243,8 +1254,9 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     );
   }
 
-  // Evita divergência de hidratação: só decide o estado do carrinho no cliente.
-  if (!isHydrated) {
+  // Evita divergência de hidratação: só decide o estado do carrinho (e mostra
+  // dados do perfil salvos no `localStorage`) depois que o cliente montou.
+  if (!isHydrated || !isMounted) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 antialiased dark:bg-gray-950">
         <p className="text-sm font-medium text-gray-400">Carregando...</p>
@@ -1279,15 +1291,6 @@ export function CheckoutForm({ slug }: { slug?: string }) {
               </svg>
             </Link>
             <p className="font-bold text-gray-900 dark:text-white">Checkout</p>
-            {/* Marca da plataforma no topo do checkout. */}
-            <Image
-              src="/logotipo.svg"
-              alt="Ipepper"
-              width={323}
-              height={150}
-              unoptimized
-              className="ml-auto h-6 w-auto"
-            />
           </div>
         </header>
 
@@ -1375,14 +1378,6 @@ export function CheckoutForm({ slug }: { slug?: string }) {
             <p className="font-bold text-gray-900 dark:text-white">
               Pedido pelo WhatsApp
             </p>
-            <Image
-              src="/logotipo.svg"
-              alt="Ipepper"
-              width={323}
-              height={150}
-              unoptimized
-              className="ml-auto h-6 w-auto"
-            />
           </div>
         </header>
 
@@ -1486,15 +1481,6 @@ export function CheckoutForm({ slug }: { slug?: string }) {
               Checkout seguro
             </p>
           </div>
-          {/* Marca da plataforma no topo do checkout. */}
-          <Image
-            src="/logotipo.svg"
-            alt="Ipepper"
-            width={323}
-            height={150}
-            unoptimized
-            className="ml-auto h-6 w-auto"
-          />
         </div>
       </header>
 

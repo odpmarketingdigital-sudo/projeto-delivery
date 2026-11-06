@@ -4,6 +4,13 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
+  BOTTOM_NAV_CONTENT_PADDING,
+  BOTTOM_NAV_FIXED_CONTAINER,
+  StorefrontBottomNav,
+} from "@/app/components/StorefrontBottomNav";
+import { useTrackableOrder } from "@/app/components/useTrackableOrder";
+import { useIsMounted } from "@/app/components/useIsMounted";
+import {
   formatEstimatedDeliveryWindowLabel,
   parseEstimatedDeliveryWindow,
 } from "@/lib/deliveryEstimate";
@@ -118,10 +125,23 @@ function OrdersHistoryPage() {
   const params = useParams();
   const slug = params.slug as string | undefined;
 
+  // Destino de "Cardápio" na barra inferior (slug público da loja da rota).
+  const menuHref = slug ? `/${slug}` : null;
+
+  // Aba "Acompanhar pedido": mesma regra da vitrine — só habilita quando a
+  // sessão do cliente tem pedido em andamento (ou concluído hoje) nesta loja.
+  const { orderId: trackOrderId, isLoading: isTrackLoading } =
+    useTrackableOrder(slug ?? null);
+
   const [inputPhone, setInputPhone] = useState("");
   const [savedPhone, setSavedPhone] = useState("");
   const [showInput, setShowInput] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  // Proteção de hidratação: o histórico depende de um telefone salvo no
+  // `localStorage`, que o servidor não enxerga. `isMounted` mantém servidor e
+  // primeiro render do cliente idênticos (spinner) e só então a tela decide
+  // entre "pedidos do telefone salvo" e "formulário de telefone".
+  const isMounted = useIsMounted();
   const [results, setResults] = useState<OrderCard[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -228,10 +248,13 @@ function OrdersHistoryPage() {
   };
 
   return (
-    <div className="mx-auto min-h-screen max-w-2xl px-4 py-6 sm:px-6">
-      {/* Botão Voltar ao Cardápio */}
+    <div
+      className={`customer-view-enter mx-auto min-h-screen max-w-2xl px-4 pt-6 sm:px-6 ${BOTTOM_NAV_CONTENT_PADDING}`}
+    >
+      {/* Atalho "Voltar ao cardápio" (a barra inferior fixa repete a navegação
+          em todas as telas do cliente; aqui ele serve também ao desktop). */}
       <Link
-        href={`/${slug}`}
+        href={menuHref ?? "/"}
         className="mb-4 inline-flex items-center gap-1.5 text-sm font-semibold text-gray-500 transition hover:text-gray-900 dark:text-gray-400 dark:hover:text-white"
       >
         <svg aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -506,12 +529,26 @@ function OrdersHistoryPage() {
         </div>
       )}
 
-      {/* Estado inicial: aguardando telefone (antes de qualquer coisa) */}
-      {!initialized && (
+      {/* Estado inicial: aguardando telefone (antes de qualquer coisa).
+          `!isMounted` mantém o spinner também no primeiro render do cliente —
+          é ele que garante HTML igual ao do servidor na hidratação. */}
+      {(!isMounted || !initialized) && (
         <div className="mt-8 flex justify-center py-6">
           <span className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900 dark:border-gray-600 dark:border-t-yellow-400" />
         </div>
       )}
+
+      {/* Barra inferior fixa do cliente: a MESMA das telas de cardápio e
+          acompanhamento, com a aba "Meus Pedidos" marcada como atual. */}
+      <div className={BOTTOM_NAV_FIXED_CONTAINER}>
+        <StorefrontBottomNav
+          active="orders"
+          menuHref={menuHref}
+          trackHref={trackOrderId ? `/pedido/${trackOrderId}` : null}
+          ordersHref={slug ? `/${slug}/pedidos` : null}
+          isTrackLoading={isTrackLoading}
+        />
+      </div>
     </div>
   );
 }
@@ -524,8 +561,20 @@ export default function Page() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950">
-          <span className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900 dark:border-gray-600 dark:border-t-yellow-400" />
+        <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-gray-950">
+          <div className="flex flex-1 items-center justify-center">
+            <span className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900 dark:border-gray-600 dark:border-t-yellow-400" />
+          </div>
+          {/* Mesma barra, ainda sem os destinos (o slug só existe em runtime):
+              evita o "salto" visual enquanto a página hidrata. */}
+          <div className={BOTTOM_NAV_FIXED_CONTAINER}>
+            <StorefrontBottomNav
+              active="orders"
+              trackHref={null}
+              ordersHref={null}
+              isTrackLoading
+            />
+          </div>
         </div>
       }
     >

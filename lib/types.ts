@@ -431,6 +431,32 @@ export interface MenuData {
 }
 
 /**
+ * Produto extraído de um cardápio (PDF/imagem) pela IA (Gemini).
+ * Usado apenas na revisão do painel — antes de gravar em lote em
+ * `public.products` via `POST /api/ai/import-menu/save`.
+ */
+export interface ImportedMenuProduct {
+  name: string;
+  description: string;
+  /** Preço em reais (ex.: 29.9). 0 quando o preço está ausente/ilegível. */
+  price: number;
+}
+
+/** Categoria extraída de um cardápio pela IA (ver `ImportedMenu`). */
+export interface ImportedMenuCategory {
+  name: string;
+  products: ImportedMenuProduct[];
+}
+
+/**
+ * Payload do Structured Output devolvido por `POST /api/ai/import-menu`.
+ * O Gemini é instruído a responder exatamente neste formato.
+ */
+export interface ImportedMenu {
+  categories: ImportedMenuCategory[];
+}
+
+/**
  * Dados públicos do estabelecimento expostos pela vitrine (/) e pelo checkout.
  * Vem do GET /api/menu (somente lojas `status = 'ativo'`).
  */

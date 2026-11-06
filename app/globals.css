@@ -147,3 +147,35 @@ html {
   --gmp-mat-color-primary: #ef4444;
 }
 
+
+/* ==========================================================================
+   Transição entre as abas do cliente
+   Cardápio → Acompanhar pedido → Meus Pedidos são rotas diferentes, mas fazem
+   parte do MESMO fluxo do cliente: o conteúdo entra com um fade curto para a
+   troca não parecer um salto de página. Desativado para quem prefere menos
+   movimento (acessibilidade).
+   ========================================================================== */
+@keyframes customer-view-enter {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/*
+ * Só `opacity`: animar `transform` no container criaria um bloco de contenção
+ * e reposicionaria os elementos `fixed` (barra inferior, sacola) para fora do
+ * viewport durante a transição.
+ */
+.customer-view-enter {
+  animation: customer-view-enter 220ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .customer-view-enter {
+    animation: none;
+  }
+}

@@ -43,11 +43,21 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
+    /**
+     * `suppressHydrationWarning` é usado APENAS aqui, onde é estritamente
+     * necessário: `<html>` e `<body>` são os dois nós que extensões de
+     * navegador, tradutores automáticos (Google Translate) e gerenciadores de
+     * senha alteram (adicionando `class`, `style`, `data-*` ou `lang`) antes da
+     * hidratação. Nenhum atributo nosso é dinâmico — o aviso suprimido é
+     * somente o do próprio elemento (não afeta os filhos, que continuam
+     * validados normalmente).
+     */
     <html
       lang="pt-BR"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
     >
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full flex flex-col" suppressHydrationWarning>
         <AuthProvider>
           <CartProvider>{children}</CartProvider>
         </AuthProvider>

@@ -5,6 +5,7 @@ import type { Category, MenuAddon, MenuData, MenuProduct } from "@/lib/types";
 import { compareByOrder } from "@/lib/menuOrder";
 import { useEstablishment } from "./useEstablishment";
 import { ProductFormModal } from "./ProductFormModal";
+import { ImportMenuModal } from "./ImportMenuModal";
 import { CategoriesModal } from "./CategoriesModal";
 import { AddonsModal } from "./AddonsModal";
 import { DeleteProductModal } from "./DeleteProductModal";
@@ -14,6 +15,19 @@ import { AdminHeader } from "../components/AdminHeader";
 function formatBRL(value: number): string {
   return `R$ ${Number(value).toFixed(2).replace(".", ",")}`;
 }
+
+/**
+ * Liga/desliga a importação de cardápio por IA no painel de produtos.
+ *
+ * Está em `false` temporariamente porque a chave da API (`GEMINI_API_KEY`) está
+ * sem créditos. Com `false`, o botão "Importar com IA" e o `ImportMenuModal`
+ * simplesmente não são renderizados — nenhuma requisição para
+ * `/api/ai/import-menu` é disparada. O cadastro manual de categorias, produtos
+ * e preços continua funcionando normalmente.
+ *
+ * Para reativar, basta trocar para `true` quando houver créditos novamente.
+ */
+const MENU_AI_IMPORT_ENABLED: boolean = false;
 
 /**
  * Conteúdo interativo da Gestão de Cardápio/Produtos (Client Component).
@@ -48,6 +62,7 @@ export function PainelProdutos() {
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<MenuProduct | null>(null);
   const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [addonsTarget, setAddonsTarget] = useState<MenuProduct | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<MenuProduct | null>(null);
   /** Carrega categorias e produtos do estabelecimento selecionado. */
@@ -256,6 +271,29 @@ export function PainelProdutos() {
             >
               Categorias
             </button>
+            {MENU_AI_IMPORT_ENABLED && (
+              <button
+                type="button"
+                onClick={() => setIsImportModalOpen(true)}
+                disabled={!establishmentId}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <svg
+                  aria-hidden="true"
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.8}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1M7.7 16.3l-2.1 2.1" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                Importar com IA
+              </button>
+            )}
             <button
               type="button"
               onClick={openCreate}
@@ -525,6 +563,18 @@ export function PainelProdutos() {
           categories={categories}
           onClose={() => setIsCategoriesModalOpen(false)}
           onChanged={() => void fetchMenu()}
+        />
+      )}
+
+      {MENU_AI_IMPORT_ENABLED && isImportModalOpen && establishmentId && (
+        <ImportMenuModal
+          establishmentId={establishmentId}
+          isSuperAdmin={isSuperAdmin}
+          onClose={() => setIsImportModalOpen(false)}
+          onImported={() => {
+            setIsImportModalOpen(false);
+            void fetchMenu();
+          }}
         />
       )}
 

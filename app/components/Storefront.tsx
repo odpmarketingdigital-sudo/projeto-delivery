@@ -1,8 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import Link from "next/link";
-import Image from "next/image";
 import type {
   MenuAddon,
   Product,
@@ -15,8 +13,14 @@ import { ProductCard } from "@/app/components/ProductCard";
 import { ProductModal } from "@/app/components/ProductModal";
 import { CartSummary } from "@/app/components/CartSummary";
 import { CartDrawer } from "@/app/components/CartDrawer";
+import {
+  BOTTOM_NAV_FIXED_CONTAINER,
+  StorefrontBottomNav,
+  scrollPageToTop,
+} from "@/app/components/StorefrontBottomNav";
 import { useCart } from "@/context/CartContext";
 import { useTrackableOrder } from "@/app/components/useTrackableOrder";
+import { useIsMounted } from "@/app/components/useIsMounted";
 
 const slugify = (value: string) =>
   `categoria-${value
@@ -79,8 +83,17 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Flag de montagem: separa o que só existe no NAVEGADOR (relógio local, fuso
+  // do cliente, storage) do HTML gerado no servidor. Sem ela o badge
+  // Aberto/Fechado poderia sair diferente no SSR e no primeiro render do
+  // cliente (servidor em UTC × fuso do cliente, build estático, minuto de
+  // virada de horário) e o React acusaria divergência de hidratação.
+  const isMounted = useIsMounted();
+
   // Relógio local (atualiza a cada minuto) para manter o badge Aberto/Fechado
   // coerente mesmo se o cliente deixar a página aberta durante a transição.
+  // O valor só é LIDO depois da montagem (ver `storeStatus`), portanto o
+  // objeto criado aqui nunca influencia o markup da hidratação.
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 60_000);
@@ -94,10 +107,22 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
     useTrackableOrder(slug ?? menu?.establishment?.id ?? null);
   const trackHref = trackOrderId ? `/pedido/${trackOrderId}` : null;
 
+  // Slug público usado nos links do cliente ("Meus Pedidos"). Na vitrine por
+  // slug ele vem da rota; no `/demo` (ou `?slug=`) vem da loja carregada pela
+  // API — sem slug conhecido o link não é montado (evita `/undefined/pedidos`).
+  const publicSlug = slug ?? menu?.establishment.slug ?? null;
+  const ordersHref = publicSlug ? `/${publicSlug}/pedidos` : null;
+
   // Status calculado com o horário de Brasília (o servidor pode rodar em UTC).
+  // Exige `isMounted`: o relógio do navegador só é confiável no cliente — no
+  // servidor (ou em um build estático) o mesmo texto "Aberto agora"/"Fechado
+  // no momento" seria avaliado em outro instante e divergiria na hidratação.
   const storeStatus = useMemo(
-    () => (menu ? isStoreOpen(menu.establishment.opening_hours, now) : null),
-    [menu, now]
+    () =>
+      isMounted && menu
+        ? isStoreOpen(menu.establishment.opening_hours, now)
+        : null,
+    [isMounted, menu, now]
   );
   const nextOpeningLabel = storeStatus
     ? describeNextOpening(storeStatus.nextOpening)
@@ -153,6 +178,21 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
     setSelectedProduct(product);
     setModalKey((k) => k + 1);
   };
+
+  // Aba "Cardápio" da barra inferior (já ativa nesta tela): volta ao topo
+  // (início da listagem de produtos) e fecha o seletor de categorias, sem
+  // recarregar a página.
+  const showMenu = () => {
+    setMenuOpen(false);
+    scrollPageToTop();
+  };
+
+  // Espaço reservado no fim do conteúdo para a barra inferior fixa. A barra da
+  // sacola (`CartSummary`) aparece empilhada acima da navegação e cresce com o
+  // aviso de loja fechada — por isso o padding muda junto.
+  const storeClosed = storeStatus ? !storeStatus.isOpen : false;
+  const contentBottomPadding =
+    itemCount > 0 ? (storeClosed ? "pb-56" : "pb-40") : "pb-24";
 
   // Converte o payload dinâmico (MenuProduct + adicionais) para o formato de
   // exibição do cardápio (Product com option_groups).
@@ -253,86 +293,41 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
             className="h-full w-full object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
-
-          {/* Identidade da plataforma: logotipo Ipepper no topo do cardápio.
-              O logo do próprio estabelecimento continua no avatar circular
-              abaixo, para o cliente não perder a referência da loja. */}
-          <Link
-            href="/"
-            aria-label="Ipepper — página inicial"
-            className="absolute left-3 top-3 z-20 inline-flex items-center rounded-xl bg-white/90 px-2.5 py-1.5 shadow-lg backdrop-blur-sm transition hover:bg-white active:scale-95 dark:bg-gray-900/85 dark:hover:bg-gray-800"
-          >
-            <Image
-              src="/logotipo.svg"
-              alt="Ipepper"
-              width={323}
-              height={150}
-              preload
-              unoptimized
-              className="h-5 w-auto sm:h-6"
-            />
-          </Link>
-
-          {/* Canto superior direito do banner: "Acompanhar Pedido" (somente
-              quando a sessão tem pedido em andamento ou concluído hoje) e o
-              botão fixo "Meus Pedidos". */}
-          <div className="absolute right-3 top-3 z-20 flex flex-col items-end gap-2">
-            {trackHref && !isTrackLoading && (
-              <Link
-                href={trackHref}
-                aria-label="Acompanhar o pedido já enviado"
-                className="inline-flex items-center gap-1.5 rounded-full bg-white/90 px-3.5 py-2 text-xs font-bold text-gray-700 shadow-lg backdrop-blur-sm transition hover:bg-white active:scale-95 dark:bg-gray-900/80 dark:text-gray-200 dark:hover:bg-gray-800"
-              >
-                <svg
-                  aria-hidden="true"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M9 20l-5.447-2.724A1 1 0 0 1 3 16.382V5.618a1 1 0 0 1 1.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0 0 21 18.382V7.618a1 1 0 0 0-.553-.894L15 4m0 13V4m0 0L9 7"
-                  />
-                </svg>
-                Acompanhar Pedido
-              </Link>
-            )}
-            <Link
-              href={`/${slug}/pedidos`}
-              className="inline-flex items-center gap-1.5 rounded-full bg-white/90 px-3.5 py-2 text-xs font-bold text-gray-700 shadow-lg backdrop-blur-sm transition hover:bg-white active:scale-95 dark:bg-gray-900/80 dark:text-gray-200 dark:hover:bg-gray-800"
-            >
-              <svg
-                aria-hidden="true"
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2}
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M16 11V7a4 4 0 0 0-8 0v4M5 9h14l1 12H4L5 9z"
-                />
-              </svg>
-              Meus Pedidos
-            </Link>
-          </div>
         </div>
 
         {/* Logo Circular + Nome Abaixo */}
         <div className="relative mx-auto -mt-12 flex max-w-2xl flex-col items-center px-4 text-center">
           {/* Anel combina com o fundo cinza do topo (evita halo branco). */}
-          <div className="relative h-24 w-24 overflow-hidden rounded-full border-4 border-gray-50 shadow-md dark:border-gray-950 sm:h-28 sm:w-28">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={menu?.establishment.logo_url || "/logotipo.webp"}
-              alt={`Logo de ${menu?.establishment.name ?? "estabelecimento"}`}
-              className="h-full w-full object-cover"
-            />
+          <div className="relative h-24 w-24 overflow-hidden rounded-full border-4 border-gray-50 bg-gray-100 shadow-md dark:border-gray-950 dark:bg-gray-800 sm:h-28 sm:w-28">
+            {menu?.establishment.logo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={menu.establishment.logo_url}
+                alt={`Logo de ${menu.establishment.name ?? "estabelecimento"}`}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              /* Sem logo cadastrado: avatar neutro (nenhuma marca da plataforma
+                 é exibida na vitrine do estabelecimento). */
+              <span
+                aria-hidden="true"
+                className="flex h-full w-full items-center justify-center text-gray-400 dark:text-gray-500"
+              >
+                <svg
+                  className="h-10 w-10"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.6}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M3 9.5 12 3l9 6.5" />
+                  <path d="M5 8.5V21h14V8.5" />
+                  <path d="M9.5 21v-6h5v6" />
+                </svg>
+              </span>
+            )}
           </div>
 
           {/* Nome, Descrição e Badge de Entrega — tudo centralizado */}
@@ -472,7 +467,9 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
       )}
 
       {/* Conteúdo Principal: Lista de Produtos em Grid (2 por linha) */}
-      <main className="flex-1 px-4 pb-28 pt-4 sm:px-6 sm:pb-24">
+      <main
+        className={`customer-view-enter flex-1 px-4 pt-4 sm:px-6 ${contentBottomPadding}`}
+      >
         <div className="mx-auto max-w-2xl space-y-6">
           {/* Aviso de loja fechada — o checkout e a API também bloqueiam. */}
           {!isLoading && storeStatus && !storeStatus.isOpen && (
@@ -598,8 +595,8 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
       {/* Resumo do Carrinho Fixo.
           Regra de navegação: este CTA existe SOMENTE enquanto há itens no
           carrinho e leva SEMPRE ao checkout (`/[slug]/checkout`). O
-          acompanhamento do pedido anterior fica no link próprio do topo
-          ("Acompanhar Pedido" → `/pedido/[id]`) — as duas telas nunca se
+          acompanhamento do pedido anterior fica na barra inferior
+          ("Acompanhar pedido" → `/pedido/[id]`) — as duas telas nunca se
           misturam. */}
       {/* Sacola lateral: exibe itens, calcula o frete (fixo ou por CEP/km) e
           só então libera o avanço para o checkout. */}
@@ -608,18 +605,31 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
         onClose={() => setIsCartOpen(false)}
         slug={slug}
         establishment={menu?.establishment ?? null}
-        storeClosed={storeStatus ? !storeStatus.isOpen : false}
+        storeClosed={storeClosed}
         nextOpeningLabel={nextOpeningLabel}
       />
 
-      {itemCount > 0 && (
-        <CartSummary
-          onOpen={() => setIsCartOpen(true)}
-          establishmentId={menu?.establishment.id ?? null}
-          storeClosed={storeStatus ? !storeStatus.isOpen : false}
-          nextOpeningLabel={nextOpeningLabel}
+      {/* Barra inferior fixa da vitrine: resumo da sacola (quando há itens)
+          empilhado acima da navegação principal. O container único garante que
+          a navegação nunca cubra o CTA da sacola — e o padding do `<main>`
+          (`contentBottomPadding`) reserva essa altura no fim da listagem. */}
+      <div className={`${BOTTOM_NAV_FIXED_CONTAINER} flex flex-col`}>
+        {itemCount > 0 && (
+          <CartSummary
+            onOpen={() => setIsCartOpen(true)}
+            establishmentId={menu?.establishment.id ?? null}
+            storeClosed={storeClosed}
+            nextOpeningLabel={nextOpeningLabel}
+          />
+        )}
+        <StorefrontBottomNav
+          active="menu"
+          onShowMenu={showMenu}
+          trackHref={trackHref}
+          ordersHref={ordersHref}
+          isTrackLoading={isTrackLoading}
         />
-      )}
+      </div>
     </div>
   );
 }
