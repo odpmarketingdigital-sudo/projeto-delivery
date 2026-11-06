@@ -34,6 +34,11 @@ type EstablishmentRow = Partial<StorefrontInfo> & {
   /** Assinatura (migração 20261110000012): `canceled` tira a loja do ar. */
   subscription_status?: string | null;
   delivery_fee?: number | string | null;
+  /**
+   * Liberação do Modo catálogo pelo Super Admin (migração 20261110000025).
+   * Sem ela o cardápio ignora `direct_whatsapp_checkout`.
+   */
+  catalog_mode_allowed?: boolean | null;
 };
 
 /** Linha crua de `products` (price pode vir string). */
@@ -74,10 +79,14 @@ function mapEstablishment(row: EstablishmentRow): StorefrontInfo {
     whatsapp_checkout_enabled: row.whatsapp_checkout_enabled !== false,
     /**
      * Modo catálogo (migração 20261110000017): desligado por padrão. Só entra
-     * em ação quando a loja marca `true` no painel — o fluxo de delivery segue
-     * exatamente igual nas demais lojas.
+     * em ação quando a loja marca `true` no painel E o Super Admin liberou a
+     * loja (`catalog_mode_allowed`, migração 20261110000025). A liberação é a
+     * última palavra: revogá-la volta a loja ao checkout tradicional mesmo que
+     * o lojista tenha deixado o modo ligado.
      */
-    direct_whatsapp_checkout: row.direct_whatsapp_checkout === true,
+    direct_whatsapp_checkout:
+      row.direct_whatsapp_checkout === true &&
+      row.catalog_mode_allowed === true,
     delivery_fee: delivery.delivery_fee,
     delivery_type: delivery.delivery_type,
     distance_base_km: delivery.distance_base_km,

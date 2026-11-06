@@ -52,7 +52,7 @@ const STATUS_META: Record<OrderStatus, { emoji: string; title: string; text: str
   pendente: {
     emoji: "🟡",
     title: "Pedido recebido",
-    text: "Aguardando confirmação do restaurante...",
+    text: "Aguardando confirmação do estabelecimento...",
     ring: "border-yellow-400/40 bg-yellow-400/10",
   },
   preparando: {
@@ -209,7 +209,7 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
   const router = useRouter();
   const { clearCart } = useCart();
   const [order, setOrder] = useState<TrackerOrder | null>(null);
-  const [estName, setEstName] = useState("Restaurante");
+  const [estName, setEstName] = useState("Estabelecimento");
   const [whatsapp, setWhatsapp] = useState<string | null>(null);
   /**
    * Link do resumo do pedido no WhatsApp, gerado pelo checkout e transportado
@@ -505,7 +505,7 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-gray-600 dark:text-gray-300">
               Envie o pedido completo (itens, adicionais, endereço e valores)
-              para o WhatsApp do restaurante.
+              para o WhatsApp do estabelecimento.
             </p>
             <WhatsAppSendHint className="mt-4" />
             <a
@@ -582,7 +582,7 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
               Cancelar pedido
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
-              Você pode cancelar enquanto o restaurante ainda não confirmou o
+              Você pode cancelar enquanto o estabelecimento ainda não confirmou o
               pedido.
             </p>
             <button
@@ -619,7 +619,7 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
         )}
         {waHref && (
           <a href={waHref} target="_blank" rel="noopener noreferrer" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-3 text-sm font-semibold text-white hover:bg-green-700">
-            Falar no WhatsApp do Restaurante
+            Falar no WhatsApp do estabelecimento
           </a>
         )}
         <div className="flex flex-col gap-2">

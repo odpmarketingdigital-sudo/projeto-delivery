@@ -62,7 +62,7 @@ export default function PrivacidadePage() {
     <LegalPageShell
       title="Política de Privacidade"
       eyebrow="Documentos legais"
-      summary={`A ${PRODUCT_NAME} é uma plataforma de cardápio digital e delivery via WhatsApp. Temos o compromisso de tratar dados pessoais com transparência, segurança e em conformidade com a Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018 — LGPD). Esta política explica quais dados coletamos, por que coletamos, com quem compartilhamos e como você pode exercer seus direitos.`}
+      summary={`A ${PRODUCT_NAME} é uma plataforma de cardápio digital e pedidos via WhatsApp. Temos o compromisso de tratar dados pessoais com transparência, segurança e em conformidade com a Lei Geral de Proteção de Dados Pessoais (Lei nº 13.709/2018 — LGPD). Esta política explica quais dados coletamos, por que coletamos, com quem compartilhamos e como você pode exercer seus direitos.`}
       sections={SECTIONS}
     >
       <LegalSection id="coleta-de-dados" number={1} title="Coleta de Dados">

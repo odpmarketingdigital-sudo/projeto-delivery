@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { connection } from "next/server";
 import { ensurePainelStore } from "@/lib/supabase/painelStoreGuard";
 import { OrderSoundProvider } from "./components/OrderSoundProvider";
 import { PainelGuard } from "./PainelGuard";
@@ -24,6 +25,14 @@ import { PainelGuard } from "./PainelGuard";
  * O painel usa um tema claro fixo (sidebar escura + conteúdo branco), mesmo
  * com o sistema operacional em modo escuro: o wrapper abaixo define as cores
  * base para que textos sem utilitário de cor herdem o tom escuro correto.
+ *
+ * Renderização: o `await connection()` abaixo marca o segmento como dinâmico
+ * **antes** de qualquer leitura de sessão. Sem ele, o `createServerClient()`
+ * (chamado por `ensurePainelStore`) constrói o `GoTrueClient` ainda durante o
+ * prerender, e o auth-js lê o cookie da sessão chamando `Date.now()` — o que o
+ * Cache Components rejeita com "encountered the unstable value `Date.now()`
+ * while prerendering". Com o acesso dinâmico primeiro, tudo roda em tempo de
+ * requisição e a checagem de expiração do token é legítima.
  */
 export const instant = false;
 
@@ -32,6 +41,8 @@ export default async function PainelLayout({
 }: {
   children: ReactNode;
 }) {
+  await connection();
+
   await ensurePainelStore();
 
   return (

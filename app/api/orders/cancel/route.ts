@@ -16,7 +16,7 @@ import { normalizeOrderStatus } from "@/lib/types";
  *     Isso impede que alguém de posse de um id vazado cancele o pedido alheio.
  *
  * Regra de negócio: só é permitido cancelar com status ESTRITAMENTE
- * `pendente` (aguardando confirmação do restaurante). Depois disso o preparo já
+ * `pendente` (aguardando confirmação do estabelecimento). Depois disso o preparo já
  * começou e o cliente deve falar com a loja pelo WhatsApp.
  *
  * A atualização é condicional (`status = pendente` no WHERE): se a loja

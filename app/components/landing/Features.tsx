@@ -69,7 +69,7 @@ export function Features() {
               Recursos do painel
             </span>
             <h2 className="mt-4 text-balance text-3xl font-black tracking-[-0.03em] text-white sm:text-4xl">
-              Tudo o que seu delivery precisa, em um só painel
+              Tudo o que seu estabelecimento precisa, em um só painel
             </h2>
             <p className="mt-4 text-pretty text-base leading-relaxed text-gray-400">
               Menos trabalho manual, mais pedidos organizados. Cada recurso foi

@@ -57,9 +57,34 @@ const EMPTY_FORM: FormState = {
   status: "ativo",
 };
 
+/**
+ * Colunas da listagem de estabelecimentos (inclui a liberação do Modo catálogo,
+ * migração 20261110000025).
+ */
+const LIST_COLUMNS =
+  "id, user_id, name, owner_name, email, phone, slug, status, created_at, updated_at, catalog_mode_allowed";
+
+/** Colunas mínimas para bases sem a migração 20261110000025. */
+const BASE_LIST_COLUMNS =
+  "id, user_id, name, owner_name, email, phone, slug, status, created_at, updated_at";
+
+/**
+ * O erro é de coluna `catalog_mode_allowed` ausente?
+ * Permite recuar a consulta em bancos onde a migração ainda não foi executada.
+ */
+function isMissingCatalogColumn(error: {
+  message?: string | null;
+} | null): boolean {
+  const message = error?.message ?? "";
+  return (
+    /catalog_mode_allowed/i.test(message) &&
+    (/does not exist/i.test(message) || /could not find/i.test(message))
+  );
+}
+
 /** Gera uma senha inicial simples e legível para o novo estabelecimento. */
 function generatePassword(): string {
-  const words = ["fuego", "burger", "delivery", "sabor", "chama"];
+  const words = ["fuego", "burger", "pizza", "sabor", "chama"];
   const word = words[Math.floor(Math.random() * words.length)];
   const num = Math.floor(1000 + Math.random() * 9000);
   return `${word}@${num}`;
@@ -88,6 +113,10 @@ export default function AdminEstabelecimentosPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** Coluna `catalog_mode_allowed` (migração 20261110000025) ainda não existe? */
+  const [catalogColumnMissing, setCatalogColumnMissing] = useState(false);
+  /** Estabelecimento com a chave do Modo catálogo em processamento. */
+  const [catalogSavingId, setCatalogSavingId] = useState<string | null>(null);
 
   // Guarda as senhas geradas no cadastro desta sessão (nunca vêm do banco),
   // apenas para o botão "Copiar Acesso". Map: email -> senha.
@@ -107,12 +136,27 @@ export default function AdminEstabelecimentosPage() {
 
   /** Consulta compartilhada: lista de estabelecimentos ordenada por cadastro. */
   const fetchEstablishments = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("establishments")
-      .select(
-        "id, user_id, name, owner_name, email, phone, slug, status, created_at, updated_at"
-      )
-      .order("created_at", { ascending: false });
+    /**
+     * O `select` é montado a partir de uma string variável (para recuar quando
+     * a coluna do Modo catálogo não existe), então o Supabase não infere o
+     * formato da linha — a conversão é feita explicitamente abaixo.
+     */
+    const query = (columns: string) =>
+      supabase
+        .from("establishments")
+        .select(columns)
+        .order("created_at", { ascending: false });
+
+    // `catalog_mode_allowed` é da migração 20261110000025: em base sem a coluna
+    // a consulta cai para a lista mínima, para a tela não ficar sem dados.
+    let { data, error } = await query(LIST_COLUMNS);
+
+    if (error && isMissingCatalogColumn(error)) {
+      ({ data, error } = await query(BASE_LIST_COLUMNS));
+      setCatalogColumnMissing(true);
+    } else {
+      setCatalogColumnMissing(false);
+    }
 
     if (error) {
       setEstablishments([]);
@@ -121,7 +165,7 @@ export default function AdminEstabelecimentosPage() {
       );
       return;
     }
-    setEstablishments((data as Establishment[]) ?? []);
+    setEstablishments((data as unknown as Establishment[]) ?? []);
     setLoadError(null);
   }, [supabase]);
 
@@ -259,6 +303,45 @@ export default function AdminEstabelecimentosPage() {
       }
     },
     [handleSave]
+  );
+
+  /**
+   * Libera/bloqueia o Modo catálogo (pedido/orçamento direto no WhatsApp) da
+   * loja. A permissão é exclusiva do Super Admin: a rota
+   * `/api/admin/catalog-mode` grava `catalog_mode_allowed` com a service role e,
+   * ao revogar, também desliga a preferência da loja (`direct_whatsapp_checkout`).
+   */
+  const handleToggleCatalogMode = useCallback(
+    async (est: Establishment) => {
+      if (catalogSavingId) return;
+      const allowed = est.catalog_mode_allowed !== true;
+
+      setCatalogSavingId(est.id);
+      setActionError(null);
+      try {
+        const res = await fetch("/api/admin/catalog-mode", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: est.id, allowed }),
+        });
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          throw new Error(data.error || "Falha ao atualizar o Modo catálogo.");
+        }
+
+        await refreshEstablishments();
+      } catch (err) {
+        setActionError(
+          err instanceof Error
+            ? err.message
+            : "Falha ao atualizar o Modo catálogo."
+        );
+      } finally {
+        setCatalogSavingId(null);
+      }
+    },
+    [catalogSavingId, refreshEstablishments]
   );
 
   /** Copia "E-mail: ... / Senha: ..." para a área de transferência. */
@@ -468,6 +551,16 @@ export default function AdminEstabelecimentosPage() {
           </div>
         )}
 
+        {/* Base sem a migração do Modo catálogo: avisa antes de a chave falhar. */}
+        {catalogColumnMissing && (
+          <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-700">
+            A coluna <code>catalog_mode_allowed</code> ainda não existe no banco,
+            então a chave do Modo catálogo está desativada. Execute a migração{" "}
+            <code>20261110000025_add_catalog_mode_allowed.sql</code> no SQL
+            Editor do Supabase.
+          </p>
+        )}
+
         {/* Estados: carregando / erro / vazio / lista */}
         {isLoading ? (
           <ul
@@ -530,7 +623,7 @@ export default function AdminEstabelecimentosPage() {
         ) : (
           <>
             {/* Tabela (desktop) */}
-            <div className="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white md:block">
+            <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white md:block">
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
@@ -539,6 +632,7 @@ export default function AdminEstabelecimentosPage() {
                     <th className="px-5 py-3 font-semibold">E-mail</th>
                     <th className="px-5 py-3 font-semibold">Telefone</th>
                     <th className="px-5 py-3 font-semibold">Status</th>
+                    <th className="px-5 py-3 font-semibold">Modo catálogo</th>
                     <th className="px-5 py-3 font-semibold">Cadastro</th>
                     <th className="px-5 py-3 text-right font-semibold">Ações</th>
                   </tr>
@@ -579,6 +673,19 @@ export default function AdminEstabelecimentosPage() {
                             />
                             {meta.label}
                           </button>
+                        </td>
+                        <td className="px-5 py-3.5">
+                          <CatalogModeSwitch
+                            enabled={est.catalog_mode_allowed === true}
+                            busy={catalogSavingId === est.id}
+                            disabled={
+                              catalogColumnMissing ||
+                              (catalogSavingId !== null &&
+                                catalogSavingId !== est.id)
+                            }
+                            label={`Modo catálogo de ${est.name}`}
+                            onToggle={() => void handleToggleCatalogMode(est)}
+                          />
                         </td>
                         <td className="px-5 py-3.5 text-slate-600">
                           {formatDate(est.created_at)}
@@ -711,6 +818,27 @@ export default function AdminEstabelecimentosPage() {
                     <p className="mt-2 text-xs text-slate-500">
                       Cadastrado em {formatDate(est.created_at)}
                     </p>
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-slate-800">
+                          Modo catálogo
+                        </p>
+                        <p className="text-[11px] leading-snug text-slate-500">
+                          Pedido/orçamento direto no WhatsApp
+                        </p>
+                      </div>
+                      <CatalogModeSwitch
+                        enabled={est.catalog_mode_allowed === true}
+                        busy={catalogSavingId === est.id}
+                        disabled={
+                          catalogColumnMissing ||
+                          (catalogSavingId !== null &&
+                            catalogSavingId !== est.id)
+                        }
+                        label={`Modo catálogo de ${est.name}`}
+                        onToggle={() => void handleToggleCatalogMode(est)}
+                      />
+                    </div>
                     <div className="mt-3 flex items-center gap-2 border-t border-slate-200 pt-3">
                       <button
                         type="button"
@@ -1158,6 +1286,60 @@ function DeleteConfirmModal({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Chave (switch) do "Modo catálogo" no painel do Super Admin.
+ *
+ * A liberação é gravada em `establishments.catalog_mode_allowed` e vale por
+ * loja: só depois dela o lojista consegue ligar o envio direto no WhatsApp em
+ * `/painel/configuracoes`.
+ */
+function CatalogModeSwitch({
+  enabled,
+  busy,
+  disabled,
+  label,
+  onToggle,
+}: {
+  enabled: boolean;
+  /** Requisição em andamento para esta loja (mostra o spinner). */
+  busy: boolean;
+  disabled: boolean;
+  /** Nome acessível — inclui a loja para diferenciar as linhas da tabela. */
+  label: string;
+  onToggle: () => void;
+}) {
+  const isDisabled = disabled || busy;
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={label}
+      aria-busy={busy}
+      title={
+        enabled
+          ? "Modo catálogo liberado — clique para bloquear"
+          : "Modo catálogo bloqueado — clique para liberar"
+      }
+      onClick={onToggle}
+      disabled={isDisabled}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-60 ${
+        enabled ? "bg-yellow-400" : "bg-slate-300"
+      }`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
+          enabled ? "translate-x-6" : "translate-x-1"
+        } ${busy ? "animate-pulse" : ""}`}
+      />
+      <span className="sr-only">
+        {enabled ? "Liberado" : "Bloqueado"}
+      </span>
+    </button>
   );
 }
 

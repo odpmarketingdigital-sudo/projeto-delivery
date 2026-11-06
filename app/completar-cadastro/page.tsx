@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { resolveOwnerName } from "@/lib/registration";
 import { findEstablishmentForUser } from "@/lib/supabase/establishments";
 import { createClient } from "@/lib/supabase/server";
@@ -55,6 +56,11 @@ function signupNotice(
 /**
  * A tela lê `cookies()` (sessão do Supabase) no servidor, então não pode ser
  * pré-renderizada estaticamente — mesmo padrão de `app/painel/layout.tsx`.
+ *
+ * O `await connection()` é obrigatório antes de `createClient()`: sem ele o
+ * `GoTrueClient` é construído durante o prerender e o auth-js chama
+ * `Date.now()` ao carregar a sessão do cookie, o que o Cache Components
+ * rejeita ("encountered the unstable value `Date.now()` while prerendering").
  */
 export const instant = false;
 
@@ -64,6 +70,8 @@ export default async function CompletarCadastroPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
+  await connection();
+
   const supabase = await createClient();
   const {
     data: { user },

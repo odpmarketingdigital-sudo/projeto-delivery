@@ -455,7 +455,7 @@ function SignupView() {
                   autoComplete="email"
                   value={email}
                   onChange={(event) => updateField("email", event.target.value)}
-                  placeholder="voce@seurestaurante.com"
+                  placeholder="voce@seuestabelecimento.com"
                   aria-invalid={Boolean(errors.email)}
                   aria-describedby={errors.email ? "email-error" : undefined}
                   className={`${INPUT_BASE} ${errors.email ? INPUT_ERROR : INPUT_OK}`}

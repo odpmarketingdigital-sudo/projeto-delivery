@@ -120,7 +120,7 @@ export function welcomeEmailText(props: WelcomeEmailProps): string {
       ? `Ficou com alguma dúvida? Responda este e-mail ou escreva para ${props.supportEmail}.`
       : "Ficou com alguma dúvida? Responda este e-mail — a gente ajuda você a colocar a loja pra vender.",
     "",
-    `Ipepper — cardápio digital e delivery (${props.appUrl})`,
+    `Ipepper — cardápio digital e pedidos online (${props.appUrl})`,
     `Você recebeu este e-mail porque criou uma conta em ${withoutProtocol(props.appUrl)}.`,
     `© ${props.year} Ipepper. Todos os direitos reservados.`,
   ];
@@ -643,7 +643,7 @@ export function WelcomeEmail(props: WelcomeEmailProps) {
                             color: COLORS.muted,
                           }}
                         >
-                          Ipepper · Cardápio digital e delivery
+                          Ipepper · Cardápio digital e pedidos online
                         </p>
                         <p
                           style={{

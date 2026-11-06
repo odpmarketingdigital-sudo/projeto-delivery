@@ -256,15 +256,8 @@ function PanelFrame({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const {
-    isActive,
-    isLoading,
-    isSchemaPending,
-    error,
-    isSuperAdmin,
-    isOverdue,
-    establishmentId,
-  } = useSubscription();
+  const { isActive, isLoading, isSchemaPending, error, isSuperAdmin, isOverdue } =
+    useSubscription();
 
   const isBypassRoute = isPaywallBypassRoute(pathname);
   // Só bloqueia com informação confiável: erro de leitura ou migração
@@ -287,12 +280,8 @@ function PanelFrame({
   }, [isRedirecting, pathname, router]);
 
   return (
-    <PanelShell
-      currentUser={currentUser}
-      isSuperAdmin={isSuperAdmin}
-      establishmentId={establishmentId}
-    >
-      <OverdueBanner establishmentId={establishmentId} />
+    <PanelShell currentUser={currentUser} isSuperAdmin={isSuperAdmin}>
+      <OverdueBanner />
       {isLoading ? (
         <PanelStatusScreen
           title="Verificando assinatura..."
@@ -304,7 +293,7 @@ function PanelFrame({
         <>
           {/* Com atraso acima da carência o aviso vermelho já cobre o tema;
               evita duas faixas concorrentes no topo do painel. */}
-          {!isOverdue && <TrialBanner establishmentId={establishmentId} />}
+          {!isOverdue && <TrialBanner />}
           {children}
         </>
       )}

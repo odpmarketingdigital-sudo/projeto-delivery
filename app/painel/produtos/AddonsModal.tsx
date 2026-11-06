@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import { formatCurrencyInput, parseCurrencyInput } from "@/lib/currency";
 import type { MenuAddon, MenuProduct } from "@/lib/types";
 import { sortByOrder } from "@/lib/menuOrder";
 
@@ -21,12 +22,6 @@ interface AddonsModalProps {
 /** Formata número como BRL (ex: 5 → "R$ 5,00"). */
 function formatBRL(value: number): string {
   return `R$ ${Number(value).toFixed(2).replace(".", ",")}`;
-}
-
-/** Converte "5,50" / "5.50" para número (aceita ambos). */
-function parsePrice(raw: string): number {
-  const normalized = raw.trim().replace(/\./g, "").replace(",", ".");
-  return Number(normalized);
 }
 
 /**
@@ -84,7 +79,7 @@ export function AddonsModal({
     e.preventDefault();
     if (isCreating) return;
     const name = newName.trim();
-    const price = parsePrice(newPrice || "0");
+    const price = parseCurrencyInput(newPrice || "0");
     if (!name) {
       setError("Informe o nome do adicional.");
       return;
@@ -214,9 +209,11 @@ export function AddonsModal({
               </label>
               <input
                 id="addon-price"
+                type="text"
                 value={newPrice}
-                onChange={(e) => setNewPrice(e.target.value)}
+                onChange={(e) => setNewPrice(formatCurrencyInput(e.target.value))}
                 inputMode="decimal"
+                autoComplete="off"
                 placeholder="5,00"
                 disabled={isCreating}
                 className={`w-full ${inputClass} disabled:opacity-60`}

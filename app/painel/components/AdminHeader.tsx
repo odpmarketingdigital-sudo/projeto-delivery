@@ -111,7 +111,7 @@ export function AdminHeader({
 
           <div className="hidden min-w-0 lg:block">
             <p className="truncate text-sm font-bold text-slate-900">
-              {isSuperAdmin ? "Painel SaaS" : "Painel do Restaurante"}
+              {isSuperAdmin ? "Painel SaaS" : "Painel do Estabelecimento"}
             </p>
             <p className="truncate text-xs font-medium text-slate-500">
               {isSuperAdmin

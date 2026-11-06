@@ -90,6 +90,32 @@ Passo a passo de configuração do webhook (Sandbox e Produção):
   a `canceled_at`/`overdue_suspended_at`) — lojas desligadas manualmente pelo
   Super Admin continuam offline.
 
+## Modo catálogo (pedido direto no WhatsApp)
+
+Recurso em que a sacola deixa de abrir o checkout e passa a enviar o
+pedido/orçamento para o WhatsApp da loja (útil para catálogos com preços
+variáveis ou itens "Sob Consulta"). Ele é **liberado exclusivamente pelo Super
+Admin**:
+
+- `establishments.catalog_mode_allowed` (migração
+  `20261110000025_add_catalog_mode_allowed.sql`) nasce `false` em toda loja e só
+  muda pelo painel `/painel/admin` (chave "Modo catálogo" na lista) via
+  `PUT /api/admin/catalog-mode` — Super Admin verificado por
+  [`lib/supabase/adminGuard.ts`](lib/supabase/adminGuard.ts) e escrita com
+  service role. O SQL da migração também cria a policy de `update` para
+  `public.is_super_admin()` e concede ao `authenticated` privilégio de `update`
+  apenas nessa coluna (as demais colunas seguem exclusivas das rotas de API);
+- Com a loja liberada, o lojista liga/desliga a chave
+  `direct_whatsapp_checkout` em `/painel/configuracoes` (migração
+  `20261110000017_add_direct_whatsapp_checkout.sql`). Sem a liberação a chave
+  aparece **desativada** com o aviso "Modo Catálogo exclusivo para planos
+  liberados" e `PUT /api/establishment` recusa `direct_whatsapp_checkout: true`
+  com 403;
+- `GET /api/menu` só devolve `direct_whatsapp_checkout: true` quando as duas
+  colunas estão `true`, então revogar a liberação devolve a loja ao checkout
+  tradicional na hora (a rota também zera a preferência da loja e chama
+  `revalidatePublicStore`).
+
 ## Entrega por distância (Google Maps)
 
 Fluxo do checkout para lojas com entrega por km (`delivery_type = 'distance'`)
@@ -129,6 +155,33 @@ Migração relacionada: `20261110000024_add_delivery_distance_to_orders.sql`
 (colunas `delivery_distance_km`, `delivery_duration_minutes` e
 `delivery_distance_source` em `orders`; sem ela o pedido é gravado normalmente,
 apenas sem esses campos).
+
+## Sessão e cookies (`431 Request Header Fields Too Large`)
+
+A sessão do Supabase vive em cookies **fatiados** (`sb-<ref>-auth-token.0`, `.1`, …).
+Se pedaços antigos não forem apagados, o header `Cookie` cresce até passar do
+limite de 16 KB do Node e **todas** as rotas passam a responder `431` — inclusive
+o login, porque o servidor recusa a requisição antes de executar qualquer código.
+
+O middleware (`lib/supabase/middleware.ts`) evita o problema:
+
+- `setAll` **acumula** os cookies numa lista e reaplica em toda resposta criada
+  na mesma requisição (a lib chama `setAll` mais de uma vez: PKCE + sessão);
+- redirects (`/login`, `/confirmar-email`, `/auth/continuar`) também levam o
+  `Set-Cookie` da sessão renovada;
+- chunks órfãos (que a lib nunca lê) são apagados do browser;
+- um aviso é registrado no log quando o header `Cookie` passa de 8 KB.
+
+Se o `431` ainda aparecer (cookies poluídos **antes** desta correção), limpe os
+cookies do domínio uma vez: o navegador nem envia a requisição, então o
+middleware não tem como se auto-corrigir.
+
+1. DevTools → **Application** → **Cookies** → `http://localhost:3000` →
+   *Clear all* (ou **Application** → *Clear site data*);
+2. recarregue e faça login novamente.
+
+Em produção, o mesmo procedimento no domínio da loja. Um Nginx/CDN à frente do
+app também tem limite próprio de headers (`large_client_header_buffers`).
 
 ## Learn More
 

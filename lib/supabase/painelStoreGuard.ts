@@ -69,6 +69,58 @@ export async function ensurePainelStore(): Promise<void> {
 }
 
 /**
+ * Id da loja ativa do usuário autenticado, lido da **sessão** no servidor.
+ *
+ * Fonte da verdade da rota `/painel/assinatura`: a query string deixou de ser
+ * confiável (um `?establishment_id=` antigo — link salvo, histórico, deep-link
+ * de outra conta — podia apontar para uma loja que o usuário não pode gerir) e
+ * a RLS `establishments_select_own` já limita a leitura à loja do dono.
+ *
+ * Regras:
+ *  - sem sessão → `null` (o middleware manda para `/login`);
+ *  - `super_admin` → `null` (não é dono de loja; a tela usa o contexto);
+ *  - erro de leitura → `null` (*fail-open*): a tela cai no contexto do cliente
+ *    em vez de quebrar por um erro de infraestrutura.
+ *
+ * Não redireciona e não grava cookies: em Server Component o `setAll` do
+ * cliente Supabase é ignorado (quem renova a sessão é o middleware), então a
+ * chamada não realimenta o ciclo de `Set-Cookie` que terminava em HTTP 431.
+ */
+export async function resolvePainelEstablishmentId(): Promise<string | null> {
+  try {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return null;
+
+    if ((await resolveRole(supabase, user)) === "super_admin") return null;
+
+    const { data, error } = await supabase
+      .from("establishments")
+      .select("id")
+      .order("name", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[painel] falha ao resolver a loja da sessão", {
+        userId: user.id,
+        code: error.code,
+      });
+      return null;
+    }
+
+    const id = (data as { id?: string | null } | null)?.id;
+    return typeof id === "string" && id.length > 0 ? id : null;
+  } catch (error) {
+    console.error("[painel] erro ao resolver a loja da sessão", error);
+    return null;
+  }
+}
+
+/**
  * Papel do usuário (`admin`, `super_admin`…) — `null` quando não dá para saber.
  *
  * Metadados do JWT primeiro (consulta sem I/O); em seguida `profiles` pela

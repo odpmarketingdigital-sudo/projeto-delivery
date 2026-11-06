@@ -123,7 +123,7 @@ const INPUT_ERROR =
 
 /**
  * Normaliza o slug enquanto o usuário digita (sem remover o hífen final, para
- * não atrapalhar a digitação de "meu-restaurante"). O valor final é limpo com
+ * não atrapalhar a digitação de "meu-estabelecimento"). O valor final é limpo com
  * `slugify` no envio.
  */
 function sanitizeSlugInput(value: string): string {
@@ -775,7 +775,7 @@ export function CompleteSignupForm({
                 htmlFor="slug"
                 label="Link do cardápio"
                 hint={`Seu cardápio ficará em ipepper.com.br/${
-                  slugPreview || "seu-restaurante"
+                  slugPreview || "seu-estabelecimento"
                 }`}
                 error={errors.slug}
               >
@@ -797,7 +797,7 @@ export function CompleteSignupForm({
                     onChange={(event) => handleSlugChange(event.target.value)}
                     autoComplete="off"
                     spellCheck={false}
-                    placeholder="meu-restaurante"
+                    placeholder="meu-estabelecimento"
                     aria-invalid={Boolean(errors.slug)}
                     aria-describedby={errors.slug ? "slug-error" : "slug-hint"}
                     className="w-full bg-transparent px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none"

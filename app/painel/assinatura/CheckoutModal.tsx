@@ -19,6 +19,7 @@ import {
   validateBillingCustomer,
   validateCreditCard,
   type BillingCustomerInput,
+  type BillingCustomerPrefill,
   type BillingStatusResponse,
   type BillingType,
   type CheckoutResponse,
@@ -39,6 +40,11 @@ import { formatBRL, type BillingCyclePrice } from "@/lib/subscriptions";
  *     chama `POST /api/billing/checkout` e passa a consultar
  *     `GET /api/billing/status` até o Asaas confirmar o pagamento.
  *
+ * Cupom que zera o período (ex.: 100% de desconto): o total vira "R$ 0,00
+ * (Grátis)", as formas de pagamento somem e o botão passa a ser "Ativar
+ * assinatura grátis". Nesse caso o gateway não é chamado — a rota registra a
+ * assinatura direto no banco como `active` e o modal encerra na confirmação.
+ *
  * Dados de cartão vivem apenas no estado do componente: não são persistidos em
  * lugar nenhum (nem em `localStorage`).
  */
@@ -49,6 +55,14 @@ interface CheckoutModalProps {
   /** Período escolhido na tela de assinatura, já com os valores calculados. */
   cyclePrice: BillingCyclePrice;
   planName: string;
+  /**
+   * Dados já cadastrados (nome, e-mail, CPF/CNPJ e WhatsApp) usados como
+   * estado inicial do passo 1. Pode chegar depois da montagem — o modal aplica
+   * assim que estiver disponível, sem sobrescrever o que já foi digitado.
+   */
+  prefill?: BillingCustomerPrefill | null;
+  /** `true` enquanto o pré-preenchimento está sendo buscado. */
+  isPrefillLoading?: boolean;
   onClose: () => void;
   /** Chamado quando o pagamento é confirmado (relê a assinatura no painel). */
   onConfirmed: () => void;
@@ -111,20 +125,54 @@ function formatDateOnly(value: string | null): string | null {
   return date.toLocaleDateString("pt-BR");
 }
 
+/**
+ * Passo 1 vazio — usado quando não há pré-preenchimento disponível.
+ * `EMPTY_CUSTOMER` é constante de módulo para manter a referência estável.
+ */
+const EMPTY_CUSTOMER: BillingCustomerInput = {
+  name: "",
+  email: "",
+  cpfCnpj: "",
+  phone: "",
+};
+
+/**
+ * Converte os dados cadastrados no estado do formulário (com as máscaras de
+ * CPF/CNPJ e telefone já aplicadas).
+ *
+ * Campos que já têm valor em `current` são preservados: o lojista pode estar
+ * digitando enquanto a busca do pré-preenchimento termina. A API devolve
+ * documento e telefone somente com dígitos (ou "" quando não cadastrados).
+ */
+function toCustomerInput(
+  prefill: BillingCustomerPrefill | null | undefined,
+  current: BillingCustomerInput
+): BillingCustomerInput {
+  if (!prefill) return current;
+
+  return {
+    name: current.name || prefill.name,
+    email: current.email || prefill.email,
+    cpfCnpj: current.cpfCnpj || formatCpfCnpjInput(prefill.cpfCnpj),
+    phone: current.phone || formatPhoneInput(prefill.phone),
+  };
+}
+
 export function CheckoutModal({
   establishmentId,
   cyclePrice,
   planName,
+  prefill = null,
+  isPrefillLoading = false,
   onClose,
   onConfirmed,
 }: CheckoutModalProps) {
   const [step, setStep] = useState<Step>("billing");
-  const [customer, setCustomer] = useState<BillingCustomerInput>({
-    name: "",
-    email: "",
-    cpfCnpj: "",
-    phone: "",
-  });
+  // O passo 1 começa com o que a loja já cadastrou (quando disponível) e segue
+  // editável — a nota fiscal pode ser emitida para outro e-mail/documento.
+  const [customer, setCustomer] = useState<BillingCustomerInput>(() =>
+    toCustomerInput(prefill, EMPTY_CUSTOMER)
+  );
   const [billingType, setBillingType] = useState<BillingType>("PIX");
   const [card, setCard] = useState({
     holderName: "",
@@ -138,6 +186,9 @@ export function CheckoutModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [result, setResult] = useState<CheckoutResponse | null>(null);
   const [isPaid, setIsPaid] = useState(false);
+  // `true` quando a assinatura foi ativada por um cupom que zerou o período:
+  // não houve cobrança no gateway e a tela final muda o texto de confirmação.
+  const [isFreeActivated, setIsFreeActivated] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
   const [lastCheckedAt, setLastCheckedAt] = useState<string | null>(null);
   const [pixCopied, setPixCopied] = useState(false);
@@ -145,6 +196,17 @@ export function CheckoutModal({
   const [coupon, setCoupon] = useState<SubscriptionCouponQuote | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [isCouponChecking, setIsCouponChecking] = useState(false);
+
+  // O pré-preenchimento pode chegar depois da montagem (a tela de assinatura
+  // busca os dados em paralelo). Ajuste de estado durante a renderização — o
+  // padrão do React para valores que mudam após o primeiro render — aplicado
+  // uma única vez e somando apenas os campos que ainda estão vazios, para não
+  // sobrescrever algo que o lojista já tenha digitado.
+  const [isPrefillApplied, setIsPrefillApplied] = useState(prefill != null);
+  if (!isPrefillApplied && prefill) {
+    setIsPrefillApplied(true);
+    setCustomer((current) => toCustomerInput(prefill, current));
+  }
 
   // O callback pode mudar de identidade a cada render da página; o polling usa
   // a versão mais recente sem reiniciar o intervalo.
@@ -187,6 +249,10 @@ export function CheckoutModal({
   const totalCents = Math.max(0, subtotalCents - couponDiscountCents);
   const totalLabel = formatBRL(totalCents);
   const hasCycleDiscount = cyclePrice.discountCents > 0;
+  // Cupom que zera o período (ex.: 100% de desconto): a contratação não passa
+  // pelo gateway — o botão vira "Ativar assinatura grátis" e as formas de
+  // pagamento somem do passo 2.
+  const isFree = totalCents <= 0;
 
   /** Atualiza um campo de faturamento. */
   const updateCustomer = (field: keyof BillingCustomerInput, value: string) => {
@@ -350,7 +416,8 @@ export function CheckoutModal({
 
     let creditCard: CreditCardInput | undefined;
 
-    if (isCard) {
+    // Sem valor a cobrar não há cartão a validar (os campos nem são exibidos).
+    if (isCard && !isFree) {
       const { month, year } = splitExpiry(card.expiry);
       creditCard = {
         holderName: card.holderName,
@@ -375,7 +442,9 @@ export function CheckoutModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...(establishmentId ? { establishment_id: establishmentId } : {}),
-          billingType,
+          // Ativação gratuita não escolhe forma de pagamento: o servidor ignora
+          // a cobrança quando o total zera (Pix vai apenas para o body).
+          billingType: isFree ? "PIX" : billingType,
           cycle: cyclePrice.id,
           ...(coupon?.couponCode ? { couponCode: coupon.couponCode } : {}),
           customer,
@@ -397,6 +466,15 @@ export function CheckoutModal({
 
       const checkout = data as unknown as CheckoutResponse;
       setResult(checkout);
+
+      // Cupom que zerou o período: a assinatura já está ativa no banco e não
+      // existe cobrança para acompanhar — o fluxo termina aqui.
+      if (checkout.isFree) {
+        setIsPaid(true);
+        setIsFreeActivated(true);
+        onConfirmed();
+        return;
+      }
 
       const paid = isPaidPaymentStatus(checkout.paymentStatus);
 
@@ -439,6 +517,12 @@ export function CheckoutModal({
     }
   };
 
+  // Enquanto os dados cadastrados são buscados, os campos do passo 1 pulsam
+  // suavemente para indicar que o conteúdo está a caminho (seguem editáveis).
+  const prefillFieldClass = isPrefillLoading
+    ? `${INPUT_CLASS} animate-pulse`
+    : INPUT_CLASS;
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-center sm:p-4">
       <div
@@ -451,7 +535,9 @@ export function CheckoutModal({
           <div className="min-w-0">
             <h2 id="checkout-title" className="text-lg font-bold text-slate-900">
               {isPaid
-                ? "Pagamento confirmado"
+                ? isFreeActivated
+                  ? "Assinatura ativada"
+                  : "Pagamento confirmado"
                 : result
                   ? "Finalize o pagamento"
                   : "Assinar plano"}
@@ -493,7 +579,7 @@ export function CheckoutModal({
             <li
               className={step === "payment" ? "text-amber-600" : "text-slate-500"}
             >
-              2. Pagamento
+              2. {isFree ? "Confirmação" : "Pagamento"}
             </li>
           </ol>
         )}
@@ -516,11 +602,16 @@ export function CheckoutModal({
                     </svg>
                   </div>
                   <p className="text-base font-semibold text-slate-900">
-                    Pagamento confirmado!
+                    {isFreeActivated
+                      ? "Assinatura gratuita ativada!"
+                      : "Pagamento confirmado!"}
                   </p>
                   <p className="mx-auto max-w-xs text-sm text-slate-600">
                     O {planName} está ativo e todos os recursos do painel foram
                     liberados.
+                    {isFreeActivated
+                      ? " O cupom cobriu o valor do período, então nenhuma cobrança foi gerada."
+                      : ""}
                   </p>
                 </div>
               ) : result.pix ? (
@@ -694,6 +785,19 @@ export function CheckoutModal({
             className="flex min-h-0 flex-1 flex-col"
           >
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+              {isPrefillLoading && (
+                <p
+                  role="status"
+                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-300 border-t-amber-500"
+                  />
+                  Carregando os dados que você já cadastrou...
+                </p>
+              )}
+
               <div>
                 <label htmlFor="checkout-name" className={LABEL_CLASS}>
                   Nome completo
@@ -703,9 +807,10 @@ export function CheckoutModal({
                   type="text"
                   autoComplete="name"
                   placeholder="Como no seu documento"
+                  aria-busy={isPrefillLoading}
                   value={customer.name}
                   onChange={(event) => updateCustomer("name", event.target.value)}
-                  className={INPUT_CLASS}
+                  className={prefillFieldClass}
                 />
               </div>
 
@@ -717,10 +822,11 @@ export function CheckoutModal({
                   id="checkout-email"
                   type="email"
                   autoComplete="email"
-                  placeholder="voce@restaurante.com.br"
+                  placeholder="voce@estabelecimento.com.br"
+                  aria-busy={isPrefillLoading}
                   value={customer.email}
                   onChange={(event) => updateCustomer("email", event.target.value)}
-                  className={INPUT_CLASS}
+                  className={prefillFieldClass}
                 />
                 <p className="mt-1 text-xs text-slate-500">
                   A nota fiscal e os avisos de cobrança vão para este e-mail.
@@ -738,6 +844,7 @@ export function CheckoutModal({
                     inputMode="numeric"
                     autoComplete="off"
                     placeholder="000.000.000-00"
+                    aria-busy={isPrefillLoading}
                     value={customer.cpfCnpj}
                     onChange={(event) =>
                       updateCustomer(
@@ -745,7 +852,7 @@ export function CheckoutModal({
                         formatCpfCnpjInput(event.target.value)
                       )
                     }
-                    className={INPUT_CLASS}
+                    className={prefillFieldClass}
                   />
                 </div>
 
@@ -759,11 +866,12 @@ export function CheckoutModal({
                     inputMode="tel"
                     autoComplete="tel"
                     placeholder="(11) 99999-9999"
+                    aria-busy={isPrefillLoading}
                     value={customer.phone}
                     onChange={(event) =>
                       updateCustomer("phone", formatPhoneInput(event.target.value))
                     }
-                    className={INPUT_CLASS}
+                    className={prefillFieldClass}
                   />
                 </div>
               </div>
@@ -797,48 +905,55 @@ export function CheckoutModal({
         ) : (
           <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
             <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-              <fieldset>
-                <legend className={LABEL_CLASS}>Forma de pagamento</legend>
-                <div className="grid gap-2">
-                  {BILLING_TYPES.map((type) => {
-                    const selected = billingType === type;
+              {isFree ? (
+                <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs font-medium text-emerald-700">
+                  Cupom aplicado: o período ficou em R$ 0,00 e nenhuma cobrança
+                  será gerada. Ao concluir, a assinatura é ativada na hora.
+                </p>
+              ) : (
+                <fieldset>
+                  <legend className={LABEL_CLASS}>Forma de pagamento</legend>
+                  <div className="grid gap-2">
+                    {BILLING_TYPES.map((type) => {
+                      const selected = billingType === type;
 
-                    return (
-                      <button
-                        key={type}
-                        type="button"
-                        aria-pressed={selected}
-                        onClick={() => {
-                          setBillingType(type);
-                          setError(null);
-                          setNotice(null);
-                        }}
-                        className={`rounded-xl border px-3 py-2.5 text-left transition ${
-                          selected
-                            ? "border-amber-400 bg-amber-50"
-                            : "border-slate-300 bg-slate-50 hover:border-slate-300"
-                        }`}
-                      >
-                        <span className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-semibold text-slate-900">
-                            {BILLING_TYPE_LABELS[type]}
-                          </span>
-                          {selected && (
-                            <span className="rounded-full bg-yellow-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-950">
-                              Selecionado
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => {
+                            setBillingType(type);
+                            setError(null);
+                            setNotice(null);
+                          }}
+                          className={`rounded-xl border px-3 py-2.5 text-left transition ${
+                            selected
+                              ? "border-amber-400 bg-amber-50"
+                              : "border-slate-300 bg-slate-50 hover:border-slate-300"
+                          }`}
+                        >
+                          <span className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-semibold text-slate-900">
+                              {BILLING_TYPE_LABELS[type]}
                             </span>
-                          )}
-                        </span>
-                        <span className="mt-0.5 block text-xs text-slate-500">
-                          {PAYMENT_HINTS[type]}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </fieldset>
+                            {selected && (
+                              <span className="rounded-full bg-yellow-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-950">
+                                Selecionado
+                              </span>
+                            )}
+                          </span>
+                          <span className="mt-0.5 block text-xs text-slate-500">
+                            {PAYMENT_HINTS[type]}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              )}
 
-              {isCard ? (
+              {isCard && !isFree ? (
                 <>
                   <div>
                     <label htmlFor="checkout-card-name" className={LABEL_CLASS}>
@@ -986,7 +1101,7 @@ export function CheckoutModal({
                     </p>
                   </div>
                 </>
-              ) : (
+              ) : isFree ? null : (
                 <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
                   {billingType === "PIX"
                     ? "Geramos um QR Code na hora. A confirmação costuma levar poucos segundos após o pagamento."
@@ -1087,8 +1202,13 @@ export function CheckoutModal({
                     <dt className="text-sm font-semibold text-slate-800">
                       Total {hasCycleDiscount ? "com desconto" : ""}
                     </dt>
-                    <dd className="text-base font-bold tabular-nums text-amber-600">
-                      {totalLabel}
+                    <dd className="flex items-baseline gap-1.5 text-base font-bold tabular-nums text-amber-600">
+                      <span>{totalLabel}</span>
+                      {isFree && (
+                        <span className="text-xs font-bold uppercase tracking-wide text-emerald-600">
+                          (Grátis)
+                        </span>
+                      )}
                     </dd>
                   </div>
                 </dl>
@@ -1134,11 +1254,13 @@ export function CheckoutModal({
               >
                 {isSubmitting
                   ? "Processando..."
-                  : billingType === "PIX"
-                    ? "Gerar QR Code Pix"
-                    : billingType === "BOLETO"
-                      ? "Gerar boleto"
-                      : `Pagar ${totalLabel}`}
+                  : isFree
+                    ? "Ativar assinatura grátis"
+                    : billingType === "PIX"
+                      ? "Gerar QR Code Pix"
+                      : billingType === "BOLETO"
+                        ? "Gerar boleto"
+                        : `Pagar ${totalLabel}`}
               </button>
             </div>
           </form>

@@ -178,6 +178,29 @@ function nonNegativeNumber(value: unknown): number | null {
   return parsed != null && parsed >= 0 ? parsed : null;
 }
 
+/**
+ * A loja está liberada para o Modo catálogo?
+ *
+ * A liberação (`catalog_mode_allowed`, migração 20261110000025) é exclusiva do
+ * Super Admin. Lida com a service role porque o lojista não recebe permissão de
+ * escrita no próprio registro. Base sem a coluna = **não liberada** (o recurso
+ * simplesmente continua bloqueado).
+ */
+async function isCatalogModeAllowed(
+  establishmentId: string
+): Promise<boolean> {
+  const adminClient = createAdminClient();
+  const { data, error } = await adminClient
+    .from("establishments")
+    .select("catalog_mode_allowed")
+    .eq("id", establishmentId)
+    .maybeSingle();
+
+  if (error) return false;
+  const row = data as { catalog_mode_allowed?: boolean | null } | null;
+  return row?.catalog_mode_allowed === true;
+}
+
 function isMissingDescriptionColumn(
   error: { code?: string | null; message?: string | null } | null
 ): boolean {
@@ -548,6 +571,22 @@ export async function PUT(request: Request) {
       return NextResponse.json(
         { error: "direct_whatsapp_checkout deve ser true ou false." },
         { status: 400 }
+      );
+    }
+    // Liberação exclusiva do Super Admin (migração 20261110000025): o painel da
+    // loja já bloqueia a chave, mas a API revalida para impedir chamadas
+    // diretas que ligassem o recurso sem permissão.
+    if (
+      body.direct_whatsapp_checkout &&
+      !(await isCatalogModeAllowed(establishmentId))
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "O Modo catálogo é exclusivo para lojas liberadas pelo Super Admin. " +
+            "Fale com o suporte para ativar o recurso.",
+        },
+        { status: 403 }
       );
     }
     updateFields.direct_whatsapp_checkout = body.direct_whatsapp_checkout;

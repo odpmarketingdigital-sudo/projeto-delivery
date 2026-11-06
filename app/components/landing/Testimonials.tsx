@@ -28,7 +28,7 @@ const TESTIMONIALS = [
 ];
 
 /**
- * Depoimentos de restaurantes que usam o canal próprio no WhatsApp.
+ * Depoimentos de estabelecimentos que usam o canal próprio no WhatsApp.
  */
 export function Testimonials() {
   return (
@@ -47,7 +47,7 @@ export function Testimonials() {
             Quem vende no WhatsApp já sente a diferença
           </h2>
           <p className="mt-4 text-pretty text-base leading-relaxed text-gray-400">
-            Histórias de restaurantes que profissionalizaram o atendimento sem
+            Histórias de estabelecimentos que profissionalizaram o atendimento sem
             abrir mão dos aplicativos que já usam.
           </p>
         </div>

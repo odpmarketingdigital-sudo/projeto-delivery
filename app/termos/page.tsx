@@ -72,7 +72,7 @@ export default function TermosPage() {
       >
         <p>
           O {PRODUCT_NAME} é uma plataforma de software como serviço (SaaS)
-          para delivery e automação de atendimento via WhatsApp. A plataforma
+          para pedidos e automação de atendimento via WhatsApp. A plataforma
           oferece, entre outras funcionalidades:
         </p>
         <LegalList>
@@ -93,7 +93,7 @@ export default function TermosPage() {
         <p>
           O {PRODUCT_NAME} é uma ferramenta de gestão. A {PRODUCT_NAME}{" "}
           <strong className="font-semibold text-gray-200">não</strong> é
-          restaurante, não produz, não vende, não entrega alimentos e não
+          estabelecimento, não produz, não vende, não entrega alimentos e não
           intermedeia pagamentos entre o estabelecimento e o consumidor final.
           O contrato de compra e venda é firmado exclusivamente entre o
           estabelecimento e o seu cliente.

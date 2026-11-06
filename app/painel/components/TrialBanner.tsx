@@ -15,14 +15,16 @@ import { useSubscription } from "./SubscriptionProvider";
  *  - durante o carregamento e com a migração de assinaturas pendente não
  *    renderiza nada (evita "piscar" um aviso incorreto).
  *
- * O link "Assinar Agora" leva a `/painel/assinatura`, preservando
- * `?establishment_id=` quando o super admin está operando uma loja específica.
+ * O link "Assinar Agora" leva a `/painel/assinatura` sem query string: a loja
+ * ativa é resolvida pela sessão (o `SubscriptionProvider` lê `establishments`
+ * pela RLS do dono), o que mantém a URL limpa e evita o HTTP 431 causado por
+ * headers/cookies inflados.
  */
-export function TrialBanner({
-  establishmentId,
-}: {
-  establishmentId?: string | null;
-}) {
+
+/** Destino da tela de assinatura (rota limpa, sem `?establishment_id=`). */
+const SUBSCRIPTION_HREF = "/painel/assinatura";
+
+export function TrialBanner() {
   const pathname = usePathname();
   const { status, daysRemaining, trialEndsAt, isLoading, isSuperAdmin, isSchemaPending } =
     useSubscription();
@@ -56,10 +58,6 @@ export function TrialBanner({
     if (!Number.isFinite(end.getTime())) return null;
     return `Termina em ${end.toLocaleDateString("pt-BR")}`;
   })();
-
-  const href = establishmentId
-    ? `/painel/assinatura?establishment_id=${encodeURIComponent(establishmentId)}`
-    : "/painel/assinatura";
 
   return (
     <div className="mx-auto w-full max-w-7xl px-4 pt-4 sm:px-6 lg:px-8">
@@ -102,7 +100,7 @@ export function TrialBanner({
         </p>
 
         <Link
-          href={href}
+          href={SUBSCRIPTION_HREF}
           className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${
             urgent
               ? "bg-red-500 text-white hover:bg-red-400 focus-visible:ring-red-300"

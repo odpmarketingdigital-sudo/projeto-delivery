@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   const establishmentId =
     typeof order.establishment_id === "string" ? order.establishment_id : null;
   let whatsapp: string | null = null;
-  let establishmentName = "Restaurante";
+  let establishmentName = "Estabelecimento";
   // Slug público da loja (coluna nullable em bases legadas) — usado pelo
   // tracker para montar o link "Voltar ao cardápio" (rota /[slug]).
   let establishmentSlug: string | null = null;

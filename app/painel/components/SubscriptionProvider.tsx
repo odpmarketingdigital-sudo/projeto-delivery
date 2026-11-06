@@ -224,10 +224,15 @@ const SubscriptionContext = createContext<PanelSubscription | null>(null);
  * banco separadamente.
  *
  * Resolução da loja:
- *  1. `?establishment_id=` na URL (deep-link de "Acessar Painel" do super
- *     admin);
+ *  1. `super_admin`: `?establishment_id=` na URL (deep-link de "Acessar
+ *     Painel"), validado pela RLS `establishments_select_super_admin`;
  *  2. caso contrário, a primeira loja devolvida pela RLS — para um admin é a
- *     própria loja.
+ *     própria loja (`establishments_select_own`).
+ *
+ * Um admin **nunca** escolhe a loja pela URL: um `?establishment_id=` antigo
+ * (link salvo, histórico, deep-link de outra conta) devolveria "loja não
+ * encontrada" e mandaria o dono autenticado para o paywall da própria tela de
+ * assinatura. A loja dele vem da sessão, no servidor ou pela RLS.
  *
  * Falhas de leitura e migração pendente são *fail-open*: o objetivo do
  * paywall é cobrar, não derrubar o painel de quem já paga por um erro de
@@ -272,10 +277,12 @@ export function SubscriptionProvider({ children }: { children: ReactNode }) {
   const { currentUser } = useAuth();
   const isSuperAdmin = currentUser?.role === "super_admin";
 
-  // Lido uma única vez por usuário: o deep-link do super admin chega na
-  // primeira navegação e é preservado nas trocas de tela (`buildHref`).
+  // Deep-link de loja é recurso do super admin (o admin só enxerga a própria
+  // loja pela RLS). Lido uma única vez por usuário: o id chega na primeira
+  // navegação e é preservado nas trocas de tela.
   const establishmentIdFromUrl = useMemo(() => {
     if (typeof window === "undefined" || !currentUser) return null;
+    if (currentUser.role !== "super_admin") return null;
     return new URLSearchParams(window.location.search).get("establishment_id");
   }, [currentUser]);
 

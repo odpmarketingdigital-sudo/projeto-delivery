@@ -258,6 +258,13 @@ export interface Establishment {
    * Ausente em bases legadas — tratado como desligado (`=== true`).
    */
   direct_whatsapp_checkout?: boolean | null;
+  /**
+   * Liberação do Modo catálogo pelo Super Admin (coluna
+   * `catalog_mode_allowed`, migração 20261110000025). Enquanto for `false`, a
+   * chave fica bloqueada no painel da loja e o cardápio público ignora
+   * `direct_whatsapp_checkout`. Ausente em bases legadas → tratado como `false`.
+   */
+  catalog_mode_allowed?: boolean | null;
   status: "ativo" | "inativo";
   /**
    * Slug público usado na URL exclusiva do cardápio (rota `/[slug]`).
@@ -270,7 +277,7 @@ export interface Establishment {
   banner_url?: string | null;
   /**
    * Texto exibido abaixo do nome no cardápio público (coluna `description`).
-   * Quando vazio/null, a vitrine exibe o badge "DELIVERY" como fallback.
+   * Quando vazio/null, a vitrine exibe o selo "PEDIDOS ONLINE" como fallback.
    */
   description?: string | null;
   /**
@@ -447,6 +454,10 @@ export interface StorefrontInfo {
    * Modo catálogo (`establishments.direct_whatsapp_checkout`, migração
    * 20261110000017). Quando `true`, a sacola envia o pedido/orçamento direto
    * para o WhatsApp da loja, sem passar pelo checkout.
+   *
+   * ATENÇÃO: já vem "efetivo" de `/api/menu` — a API só devolve `true` quando o
+   * Super Admin liberou a loja (`catalog_mode_allowed`, migração
+   * 20261110000025). As telas não precisam revalidar a liberação.
    * Ausente = desligado.
    */
   direct_whatsapp_checkout?: boolean;

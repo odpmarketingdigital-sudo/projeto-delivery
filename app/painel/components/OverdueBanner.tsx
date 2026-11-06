@@ -24,11 +24,16 @@ import { useSubscription } from "./SubscriptionProvider";
  *  - é renderizado pelo `PanelFrame`, acima do conteúdo e do aviso de paywall,
  *    de modo que o motivo do bloqueio apareça também no dashboard.
  */
-export function OverdueBanner({
-  establishmentId,
-}: {
-  establishmentId?: string | null;
-}) {
+/**
+ * Destino da tela de assinatura.
+ *
+ * A loja é resolvida pela sessão (servidor + `SubscriptionProvider`), então o
+ * link vai limpo: `?establishment_id=` em cada navegação inflava a URL e, com
+ * os cookies fatiados da sessão, colaborava para o HTTP 431.
+ */
+const SUBSCRIPTION_HREF = "/painel/assinatura";
+
+export function OverdueBanner() {
   const {
     isLoading,
     isSuperAdmin,
@@ -43,10 +48,6 @@ export function OverdueBanner({
 
   if (isLoading || isSuperAdmin || isSchemaPending) return null;
   if (!isOverdue) return null;
-
-  const subscriptionHref = establishmentId
-    ? `/painel/assinatura?establishment_id=${encodeURIComponent(establishmentId)}`
-    : "/painel/assinatura";
 
   const dueLabel = formatDateBR(paymentDueDate);
   const overdueLabel = describeOverdueDays(daysOverdue);
@@ -122,7 +123,7 @@ export function OverdueBanner({
               </a>
             ) : (
               <Link
-                href={subscriptionHref}
+                href={SUBSCRIPTION_HREF}
                 className="inline-flex items-center justify-center rounded-xl bg-red-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-offset-2"
               >
                 Regularizar agora
@@ -131,7 +132,7 @@ export function OverdueBanner({
 
             {paymentInvoiceUrl && (
               <Link
-                href={subscriptionHref}
+                href={SUBSCRIPTION_HREF}
                 className="text-center text-xs font-semibold text-red-800 underline underline-offset-2 hover:text-red-900"
               >
                 Ver detalhes da assinatura

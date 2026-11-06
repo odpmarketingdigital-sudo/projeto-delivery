@@ -3,9 +3,14 @@
  *
  * Regras do recurso "enviar pedido direto pelo WhatsApp" (migração
  * 20261110000017):
+ * - O recurso só é oferecido quando o Super Admin libera a loja
+ *   (`establishments.catalog_mode_allowed`, migração 20261110000025). Essa
+ *   trava é aplicada em `/api/menu`, então `StorefrontInfo` já chega com
+ *   `direct_whatsapp_checkout` "efetivo" — os componentes não precisam
+ *   revalidar a liberação.
  * - A loja liga a opção em `establishments.direct_whatsapp_checkout`. Ausência
  *   da coluna/valor = modo desligado (`=== true`), mantendo intacto o fluxo de
- *   delivery tradicional (sacola -> checkout -> `POST /api/orders`).
+ *   entrega tradicional (sacola -> checkout -> `POST /api/orders`).
  * - Com o modo ligado, a sacola NÃO navega para `/checkout`: monta a mensagem e
  *   abre o WhatsApp da loja. Nenhum pedido é gravado em `public.orders` — o
  *   atendimento é combinado diretamente com o lojista.

@@ -24,7 +24,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Ipepper — Cardápio digital para vender no WhatsApp",
     description:
-      "Seu canal próprio de delivery: receba pedidos organizados no WhatsApp, sem comissão por pedido.",
+      "Seu canal próprio de vendas: receba pedidos organizados no WhatsApp, sem comissão por pedido.",
     siteName: "Ipepper",
     locale: "pt_BR",
     type: "website",
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Ipepper — Cardápio digital para vender no WhatsApp",
     description:
-      "Seu canal próprio de delivery: receba pedidos organizados no WhatsApp, sem comissão por pedido.",
+      "Seu canal próprio de vendas: receba pedidos organizados no WhatsApp, sem comissão por pedido.",
   },
   robots: {
     index: true,

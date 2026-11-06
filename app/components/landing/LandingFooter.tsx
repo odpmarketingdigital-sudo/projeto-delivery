@@ -167,7 +167,7 @@ export function LandingFooter() {
             © Ipepper. Todos os direitos reservados.
           </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-5">
-            <p>Seu delivery, seu canal, seus clientes.</p>
+            <p>Seu cardápio, seu canal, seus clientes.</p>
             <a
               href="#inicio"
               className="inline-flex w-fit items-center gap-1.5 font-semibold text-gray-500 transition hover:text-amber-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"

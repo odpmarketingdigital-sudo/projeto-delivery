@@ -68,7 +68,7 @@ export async function generateMetadata({
 
   return {
     title: `${store.name} · Cardápio`,
-    description: `Peça online de ${store.name}. Veja o cardápio, monte seu pedido e finalize pelo delivery.`,
+    description: `Peça online de ${store.name}. Veja o cardápio, monte seu pedido e finalize pelo WhatsApp.`,
   };
 }
 

@@ -48,6 +48,10 @@ interface PreviewState {
    * Revogada quando substituída, removida ou ao desmontar o componente.
    */
   previewUrl?: string;
+  /** Nome original do arquivo escolhido (exibido ao lado do botão de upload). */
+  fileName?: string;
+  /** Tamanho do arquivo em bytes (formatado na interface como KB/MB). */
+  fileSize?: number;
   error?: string;
 }
 
@@ -70,6 +74,17 @@ function fileNameFor(file: File): string {
 
 function buildStoragePath(establishmentId: string, fileName: string): string {
   return `${establishmentId}/${fileName}`;
+}
+
+/**
+ * Formata o tamanho do arquivo para exibição ao lado do botão de upload.
+ * Ex.: `950` → "950 B" · `245760` → "240 KB" · `2516582` → "2,4 MB".
+ */
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${Math.round(kb)} KB`;
+  return `${(kb / 1024).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} MB`;
 }
 
 /**
@@ -152,6 +167,11 @@ export default function ConfiguracoesIdentidade() {
   // Object URLs (`URL.createObjectURL`) criadas para as prévias — rastreadas
   // para poderem ser revogadas ao desmontar (evita vazamento de memória).
   const objectUrlsRef = useRef<Set<string>>(new Set());
+  // Inputs nativos de arquivo (logo/banner). Ficam `sr-only` e são acionados
+  // pelos botões customizados de upload via ref.
+  const fileInputsRef = useRef<
+    Record<"logo_url" | "banner_url", HTMLInputElement | null>
+  >({ logo_url: null, banner_url: null });
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
@@ -198,6 +218,10 @@ export default function ConfiguracoesIdentidade() {
   // Modo catálogo (migração 17): pedido/orçamento direto no WhatsApp, sem
   // passar pelo checkout. Default `false` — o fluxo de delivery não muda.
   const [directWhatsAppCheckout, setDirectWhatsAppCheckout] = useState(false);
+  // Liberação do Modo catálogo pelo Super Admin (`catalog_mode_allowed`,
+  // migração 25). Sem ela a chave fica bloqueada nesta tela — o lojista não
+  // consegue ligar o recurso nem por chamada direta (a API revalida).
+  const [catalogModeAllowed, setCatalogModeAllowed] = useState(false);
 
   // Link público da loja: exibido apenas para leitura/cópia (o slug é definido
   // no cadastro do estabelecimento e não é editável por esta tela).
@@ -265,8 +289,14 @@ export default function ConfiguracoesIdentidade() {
         setLoadError(null);
         // Migração 20261110000016: ausência da coluna = recurso ativo.
         setWhatsappCheckoutEnabled(row.whatsapp_checkout_enabled !== false);
+        // Migração 25: liberação do Super Admin (ausência = não liberado).
+        const catalogAllowed = row.catalog_mode_allowed === true;
+        setCatalogModeAllowed(catalogAllowed);
         // Migração 17: modo catálogo desligado por padrão (ausência = false).
-        setDirectWhatsAppCheckout(row.direct_whatsapp_checkout === true);
+        // Sem a liberação do Super Admin a chave aparece bloqueada/desligada.
+        setDirectWhatsAppCheckout(
+          catalogAllowed && row.direct_whatsapp_checkout === true
+        );
         // Número usado pelo checkout: WhatsApp oficial com fallback ao telefone.
         setWhatsappValue(row.whatsapp ?? row.phone ?? "");
       });
@@ -352,10 +382,12 @@ export default function ConfiguracoesIdentidade() {
       // Prévia instantânea: object URL local exibida no <img> imediatamente,
       // antes (e durante) o upload para o Storage.
       const previewUrl = URL.createObjectURL(file);
-      setPreview(field, { status: "uploading", previewUrl });
+      // Nome/tamanho originais ficam no estado para o feedback ao lado do botão.
+      const fileMeta = { fileName: file.name, fileSize: file.size };
+      setPreview(field, { status: "uploading", previewUrl, ...fileMeta });
       try {
         const url = await uploadToStorage(supabase, selectedId, file);
-        setPreview(field, { status: "stored", url, previewUrl });
+        setPreview(field, { status: "stored", url, previewUrl, ...fileMeta });
       } catch (err) {
         // Falha no upload → descarta a prévia (setPreview revoga a object URL)
         // e volta para a imagem salva, exibindo o erro abaixo do input.
@@ -780,8 +812,12 @@ export default function ConfiguracoesIdentidade() {
           // String vazia limpa o número cadastrado na loja.
           whatsapp,
           whatsapp_checkout_enabled: whatsappCheckoutEnabled,
-          // Migração 17: modo catálogo (pedido direto no WhatsApp).
-          direct_whatsapp_checkout: directWhatsAppCheckout,
+          // Migração 17: modo catálogo (pedido direto no WhatsApp). Só é enviado
+          // quando o Super Admin liberou a loja (migração 25) — a API também
+          // recusa o `true` sem liberação.
+          ...(catalogModeAllowed
+            ? { direct_whatsapp_checkout: directWhatsAppCheckout }
+            : {}),
         }),
       });
       const json = (await res.json().catch(() => ({}))) as {
@@ -935,7 +971,7 @@ export default function ConfiguracoesIdentidade() {
                 className="w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-500 hover:border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40"
               />
               <p className="mt-1 text-xs text-slate-500">
-                Deixe vazio para exibir o badge “DELIVERY” padrão.{" "}
+                Deixe vazio para exibir o selo “Pedidos online” padrão.{" "}
                 {descriptionValue.trim().length}/200 caracteres
               </p>
             </div>
@@ -1525,12 +1561,21 @@ export default function ConfiguracoesIdentidade() {
             </button>
           </div>
 
-          {/* Modo catálogo (migração 17): sacola -> WhatsApp, sem checkout. */}
-          <div className="mt-3 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          {/* Modo catálogo (migração 17): sacola -> WhatsApp, sem checkout.
+              A chave depende da liberação do Super Admin (migração 25). */}
+          <div
+            className={`mt-3 flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between ${
+              catalogModeAllowed
+                ? "border-slate-200 bg-slate-50"
+                : "border-slate-200 bg-slate-100/70"
+            }`}
+          >
             <div>
               <p
                 id="direct-whatsapp-checkout-label"
-                className="text-sm font-medium text-slate-800"
+                className={`text-sm font-medium ${
+                  catalogModeAllowed ? "text-slate-800" : "text-slate-500"
+                }`}
               >
                 Modo catálogo: enviar pedido/orçamento direto no WhatsApp
               </p>
@@ -1540,26 +1585,54 @@ export default function ConfiguracoesIdentidade() {
                 preço aparecem como “Sob Consulta” e o valor é combinado no
                 atendimento.
               </p>
-              <p className="mt-1 text-xs text-slate-500">
-                {whatsappPreview
-                  ? `Pedido enviado para: ${whatsappPreview}`
-                  : "Cadastre um WhatsApp válido acima para que o botão funcione na sacola."}
-              </p>
+              {catalogModeAllowed ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  {whatsappPreview
+                    ? `Pedido enviado para: ${whatsappPreview}`
+                    : "Cadastre um WhatsApp válido acima para que o botão funcione na sacola."}
+                </p>
+              ) : (
+                <p className="mt-2 inline-flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-relaxed text-amber-700">
+                  <svg
+                    aria-hidden="true"
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                    />
+                  </svg>
+                  <span>
+                    Modo Catálogo exclusivo para planos liberados. Entre em
+                    contato com o suporte para ativar.
+                  </span>
+                </p>
+              )}
             </div>
             <button
               type="button"
               role="switch"
-              aria-checked={directWhatsAppCheckout}
+              aria-checked={catalogModeAllowed && directWhatsAppCheckout}
               aria-labelledby="direct-whatsapp-checkout-label"
+              aria-describedby={
+                catalogModeAllowed ? undefined : "catalog-mode-locked-hint"
+              }
               onClick={() => {
                 setDirectWhatsAppCheckout((prev) => !prev);
                 setWhatsappSuccess(null);
                 setWhatsappError(null);
                 setWhatsappWarning(null);
               }}
-              disabled={!selectedId || isSavingWhatsApp}
+              disabled={!selectedId || isSavingWhatsApp || !catalogModeAllowed}
               className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-60 ${
-                directWhatsAppCheckout ? "bg-yellow-400" : "bg-slate-200"
+                catalogModeAllowed && directWhatsAppCheckout
+                  ? "bg-yellow-400"
+                  : "bg-slate-200"
               }`}
             >
               <span className="sr-only">
@@ -1568,10 +1641,15 @@ export default function ConfiguracoesIdentidade() {
               </span>
               <span
                 className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
-                  directWhatsAppCheckout ? "translate-x-6" : "translate-x-1"
+                  catalogModeAllowed && directWhatsAppCheckout
+                    ? "translate-x-6"
+                    : "translate-x-1"
                 }`}
               />
             </button>
+            <span id="catalog-mode-locked-hint" className="sr-only">
+              Recurso bloqueado pelo Super Admin.
+            </span>
           </div>
 
           {/*
@@ -1595,6 +1673,21 @@ export default function ConfiguracoesIdentidade() {
                 no banco. Execute a migração{" "}
                 <code>20261110000017_add_direct_whatsapp_checkout.sql</code> no
                 SQL Editor do Supabase para que o modo catálogo seja gravado.
+              </p>
+            )}
+
+          {/*
+           * Base sem a migração 25 (liberação do Super Admin): a chave acima
+           * fica bloqueada. Orienta quem executa o SQL no Supabase.
+           */}
+          {establishmentData &&
+            establishmentData.catalog_mode_allowed === undefined && (
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
+                A coluna <code>catalog_mode_allowed</code> ainda não existe no
+                banco, então o Modo Catálogo continua bloqueado. Execute a
+                migração{" "}
+                <code>20261110000025_add_catalog_mode_allowed.sql</code> no SQL
+                Editor do Supabase.
               </p>
             )}
 
@@ -1637,6 +1730,9 @@ export default function ConfiguracoesIdentidade() {
             const isLogo = field.key === "logo_url";
             const state = isLogo ? logo : banner;
             const currentUrl = isLogo ? establishmentData?.logo_url : establishmentData?.banner_url;
+            const isUploading = state.status === "uploading";
+            // "Alterar imagem" quando já existe imagem salva ou prévia local.
+            const hasImage = Boolean(state.previewUrl ?? currentUrl);
             return (
               <section key={field.key} className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
                 <div className="flex items-center gap-2">
@@ -1700,32 +1796,108 @@ export default function ConfiguracoesIdentidade() {
                   })()}
                 </div>
 
+                {/*
+                 * Área de upload: o input nativo fica `sr-only` (funcional e
+                 * acessível) e é acionado pelo botão customizado via ref.
+                 */}
                 <div className="mt-4">
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                    {state.status === "stored" ? "Alterar imagem" : "Enviar nova imagem"}
-                  </label>
-                  <input
-                    type="file"
-                    accept={ACCEPT_ATTR}
-                    className="w-full cursor-pointer rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition hover:border-slate-300 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-amber-100 file:px-4 file:py-2.5 file:text-slate-950 hover:file:bg-amber-100"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      // Zera o input para permitir reselecionar o mesmo arquivo.
-                      e.target.value = "";
-                      if (file) void handleFile(field.key, file);
-                    }}
-                  />
+                  <div className="flex flex-col gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-3 transition hover:border-amber-400 hover:bg-amber-50/40 focus-within:border-amber-400 focus-within:bg-amber-50/40 focus-within:ring-2 focus-within:ring-amber-100 sm:flex-row sm:items-center">
+                    <input
+                      ref={(el) => {
+                        fileInputsRef.current[field.key] = el;
+                      }}
+                      id={`upload-${field.key}`}
+                      type="file"
+                      accept={ACCEPT_ATTR}
+                      aria-label={`Selecionar imagem para ${field.label.toLowerCase()}`}
+                      tabIndex={-1}
+                      disabled={isUploading || !selectedId}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        // Zera o input para permitir reselecionar o mesmo arquivo.
+                        e.target.value = "";
+                        if (file) void handleFile(field.key, file);
+                      }}
+                      className="sr-only"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputsRef.current[field.key]?.click()}
+                      disabled={isUploading || !selectedId}
+                      aria-busy={isUploading}
+                      className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-sm shadow-yellow-400/30 transition hover:bg-yellow-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                    >
+                      {isUploading ? (
+                        <span
+                          aria-hidden="true"
+                          className="h-4 w-4 animate-spin rounded-full border-2 border-slate-900/25 border-t-slate-900"
+                        />
+                      ) : (
+                        /* Ícone de upload (traço, no estilo Lucide `Upload`). */
+                        <svg
+                          aria-hidden="true"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                          viewBox="0 0 24 24"
+                          className="h-4 w-4"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M4 15.5v2.25A2.25 2.25 0 0 0 6.25 20h11.5A2.25 2.25 0 0 0 20 17.75V15.5"
+                          />
+                        </svg>
+                      )}
+                      {isUploading
+                        ? "Enviando..."
+                        : hasImage
+                          ? "Alterar imagem"
+                          : "Selecionar imagem"}
+                    </button>
+
+                    <div className="min-w-0 sm:flex-1">
+                      {state.fileName ? (
+                        <p
+                          className="flex min-w-0 items-center gap-1.5 text-xs"
+                          title={state.fileName}
+                        >
+                          <svg
+                            aria-hidden="true"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={1.75}
+                            viewBox="0 0 24 24"
+                            className="h-4 w-4 shrink-0 text-slate-400"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M14 3v4a1 1 0 0 0 1 1h4M15 3H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7l-3-4Z"
+                            />
+                          </svg>
+                          <span className="min-w-0 truncate font-medium text-slate-700">
+                            {state.fileName}
+                          </span>
+                          {typeof state.fileSize === "number" && (
+                            <span className="shrink-0 text-slate-500">
+                              · {formatFileSize(state.fileSize)}
+                            </span>
+                          )}
+                        </p>
+                      ) : (
+                        <p className="text-xs leading-relaxed text-slate-500">
+                          {field.hint} · PNG, JPG ou WebP · até 20 MB
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
                   {state.error && <p className="mt-1.5 text-xs text-red-600">{state.error}</p>}
-                  {state.status === "uploading" && (
-                    <p className="mt-1.5 flex items-center gap-2 text-xs text-slate-600">
-                      <span className="h-3 w-3 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
-                      Enviando...
-                    </p>
-                  )}
                   {state.status === "stored" && state.url && (
-                    <p className="mt-1.5 flex items-center gap-2 text-xs text-green-600">
+                    <p className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-green-600">
                       <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-                      Pronto. Clique em {" "}
+                      Pronto. Clique em{" "}
                       <button type="button" className="font-semibold text-amber-600 hover:underline" onClick={() => clearPreview(field.key)}>
                         retirar
                       </button>{" "}

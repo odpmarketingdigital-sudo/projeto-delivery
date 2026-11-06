@@ -329,7 +329,7 @@ export function buildSubscriptionPlan(priceCents: number): SubscriptionPlan {
     id: "pro",
     name: "Plano Profissional Ipepper",
     tagline:
-      "Tudo o que o seu delivery precisa para vender e organizar a operação.",
+      "Tudo o que o seu estabelecimento precisa para vender e organizar a operação.",
     priceCents,
     priceLabel: formatBRL(priceCents),
     period: "mês",

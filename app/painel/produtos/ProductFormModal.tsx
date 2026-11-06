@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, FormEvent, MouseEvent } from "react";
+import {
+  formatCurrencyInput,
+  formatCurrencyValue,
+  parseCurrencyInput,
+} from "@/lib/currency";
 import type { Category, MenuProduct } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 
@@ -43,6 +48,9 @@ const EMPTY_FORM: FormState = {
 /**
  * Constrói o estado do formulário a partir do produto em edição.
  * Retorna um formulário limpo quando `editing` é nulo (modo criação).
+ *
+ * O preço é exibido no formato brasileiro (`26,90`) para casar com a máscara
+ * de digitação aplicada no input.
  */
 function toFormState(editing: MenuProduct | null): FormState {
   if (!editing) return EMPTY_FORM;
@@ -50,7 +58,7 @@ function toFormState(editing: MenuProduct | null): FormState {
     name: editing.name,
     category_id: editing.category_id ?? "",
     description: editing.description,
-    price: String(editing.price).replace(".", ","),
+    price: formatCurrencyValue(editing.price),
     image_url: editing.image_url,
     is_active: editing.is_active,
     track_stock: editing.track_stock === true,
@@ -135,28 +143,50 @@ export function ProductFormModal({
     setForm(toFormState(editing));
   }
 
+  // Enquanto salva ou envia imagem o modal não pode ser fechado (evita perder
+  // dados de um submit em andamento). Usado pelo X, pelo backdrop e pelo ESC.
+  const isBusy = isSubmitting || isUploading;
+
+  // Marca se o gesto de clique começou no backdrop (ver `handleBackdropClick`).
+  const pressStartedOnBackdrop = useRef(false);
+
+  /** Fecha o modal apenas quando não há operação em andamento. */
+  const requestClose = () => {
+    if (isBusy) return;
+    onClose();
+  };
+
+  /**
+   * Fecha ao clicar no fundo escurecido (backdrop).
+   *
+   * Só fecha quando o gesto começou *e* terminou no backdrop e o alvo é o
+   * próprio overlay (`target === currentTarget`) — assim um clique/arrasto que
+   * começa dentro do card (ex.: selecionar o texto de um campo) nunca fecha o
+   * modal. O card também chama `stopPropagation`, cobrindo o caminho normal.
+   */
+  const handleBackdropClick = (e: MouseEvent<HTMLDivElement>) => {
+    const startedOnBackdrop = pressStartedOnBackdrop.current;
+    pressStartedOnBackdrop.current = false;
+    if (!startedOnBackdrop || e.target !== e.currentTarget) return;
+    requestClose();
+  };
+
   // Fecha com ESC e trava o scroll do body enquanto aberto.
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !isSubmitting && !isUploading) onClose();
+      if (e.key === "Escape" && !isBusy) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
       window.removeEventListener("keydown", onKey);
     };
-  }, [onClose, isSubmitting, isUploading]);
+  }, [onClose, isBusy]);
 
   const set = (patch: Partial<FormState>) =>
     setForm((prev) => ({ ...prev, ...patch }));
-
-  /** Converte "26,90" / "26.90" para número (aceita ambos). */
-  const parsePrice = (raw: string): number => {
-    const normalized = raw.trim().replace(/\./g, "").replace(",", ".");
-    return Number(normalized);
-  };
 
   /**
    * Faz o upload do arquivo selecionado para o bucket `products` do Supabase
@@ -212,7 +242,8 @@ export function ProductFormModal({
       setError("Informe o nome do produto.");
       return;
     }
-    const price = parsePrice(form.price);
+    // Sanitiza o valor formatado ("26,90") para o padrão do banco (26.9).
+    const price = parseCurrencyInput(form.price);
     if (!Number.isFinite(price) || price < 0) {
       setError("Informe um preço válido (ex: 26,90).");
       return;
@@ -275,17 +306,51 @@ export function ProductFormModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl">
-        <div className="border-b border-slate-200 px-5 py-4">
-          <h2 className="text-lg font-bold text-slate-900">
-            {editing ? "Editar produto" : "Novo produto"}
-          </h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            {editing
-              ? "Ajuste os dados e a disponibilidade do item."
-              : "Adicione um item ao cardápio do estabelecimento."}
-          </p>
+    <div
+      onMouseDown={(e) => {
+        pressStartedOnBackdrop.current = e.target === e.currentTarget;
+      }}
+      onClick={handleBackdropClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+    >
+      {/* Cliques dentro do card não devem borbulhar para o backdrop. */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="product-form-title"
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <div className="min-w-0">
+            <h2 id="product-form-title" className="text-lg font-bold text-slate-900">
+              {editing ? "Editar produto" : "Novo produto"}
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {editing
+                ? "Ajuste os dados e a disponibilidade do item."
+                : "Adicione um item ao cardápio do estabelecimento."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={requestClose}
+            disabled={isBusy}
+            aria-label="Fechar"
+            title="Fechar"
+            className="-mr-1 -mt-1 shrink-0 rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <svg
+              aria-hidden="true"
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
         </div>
 
         <form
@@ -347,9 +412,11 @@ export function ProductFormModal({
               </label>
               <input
                 id="p-price"
+                type="text"
                 value={form.price}
-                onChange={(e) => set({ price: e.target.value })}
+                onChange={(e) => set({ price: formatCurrencyInput(e.target.value) })}
                 inputMode="decimal"
+                autoComplete="off"
                 placeholder="26,90"
                 className={inputClass}
               />

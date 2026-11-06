@@ -102,12 +102,10 @@ export async function POST(request: Request) {
   );
   if (eligibilityError) return fail(eligibilityError);
 
+  // Cupom que zera o período (ex.: 100% de desconto) é válido: o modal troca o
+  // botão de pagamento por "Ativar assinatura grátis" e o checkout registra a
+  // assinatura sem chamar o gateway.
   const quote = buildSubscriptionCouponQuote(cyclePrice, coupon);
-  if (quote.totalCents <= 0) {
-    return fail(
-      "Este cupom não pode ser aplicado: o desconto zera o valor da assinatura."
-    );
-  }
 
   return NextResponse.json(
     {

@@ -100,7 +100,7 @@ export default function LoginPage() {
             🔥
           </span>
           <h1 className="mt-4 text-2xl font-bold text-white">
-            Painel do Restaurante
+            Painel do Estabelecimento
           </h1>
           <p className="mt-1 text-sm text-gray-400">
             Acesse para gerenciar pedidos e o estabelecimento.

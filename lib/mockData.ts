@@ -211,7 +211,7 @@ export const mockOrders: Order[] = [
 // Usuários administrativos para o módulo de Gestão de Usuários (Super Admin).
 // Dados de demonstração (MVP) — a lista é manipulada apenas no estado local.
 // As senhas abaixo são fictícias e existem apenas para simular o botão
-// "Copiar Acesso" (envio de credenciais ao dono do restaurante via WhatsApp).
+// "Copiar Acesso" (envio de credenciais ao dono do estabelecimento via WhatsApp).
 export const mockUsers: AdminUser[] = [
   {
     id: "u1",
@@ -220,7 +220,7 @@ export const mockUsers: AdminUser[] = [
     role: "super_admin",
     status: "ativo",
     created_at: "01/02/2026",
-    establishment: "Fuego Delivery (Matriz)",
+    establishment: "Fuego Burger (Matriz)",
     password: "Fuego@2026admin",
   },
   {

@@ -32,10 +32,12 @@ import {
   resolveMenuEstablishment,
 } from "@/lib/supabase/menuGuard";
 import {
+  addMonthsToDateOnly,
   computeBillingCyclePrice,
   isBillingCycleId,
   isSubscriptionActive,
   resolveRenewalDate,
+  type BillingCyclePrice,
   type SubscriptionStatus,
 } from "@/lib/subscriptions";
 import {
@@ -43,6 +45,7 @@ import {
   isValidSubscriptionCouponCode,
   normalizeSubscriptionCouponCode,
   subscriptionCouponEligibilityError,
+  type SubscriptionCouponQuote,
   type SubscriptionCouponRecord,
 } from "@/lib/subscription-coupons";
 import {
@@ -61,11 +64,14 @@ import { getSubscriptionPlan } from "@/lib/settings";
  *     cartão, os dados do titular.
  *  3. Calcula o ciclo escolhido (mensal / semestral −5% / anual −10%) e aplica
  *     o cupom de assinatura, quando informado.
- *  4. Reaproveita/cria o cliente no Asaas (`customer_payment_id`).
- *  5. Cria a assinatura recorrente com a forma e o ciclo escolhidos.
- *  6. Persiste `subscription_id`/`plan_id` e libera o acesso quando a primeira
+ *  4. Cupom que zera o período (ex.: 100% de desconto): ativa a assinatura
+ *     direto no banco como `active`, sem chamar o gateway — a rota devolve
+ *     `isFree: true` e o modal encerra o fluxo na hora.
+ *  5. Reaproveita/cria o cliente no Asaas (`customer_payment_id`).
+ *  6. Cria a assinatura recorrente com a forma e o ciclo escolhidos.
+ *  7. Persiste `subscription_id`/`plan_id` e libera o acesso quando a primeira
  *     cobrança já nasce paga (cartão aprovado).
- *  7. Devolve o QR Code Pix, o link do boleto ou o status do cartão.
+ *  8. Devolve o QR Code Pix, o link do boleto ou o status do cartão.
  *
  * Nenhum dado de cartão é gravado: ele só transita até o Asaas.
  */
@@ -284,6 +290,136 @@ function buildBoletoInfo(
   };
 }
 
+/** Dados de uma contratação com o período zerado pelo cupom. */
+interface FreeActivationInput {
+  adminClient: ReturnType<typeof createAdminClient>;
+  establishment: BillingEstablishmentRow;
+  /** Plano vigente (`system_settings`), gravado em `plan_id`. */
+  planId: string;
+  billingCycle: BillingCyclePrice;
+  quote: SubscriptionCouponQuote;
+  coupon: SubscriptionCouponRecord | null;
+}
+
+/**
+ * Ativa a assinatura SEM cobrança (cupom que zera o total do período).
+ *
+ * Nada é enviado ao gateway de pagamento: a loja é gravada como `active` com o
+ * plano, o ciclo e a próxima renovação, e o uso do cupom é contabilizado — o
+ * mesmo estado final do fluxo pago depois da confirmação do Asaas. Como não há
+ * assinatura recorrente, `subscription_id` fica nulo (uma contratação futura
+ * cria uma nova, em vez de reaproveitar uma cobrança antiga).
+ */
+async function activateFreeSubscription({
+  adminClient,
+  establishment,
+  planId,
+  billingCycle,
+  quote,
+  coupon,
+}: FreeActivationInput): Promise<NextResponse> {
+  const today = formatAsaasDate();
+
+  // Renovação: estende o período vigente quando ainda válido; do contrário,
+  // começa a contar de hoje. A leitura é isolada porque a coluna pertence à
+  // migração 20261110000019 (base antiga simplesmente cai em `today`).
+  const { data: expiryRow } = await adminClient
+    .from("establishments")
+    .select("subscription_expires_at")
+    .eq("id", establishment.id)
+    .maybeSingle();
+
+  const storedExpiry =
+    typeof expiryRow?.subscription_expires_at === "string"
+      ? expiryRow.subscription_expires_at.slice(0, 10)
+      : null;
+  const baseDate = storedExpiry && storedExpiry > today ? storedExpiry : today;
+  const renewalDate = addMonthsToDateOnly(baseDate, billingCycle.months);
+
+  const freeFields = {
+    plan_id: planId,
+    subscription_status: "active" as SubscriptionStatus,
+    // Sem recorrência no gateway: solta o vínculo antigo (cancelado ou com
+    // cobrança em aberto) para não reabrir uma assinatura já encerrada.
+    subscription_id: null,
+  };
+
+  const fullUpdate = await adminClient
+    .from("establishments")
+    .update({
+      ...freeFields,
+      subscription_cycle: billingCycle.id,
+      subscription_expires_at: renewalDate,
+    })
+    .eq("id", establishment.id);
+
+  let updateError = fullUpdate.error;
+
+  // Migração 20261110000019 pendente: salva o essencial e segue.
+  if (
+    updateError &&
+    /subscription_cycle|subscription_expires_at/i.test(updateError.message ?? "")
+  ) {
+    console.warn(
+      "[billing/checkout] migração 20261110000019 pendente — ciclo/vencimento não salvos (ativação grátis)"
+    );
+
+    const fallback = await adminClient
+      .from("establishments")
+      .update(freeFields)
+      .eq("id", establishment.id);
+
+    updateError = fallback.error;
+  }
+
+  if (updateError) {
+    console.error(
+      "[billing/checkout] falha ao registrar a ativação grátis",
+      updateError
+    );
+    return fail(
+      "Não foi possível ativar a assinatura gratuita agora. Tente novamente em instantes.",
+      500
+    );
+  }
+
+  // Assinatura ativa: reabre a loja que estava suspensa e descarta o cache de
+  // `/[slug]` para o cardápio público refletir na hora.
+  await restoreStoreAfterPayment(adminClient, establishment.id);
+  revalidatePublicStore(establishment.slug);
+
+  // Mesma regra do fluxo pago: o uso só é contabilizado depois de a assinatura
+  // estar válida; falha aqui não desfaz a ativação.
+  if (coupon) {
+    const consumed = await consumeSubscriptionCouponUsage(coupon.id);
+    if (!consumed) {
+      console.warn(
+        `[billing/checkout] cupom ${coupon.code} aplicado sem contabilizar o uso (ativação grátis)`
+      );
+    }
+  }
+
+  const response: CheckoutResponse = {
+    // Não existe assinatura nem cliente no gateway neste fluxo.
+    subscriptionId: null,
+    customerId: null,
+    // Forma de pagamento simbólica: nada foi cobrado (o modal envia Pix).
+    billingType: "PIX",
+    paymentStatus: null,
+    subscriptionStatus: "active",
+    isFree: true,
+    billingCycle: billingCycle.id,
+    cycleLabel: billingCycle.label,
+    durationLabel: billingCycle.durationLabel,
+    subtotalCents: quote.subtotalCents,
+    discountCents: quote.discountCents,
+    totalCents: quote.totalCents,
+    couponCode: quote.couponCode,
+  };
+
+  return NextResponse.json(response, { status: 201 });
+}
+
 export async function POST(request: Request) {
   const guard = await requireMenuAccess();
   if (!guard.ok) return guard.response;
@@ -380,6 +516,75 @@ export async function POST(request: Request) {
     return fail("Esta loja já possui uma assinatura ativa.", 409);
   }
 
+  // ---- Ciclo de cobrança + cupom de assinatura -----------------------------
+  //
+  // O ciclo define o total do período (mensal, semestral −5% ou anual −10%) e o
+  // cupom incide sobre esse total. Todo o cálculo é refeito aqui: o valor que
+  // chega do navegador nunca é usado para cobrar.
+  //
+  // Vem antes do reaproveitamento de cobranças para que um cupom de 100% não
+  // caia numa fatura antiga em aberto (o fluxo é gratuito, não há o que pagar).
+  if (body.cycle !== undefined && !isBillingCycleId(body.cycle)) {
+    return fail(
+      "Ciclo de cobrança inválido. Escolha mensal, semestral ou anual."
+    );
+  }
+
+  const billingCycle = computeBillingCyclePrice(
+    plan.priceCents,
+    isBillingCycleId(body.cycle) ? body.cycle : "monthly"
+  );
+
+  const requestedCouponCode = normalizeSubscriptionCouponCode(
+    typeof body.couponCode === "string" ? body.couponCode : ""
+  );
+
+  let coupon: SubscriptionCouponRecord | null = null;
+
+  if (requestedCouponCode) {
+    if (!isValidSubscriptionCouponCode(requestedCouponCode)) {
+      return fail("Código de cupom inválido.");
+    }
+
+    try {
+      coupon = await findSubscriptionCouponByCode(requestedCouponCode);
+    } catch (error) {
+      console.error("[billing/checkout] falha ao consultar o cupom", error);
+      return fail(
+        "Não foi possível validar o cupom agora. Remova o cupom ou tente novamente.",
+        500
+      );
+    }
+
+    if (!coupon) {
+      return fail("Cupom de desconto não encontrado.");
+    }
+
+    const couponError = subscriptionCouponEligibilityError(
+      coupon,
+      billingCycle.totalCents
+    );
+    if (couponError) return fail(couponError);
+  }
+
+  const quote = buildSubscriptionCouponQuote(billingCycle, coupon);
+
+  // ---- Ativação gratuita (total R$ 0,00) -----------------------------------
+  //
+  // Cupom que zera o período: não existe valor a cobrar, então o gateway não é
+  // chamado. A assinatura é registrada no banco já como `active`, com plano,
+  // ciclo e próxima renovação.
+  if (quote.totalCents <= 0) {
+    return activateFreeSubscription({
+      adminClient,
+      establishment,
+      planId: plan.id,
+      billingCycle,
+      quote,
+      coupon,
+    });
+  }
+
   // Assinatura já contratada com cobrança pendente (Pix/boleto em aberto ou
   // cartão em análise): devolve a mesma cobrança em vez de criar uma segunda
   // recorrência — o cliente pode ter fechado o modal antes de pagar.
@@ -432,62 +637,6 @@ export async function POST(request: Request) {
 
       return NextResponse.json(reused, { status: paidNow ? 200 : 201 });
     }
-  }
-
-  // ---- Ciclo de cobrança + cupom de assinatura -----------------------------
-  //
-  // O ciclo define o total do período (mensal, semestral −5% ou anual −10%) e o
-  // cupom incide sobre esse total. Todo o cálculo é refeito aqui: o valor que
-  // chega do navegador nunca é usado para cobrar.
-  if (body.cycle !== undefined && !isBillingCycleId(body.cycle)) {
-    return fail(
-      "Ciclo de cobrança inválido. Escolha mensal, semestral ou anual."
-    );
-  }
-
-  const billingCycle = computeBillingCyclePrice(
-    plan.priceCents,
-    isBillingCycleId(body.cycle) ? body.cycle : "monthly"
-  );
-
-  const requestedCouponCode = normalizeSubscriptionCouponCode(
-    typeof body.couponCode === "string" ? body.couponCode : ""
-  );
-
-  let coupon: SubscriptionCouponRecord | null = null;
-
-  if (requestedCouponCode) {
-    if (!isValidSubscriptionCouponCode(requestedCouponCode)) {
-      return fail("Código de cupom inválido.");
-    }
-
-    try {
-      coupon = await findSubscriptionCouponByCode(requestedCouponCode);
-    } catch (error) {
-      console.error("[billing/checkout] falha ao consultar o cupom", error);
-      return fail(
-        "Não foi possível validar o cupom agora. Remova o cupom ou tente novamente.",
-        500
-      );
-    }
-
-    if (!coupon) {
-      return fail("Cupom de desconto não encontrado.");
-    }
-
-    const couponError = subscriptionCouponEligibilityError(
-      coupon,
-      billingCycle.totalCents
-    );
-    if (couponError) return fail(couponError);
-  }
-
-  const quote = buildSubscriptionCouponQuote(billingCycle, coupon);
-
-  if (quote.totalCents <= 0) {
-    return fail(
-      "O desconto deste cupom zera o valor da assinatura. Remova o cupom para continuar."
-    );
   }
 
   // Cliente no Asaas: reaproveita por e-mail/CPF-CNPJ quando já existe.

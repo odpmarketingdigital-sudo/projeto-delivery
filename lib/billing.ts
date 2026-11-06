@@ -219,6 +219,37 @@ export interface CreditCardHolderInput {
   addressNumber: string;
 }
 
+// ---------------------------------------------------------------------------
+// Pré-preenchimento do passo 1
+// ---------------------------------------------------------------------------
+
+/**
+ * Dados já cadastrados usados como estado inicial do passo 1 ("Seus dados") do
+ * modal de assinatura.
+ *
+ * Vêm de `GET /api/billing/customer`, que lê `establishments` (documento e
+ * telefone/WhatsApp informados no onboarding) e `profiles`/sessão (nome e
+ * e-mail da conta). São apenas uma sugestão: o modal mantém os campos
+ * editáveis, pois a nota fiscal pode ser emitida para outro e-mail/documento.
+ *
+ * Todos os campos são strings — vazia quando o dado não existe na base.
+ */
+export interface BillingCustomerPrefill {
+  /** Nome do responsável pela loja (ou da conta, quando ausente). */
+  name: string;
+  /** E-mail da loja/conta (destino da fatura e da nota fiscal). */
+  email: string;
+  /** CPF ou CNPJ somente com dígitos ("" quando a loja não informou). */
+  cpfCnpj: string;
+  /** Telefone/WhatsApp somente com dígitos, com DDD e sem DDI ("" se ausente). */
+  phone: string;
+}
+
+/** Resposta do `GET /api/billing/customer`. */
+export interface BillingCustomerPrefillResponse {
+  customer: BillingCustomerPrefill;
+}
+
 /** Body do `POST /api/billing/checkout`. */
 export interface CheckoutRequest {
   /** Necessário apenas para super_admin (o admin usa a própria loja). */
@@ -255,13 +286,20 @@ export interface CheckoutBoletoInfo {
 
 /** Resposta do `POST /api/billing/checkout`. */
 export interface CheckoutResponse {
-  subscriptionId: string;
-  customerId: string;
+  /** ID da assinatura no gateway (null na ativação gratuita). */
+  subscriptionId: string | null;
+  /** ID do cliente no gateway (null na ativação gratuita). */
+  customerId: string | null;
   billingType: BillingType;
   /** Status da primeira cobrança no Asaas (null quando ainda não gerada). */
   paymentStatus: string | null;
   /** Situação da loja já persistida no banco. */
   subscriptionStatus: SubscriptionStatus;
+  /**
+   * `true` quando o cupom zerou o período (total R$ 0,00): a assinatura foi
+   * ativada direto no banco, sem cobrança no gateway.
+   */
+  isFree?: boolean;
   /** Ciclo efetivamente contratado (ausente em respostas reaproveitadas). */
   billingCycle?: BillingCycleId;
   /** Rótulo do ciclo (ex.: "Semestral"). */

@@ -5,7 +5,7 @@ const BENEFITS = [
   {
     title: "Sem comissões por pedido",
     description:
-      "O faturamento é 100% do restaurante. O cliente pede pelo seu link e o valor da venda fica inteiro com o seu negócio.",
+      "O faturamento é 100% do estabelecimento. O cliente pede pelo seu link e o valor da venda fica inteiro com o seu negócio.",
   },
   {
     title: "Atendimento sem filas no WhatsApp",
@@ -104,7 +104,7 @@ export function Benefits() {
                     Comparativo rápido
                   </p>
                   <h3 className="mt-1 text-lg font-bold tracking-tight text-white">
-                    Seu delivery, lado a lado
+                    Seu estabelecimento, lado a lado
                   </h3>
                 </div>
                 <BrandMark className="h-9 w-9 rounded-xl" />

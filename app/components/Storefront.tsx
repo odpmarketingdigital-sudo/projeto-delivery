@@ -240,7 +240,7 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 antialiased dark:bg-gray-950">
-      {/* Topo Visual: Banner + Logo + Nome do Restaurante (dinâmico) */}
+      {/* Topo Visual: Banner + Logo + Nome do Estabelecimento (dinâmico) */}
       {/* Fundo do topo = mesmo cinza do fundo geral (bg-gray-50 / dark:bg-gray-950)
           para não criar uma faixa branca abaixo do banner. */}
       <header className="relative w-full bg-gray-50 pb-2 dark:bg-gray-950">
@@ -346,7 +346,7 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
                 {menu.establishment.description}
               </p>
             ) : (
-              /* Badge "Delivery" — centralizado junto às infos do estabelecimento */
+              /* Selo padrão — centralizado junto às infos do estabelecimento */
               <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-400">
                 <svg
                   aria-hidden="true"
@@ -363,7 +363,7 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
                   <circle cx="15" cy="5" r="1" />
                   <path d="M12 17.5V14l-3-3 4-3 2 3h2" />
                 </svg>
-                {isLoading ? "carregando..." : "delivery"}
+                {isLoading ? "carregando..." : "pedidos online"}
               </span>
             )}
 
