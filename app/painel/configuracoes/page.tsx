@@ -32,6 +32,13 @@ import {
   MIN_ESTIMATED_DELIVERY_MINUTES,
 } from "@/lib/deliveryEstimate";
 import { formatWhatsAppPhoneForDisplay } from "@/lib/whatsappOrder";
+import {
+  BANNER_IMAGE_PRESET,
+  LOGO_IMAGE_PRESET,
+  resizeAndCropToWebP,
+  type ImagePreset,
+  type ResizedImage,
+} from "@/lib/image-resize";
 
 const STORAGE_BUCKET = "products";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -39,19 +46,39 @@ const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 const ACCEPT_ATTR = ACCEPTED_IMAGE_TYPES.join(",");
 const ALLOWED_EXT = new Set(["png", "jpg", "jpeg", "webp"]);
 
+/**
+ * Presets de recorte/otimização aplicados **no navegador** antes do upload:
+ * a logo vira um quadrado 1:1 de 500×500 e o banner um retângulo 3:1 de
+ * 1200×400, ambos em WebP 85% (ver `lib/image-resize.ts`).
+ */
+const IMAGE_PRESETS: Record<"logo_url" | "banner_url", ImagePreset> = {
+  logo_url: LOGO_IMAGE_PRESET,
+  banner_url: BANNER_IMAGE_PRESET,
+};
+
 interface PreviewState {
-  status: "idle" | "uploading" | "stored";
+  /**
+   * `processing` = canvas recortando/convertendo; `uploading` = enviando o
+   * arquivo já otimizado para o Storage; `stored` = URL pública disponível.
+   */
+  status: "idle" | "processing" | "uploading" | "stored";
   url?: string;
   /**
-   * Object URL (`URL.createObjectURL`) do arquivo selecionado — usada para
-   * exibir a prévia instantânea antes (e durante) o upload para o Storage.
+   * Object URL (`URL.createObjectURL`) da imagem **já otimizada** — usada para
+   * a prévia antes (e durante) o upload para o Storage.
    * Revogada quando substituída, removida ou ao desmontar o componente.
    */
   previewUrl?: string;
-  /** Nome original do arquivo escolhido (exibido ao lado do botão de upload). */
+  /** Nome do arquivo exibido ao lado do botão (o otimizado, quando houver). */
   fileName?: string;
   /** Tamanho do arquivo em bytes (formatado na interface como KB/MB). */
   fileSize?: number;
+  /** Tamanho do arquivo original escolhido pelo lojista (para comparação). */
+  originalSize?: number;
+  /** Largura final em pixels (após o recorte/redimensionamento). */
+  width?: number;
+  /** Altura final em pixels (após o recorte/redimensionamento). */
+  height?: number;
   error?: string;
 }
 
@@ -62,9 +89,10 @@ const VISUAL_FIELDS: {
   /** Texto exibido no estado vazio (quando não há imagem salva nem preview). */
   emptyText: string;
 }[] = [
-  { key: "logo_url", label: "Logo do estabelecimento", hint: "450 × 450 px (quadrada)", emptyText: "Nenhuma logo definida" },
-  { key: "banner_url", label: "Banner/cover da loja", hint: "1000 × 480 px (retângulo)", emptyText: "Nenhum banner definido" },
+  { key: "logo_url", label: "Logo do estabelecimento", hint: "500 × 500 px (1:1)", emptyText: "Nenhuma logo definida" },
+  { key: "banner_url", label: "Banner/cover da loja", hint: "1200 × 400 px (3:1)", emptyText: "Nenhum banner definido" },
 ];
+
 
 function fileNameFor(file: File): string {
   const name = file.name.includes(".") ? (file.name.split(".").pop() ?? "").toLowerCase() : "";
@@ -167,6 +195,12 @@ export default function ConfiguracoesIdentidade() {
   // Object URLs (`URL.createObjectURL`) criadas para as prévias — rastreadas
   // para poderem ser revogadas ao desmontar (evita vazamento de memória).
   const objectUrlsRef = useRef<Set<string>>(new Set());
+  // Sequência por campo: se o lojista trocar a imagem no meio do processamento
+  // (canvas) ou do upload, o resultado do arquivo antigo é descartado.
+  const fileJobRef = useRef<{ logo_url: number; banner_url: number }>({
+    logo_url: 0,
+    banner_url: 0,
+  });
   // Inputs nativos de arquivo (logo/banner). Ficam `sr-only` e são acionados
   // pelos botões customizados de upload via ref.
   const fileInputsRef = useRef<
@@ -379,19 +413,69 @@ export default function ConfiguracoesIdentidade() {
         setPreview(field, { status: "idle", error: "Máximo de 20 MB." });
         return;
       }
-      // Prévia instantânea: object URL local exibida no <img> imediatamente,
-      // antes (e durante) o upload para o Storage.
-      const previewUrl = URL.createObjectURL(file);
-      // Nome/tamanho originais ficam no estado para o feedback ao lado do botão.
-      const fileMeta = { fileName: file.name, fileSize: file.size };
-      setPreview(field, { status: "uploading", previewUrl, ...fileMeta });
+
+      const preset = IMAGE_PRESETS[field];
+      const jobId = ++fileJobRef.current[field];
+      /** `true` quando outro arquivo foi escolhido depois deste. */
+      const isStale = () => fileJobRef.current[field] !== jobId;
+
+      // Etapa 1 — Canvas: recorta na proporção do preset (1:1 na logo, 3:1 no
+      // banner) e converte para WebP 85%. Nada é enviado ao Storage ainda.
+      setPreview(field, {
+        status: "processing",
+        fileName: file.name,
+        fileSize: file.size,
+        originalSize: file.size,
+      });
+
+      let optimized: ResizedImage;
       try {
-        const url = await uploadToStorage(supabase, selectedId, file);
-        setPreview(field, { status: "stored", url, previewUrl, ...fileMeta });
+        optimized = await resizeAndCropToWebP(file, {
+          ...preset,
+          fileName: field === "logo_url" ? "logo" : "banner",
+        });
       } catch (err) {
+        if (isStale()) return;
+        setPreview(field, {
+          status: "idle",
+          error:
+            err instanceof Error ? err.message : "Falha ao processar a imagem.",
+        });
+        return;
+      }
+      if (isStale()) return;
+
+      // Etapa 2 — prévia do resultado já otimizado (object URL do WebP gerado,
+      // não do arquivo original) e envio do arquivo final ao Storage.
+      const previewUrl = URL.createObjectURL(optimized.blob);
+      const optimizedMeta = {
+        previewUrl,
+        fileName: optimized.file.name,
+        fileSize: optimized.file.size,
+        originalSize: file.size,
+        width: optimized.width,
+        height: optimized.height,
+      };
+      setPreview(field, { status: "uploading", ...optimizedMeta });
+
+      try {
+        const url = await uploadToStorage(supabase, selectedId, optimized.file);
+        if (isStale()) {
+          URL.revokeObjectURL(previewUrl);
+          return;
+        }
+        setPreview(field, { status: "stored", url, ...optimizedMeta });
+      } catch (err) {
+        if (isStale()) {
+          URL.revokeObjectURL(previewUrl);
+          return;
+        }
         // Falha no upload → descarta a prévia (setPreview revoga a object URL)
         // e volta para a imagem salva, exibindo o erro abaixo do input.
-        setPreview(field, { status: "idle", error: (err as Error).message ?? "Falha no upload." });
+        setPreview(field, {
+          status: "idle",
+          error: err instanceof Error ? err.message : "Falha no upload.",
+        });
       }
     },
     [selectedId, supabase, setPreview],
@@ -1731,6 +1815,10 @@ export default function ConfiguracoesIdentidade() {
             const state = isLogo ? logo : banner;
             const currentUrl = isLogo ? establishmentData?.logo_url : establishmentData?.banner_url;
             const isUploading = state.status === "uploading";
+            const isProcessing = state.status === "processing";
+            // Enquanto o canvas trabalha ou o arquivo sobe, o card fica travado.
+            const isBusy = isUploading || isProcessing;
+            const preset = IMAGE_PRESETS[field.key];
             // "Alterar imagem" quando já existe imagem salva ou prévia local.
             const hasImage = Boolean(state.previewUrl ?? currentUrl);
             return (
@@ -1740,8 +1828,34 @@ export default function ConfiguracoesIdentidade() {
                   <h2 className="font-semibold text-slate-900">{field.label}</h2>
                 </div>
                 <div className="mt-4 relative h-44 w-full overflow-hidden rounded-xl border border-slate-200 bg-white">
-                  {/* Prévia instantânea (arquivo novo) tem prioridade sobre a imagem salva. */}
+                  {/*
+                   * Três estados: processando no canvas (indicador dedicado),
+                   * prévia (arquivo novo tem prioridade sobre a imagem salva) e
+                   * estado vazio elegante.
+                   */}
                   {(() => {
+                    if (isProcessing) {
+                      return (
+                        <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-50 px-4 text-center">
+                          <span
+                            aria-hidden="true"
+                            className="h-6 w-6 animate-spin rounded-full border-2 border-amber-400 border-t-transparent"
+                          />
+                          <p
+                            role="status"
+                            aria-live="polite"
+                            className="text-xs font-medium text-slate-700"
+                          >
+                            Processando imagem...
+                          </p>
+                          <p className="text-[11px] leading-relaxed text-slate-500">
+                            Recortando em {preset.width} × {preset.height} px e
+                            convertendo para WebP
+                          </p>
+                        </div>
+                      );
+                    }
+
                     const previewSrc = state.previewUrl ?? currentUrl ?? null;
                     const hasNewPreview = Boolean(state.previewUrl);
                     return previewSrc ? (
@@ -1763,9 +1877,15 @@ export default function ConfiguracoesIdentidade() {
                             Atual
                           </div>
                         )}
-                        {state.status === "uploading" && (
-                          <div className="absolute inset-0 flex items-center justify-center bg-slate-50">
-                            <span className="h-6 w-6 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
+                        {isUploading && (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-50/95">
+                            <span
+                              aria-hidden="true"
+                              className="h-6 w-6 animate-spin rounded-full border-2 border-amber-400 border-t-transparent"
+                            />
+                            <p className="text-[11px] font-medium text-slate-600">
+                              Enviando imagem...
+                            </p>
                           </div>
                         )}
                       </>
@@ -1811,7 +1931,7 @@ export default function ConfiguracoesIdentidade() {
                       accept={ACCEPT_ATTR}
                       aria-label={`Selecionar imagem para ${field.label.toLowerCase()}`}
                       tabIndex={-1}
-                      disabled={isUploading || !selectedId}
+                      disabled={isBusy || !selectedId}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         // Zera o input para permitir reselecionar o mesmo arquivo.
@@ -1823,11 +1943,11 @@ export default function ConfiguracoesIdentidade() {
                     <button
                       type="button"
                       onClick={() => fileInputsRef.current[field.key]?.click()}
-                      disabled={isUploading || !selectedId}
-                      aria-busy={isUploading}
+                      disabled={isBusy || !selectedId}
+                      aria-busy={isBusy}
                       className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-yellow-400 px-4 py-2.5 text-sm font-bold text-slate-950 shadow-sm shadow-yellow-400/30 transition hover:bg-yellow-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                     >
-                      {isUploading ? (
+                      {isBusy ? (
                         <span
                           aria-hidden="true"
                           className="h-4 w-4 animate-spin rounded-full border-2 border-slate-900/25 border-t-slate-900"
@@ -1849,45 +1969,70 @@ export default function ConfiguracoesIdentidade() {
                           />
                         </svg>
                       )}
-                      {isUploading
-                        ? "Enviando..."
-                        : hasImage
-                          ? "Alterar imagem"
-                          : "Selecionar imagem"}
+                      {isProcessing
+                        ? "Processando..."
+                        : isUploading
+                          ? "Enviando..."
+                          : hasImage
+                            ? "Alterar imagem"
+                            : "Selecionar imagem"}
                     </button>
 
                     <div className="min-w-0 sm:flex-1">
                       {state.fileName ? (
-                        <p
-                          className="flex min-w-0 items-center gap-1.5 text-xs"
-                          title={state.fileName}
-                        >
-                          <svg
-                            aria-hidden="true"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={1.75}
-                            viewBox="0 0 24 24"
-                            className="h-4 w-4 shrink-0 text-slate-400"
+                        <div className="min-w-0 space-y-1">
+                          <p
+                            className="flex min-w-0 items-center gap-1.5 text-xs"
+                            title={state.fileName}
                           >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              d="M14 3v4a1 1 0 0 0 1 1h4M15 3H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7l-3-4Z"
-                            />
-                          </svg>
-                          <span className="min-w-0 truncate font-medium text-slate-700">
-                            {state.fileName}
-                          </span>
-                          {typeof state.fileSize === "number" && (
-                            <span className="shrink-0 text-slate-500">
-                              · {formatFileSize(state.fileSize)}
+                            <svg
+                              aria-hidden="true"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth={1.75}
+                              viewBox="0 0 24 24"
+                              className="h-4 w-4 shrink-0 text-slate-400"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M14 3v4a1 1 0 0 0 1 1h4M15 3H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7l-3-4Z"
+                              />
+                            </svg>
+                            <span className="min-w-0 truncate font-medium text-slate-700">
+                              {state.fileName}
                             </span>
+                            {typeof state.fileSize === "number" && (
+                              <span className="shrink-0 text-slate-500">
+                                · {formatFileSize(state.fileSize)}
+                              </span>
+                            )}
+                          </p>
+                          {/* Resultado do canvas: proporção final + ganho de peso. */}
+                          {state.status === "processing" ? (
+                            <p className="text-[11px] leading-relaxed text-slate-500">
+                              Processando imagem...
+                            </p>
+                          ) : (
+                            typeof state.width === "number" &&
+                            typeof state.height === "number" && (
+                              <p className="text-[11px] leading-relaxed text-slate-500">
+                                Otimizada · {state.width} × {state.height} px ·
+                                WebP 85%
+                                {typeof state.originalSize === "number" &&
+                                state.originalSize > 0 &&
+                                typeof state.fileSize === "number" &&
+                                state.fileSize < state.originalSize
+                                  ? ` · ${formatFileSize(state.originalSize)} → ${formatFileSize(state.fileSize)}`
+                                  : ""}
+                              </p>
+                            )
                           )}
-                        </p>
+                        </div>
                       ) : (
                         <p className="text-xs leading-relaxed text-slate-500">
-                          {field.hint} · PNG, JPG ou WebP · até 20 MB
+                          {field.hint} · PNG, JPG ou WebP · até 20 MB · recorte e
+                          conversão para WebP automáticos
                         </p>
                       )}
                     </div>

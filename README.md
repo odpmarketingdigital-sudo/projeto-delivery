@@ -116,6 +116,25 @@ Admin**:
   tradicional na hora (a rota também zera a preferência da loja e chama
   `revalidatePublicStore`).
 
+## Identidade visual (logo e banner)
+
+O upload das imagens do estabelecimento em `/painel/configuracoes` otimiza o
+arquivo **no navegador** (Canvas API, ver
+[`lib/image-resize.ts`](lib/image-resize.ts)) antes de enviar para o bucket
+`products` do Supabase Storage:
+
+- **Logo** → recorte central 1:1 em **500 × 500 px**, WebP 85%;
+- **Banner/capa** → recorte central 3:1 em **1200 × 400 px**, WebP 85%;
+- O recorte é "cover" (estilo `object-fit: cover`), portanto nada é distorcido:
+  sobra é cortada nas laterais ou no topo/base;
+- A prévia exibida no card é a imagem **já otimizada** (object URL do WebP
+  gerado), com as dimensões finais e a comparação de peso
+  (`4,1 MB → 62 KB`), e o card mostra o estado "Processando imagem..." durante
+  o trabalho do canvas;
+- Em navegadores sem encoder WebP a conversão cai para JPEG na mesma qualidade
+  — o nome/extensão do arquivo acompanham o MIME realmente gerado;
+- Limites: PNG/JPG/WebP de até 20 MB na origem.
+
 ## Entrega por distância (Google Maps)
 
 Fluxo do checkout para lojas com entrega por km (`delivery_type = 'distance'`)
