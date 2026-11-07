@@ -64,20 +64,20 @@ export function Features() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
-            <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-300">
-              <span className="h-px w-6 bg-amber-400/60" />
+            <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-600">
+              <span className="h-px w-6 bg-amber-500/60" />
               Recursos do painel
             </span>
-            <h2 className="mt-4 text-balance text-3xl font-black tracking-[-0.03em] text-white sm:text-4xl">
+            <h2 className="mt-4 text-balance text-3xl font-black tracking-[-0.03em] text-gray-900 sm:text-4xl">
               Tudo o que seu estabelecimento precisa, em um só painel
             </h2>
-            <p className="mt-4 text-pretty text-base leading-relaxed text-gray-400">
+            <p className="mt-4 text-pretty text-base leading-relaxed text-gray-600">
               Menos trabalho manual, mais pedidos organizados. Cada recurso foi
               pensado para o dia a dia de quem vende comida de verdade.
             </p>
           </div>
-          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs font-semibold text-gray-300">
-            <Icon name="sparkles" className="h-4 w-4 text-amber-300" />
+          <span className="inline-flex w-fit items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-600 shadow-sm">
+            <Icon name="sparkles" className="h-4 w-4 text-amber-500" />
             Tudo incluso no mesmo acesso
           </span>
         </div>
@@ -86,21 +86,21 @@ export function Features() {
           {FEATURES.map((feature) => (
             <article
               key={feature.title}
-              className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.025] p-6 transition duration-300 hover:-translate-y-1 hover:border-amber-400/30 hover:bg-white/[0.04]"
+              className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition duration-300 hover:-translate-y-1 hover:border-amber-400/50 hover:shadow-lg hover:shadow-amber-500/5"
             >
               <div
                 aria-hidden="true"
-                className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-amber-400/10 opacity-0 blur-2xl transition duration-300 group-hover:opacity-100"
+                className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-amber-400/20 opacity-0 blur-2xl transition duration-300 group-hover:opacity-100"
               />
 
-              <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400/20 to-orange-500/10 text-amber-300 ring-1 ring-inset ring-amber-400/20">
+              <div className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/15 to-orange-500/10 text-amber-600 ring-1 ring-inset ring-amber-500/20">
                 <Icon name={feature.icon} className="h-5 w-5" />
               </div>
 
-              <h3 className="relative mt-5 text-base font-bold tracking-tight text-white">
+              <h3 className="relative mt-5 text-base font-bold tracking-tight text-gray-900">
                 {feature.title}
               </h3>
-              <p className="relative mt-2 text-sm leading-relaxed text-gray-400">
+              <p className="relative mt-2 text-sm leading-relaxed text-gray-600">
                 {feature.description}
               </p>
 
@@ -108,7 +108,7 @@ export function Features() {
                 {feature.tags.map((tag) => (
                   <li
                     key={tag}
-                    className="rounded-full border border-white/[0.07] bg-white/[0.03] px-2.5 py-1 text-[10px] font-medium text-gray-400"
+                    className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[10px] font-medium text-gray-500"
                   >
                     {tag}
                   </li>

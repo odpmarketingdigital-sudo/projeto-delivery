@@ -1,5 +1,25 @@
 @import "tailwindcss";
 
+/*
+ * Estratégia de tema escuro: baseada em classe (`.dark`), NÃO em
+ * `prefers-color-scheme`.
+ *
+ * Por padrão o Tailwind CSS v4 gera o variant `dark:` como uma media query
+ * `@media (prefers-color-scheme: dark)` — global, avaliada pelo SO/navegador do
+ * visitante. Em uma media query não é possível "desligar" o dark por subárvore
+ * (um container não cancela a preferência do sistema), então os componentes da
+ * vitrine pública herdavam o Dark Mode do dispositivo e quebravam os contrastes
+ * da loja.
+ *
+ * Redefinindo o variant para depender de um ancestral `.dark`, a alternância
+ * automática fica DESATIVADA: como nenhum lugar do app aplica `.dark`, os
+ * utilitários `dark:` ficam inertes e todas as telas usam sua paleta CLARA base
+ * — exatamente o visual que um cliente em tema claro já vê (portanto legível).
+ * As áreas intencionalmente escuras (Landing, Login, Cadastro, Completar
+ * cadastro, Nova senha) usam cores fixas em `[...]` e continuam escuras.
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -12,11 +32,12 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Opt-in MANUAL de tema escuro (hoje não utilizado). Mantido sob `.dark` para
+   que a alternância automática pelo tema do SO fique desativada — o documento
+   permanece claro por padrão, sem "flash" escuro em quem usa Dark Mode. */
+.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
 }
 
 body {
@@ -38,11 +59,13 @@ html {
 }
 
 /* Grade sutil de fundo usada no hero da landing. A máscara radial faz a grade
-   desaparecer nas bordas, evitando linhas duras atrás do conteúdo. */
+   desaparecer nas bordas, evitando linhas duras atrás do conteúdo. As linhas
+   usam um tom escuro de baixa opacidade para permanecerem discretas no tema
+   claro premium. */
 .landing-grid {
   background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+    linear-gradient(to right, rgba(15, 23, 42, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, 0.05) 1px, transparent 1px);
   background-size: 64px 64px;
   -webkit-mask-image: radial-gradient(
     ellipse 70% 60% at 50% 35%,
@@ -126,19 +149,19 @@ html {
   --gmp-mat-elevation-1: none;
 }
 
-/* Mesmo esquema de cores escuras usado pelos inputs do checkout. */
-@media (prefers-color-scheme: dark) {
-  .ipepper-place-autocomplete {
-    --gmp-mat-color-primary: #facc15;
-    --gmp-mat-color-surface: #111827;
-    --gmp-mat-color-on-surface: #f9fafb;
-    --gmp-mat-color-on-surface-variant: #9ca3af;
-    --gmp-mat-color-outline: #374151;
-    --gmp-mat-color-outline-decorative: #1f2937;
-    --gmp-mat-color-neutral-container: #1f2937;
-    --gmp-mat-color-on-neutral-container: #f9fafb;
-    --gmp-mat-color-error: #f87171;
-  }
+/* Paleta escura do widget apenas sob tema escuro explícito (`.dark`). Como o
+   app não ativa `.dark`, o autocomplete de endereço segue sempre a paleta
+   clara definida acima — coerente com o checkout, que agora é sempre claro. */
+.dark .ipepper-place-autocomplete {
+  --gmp-mat-color-primary: #facc15;
+  --gmp-mat-color-surface: #111827;
+  --gmp-mat-color-on-surface: #f9fafb;
+  --gmp-mat-color-on-surface-variant: #9ca3af;
+  --gmp-mat-color-outline: #374151;
+  --gmp-mat-color-outline-decorative: #1f2937;
+  --gmp-mat-color-neutral-container: #1f2937;
+  --gmp-mat-color-on-neutral-container: #f9fafb;
+  --gmp-mat-color-error: #f87171;
 }
 
 /* Erro de validação: o host marca o próprio widget via aria-invalid. */

@@ -38,15 +38,15 @@ export function Testimonials() {
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-300">
-            <span className="h-px w-6 bg-amber-400/60" />
+          <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-600">
+            <span className="h-px w-6 bg-amber-500/60" />
             Depoimentos
-            <span className="h-px w-6 bg-amber-400/60" />
+            <span className="h-px w-6 bg-amber-500/60" />
           </span>
-          <h2 className="mt-4 text-balance text-3xl font-black tracking-[-0.03em] text-white sm:text-4xl">
+          <h2 className="mt-4 text-balance text-3xl font-black tracking-[-0.03em] text-gray-900 sm:text-4xl">
             Quem vende no WhatsApp já sente a diferença
           </h2>
-          <p className="mt-4 text-pretty text-base leading-relaxed text-gray-400">
+          <p className="mt-4 text-pretty text-base leading-relaxed text-gray-600">
             Histórias de estabelecimentos que profissionalizaram o atendimento sem
             abrir mão dos aplicativos que já usam.
           </p>
@@ -56,17 +56,17 @@ export function Testimonials() {
           {TESTIMONIALS.map((testimonial) => (
             <figure
               key={testimonial.name}
-              className="group relative flex h-full flex-col rounded-2xl border border-white/10 bg-white/[0.025] p-6 transition duration-300 hover:border-amber-400/25 hover:bg-white/[0.04]"
+              className="group relative flex h-full flex-col rounded-2xl border border-gray-200 bg-white p-6 shadow-sm transition duration-300 hover:border-amber-400/50 hover:shadow-lg hover:shadow-amber-500/5"
             >
               <span
                 aria-hidden="true"
-                className="absolute right-6 top-3 font-serif text-6xl leading-none text-amber-400/10"
+                className="absolute right-6 top-3 font-serif text-6xl leading-none text-amber-400/20"
               >
                 &ldquo;
               </span>
 
               <div
-                className="flex items-center gap-0.5 text-amber-300"
+                className="flex items-center gap-0.5 text-amber-500"
                 aria-label="Avaliação: 5 de 5 estrelas"
               >
                 {Array.from({ length: 5 }).map((_, index) => (
@@ -74,19 +74,19 @@ export function Testimonials() {
                 ))}
               </div>
 
-              <blockquote className="relative mt-5 flex-1 text-sm leading-relaxed text-gray-300">
+              <blockquote className="relative mt-5 flex-1 text-sm leading-relaxed text-gray-700">
                 &ldquo;{testimonial.quote}&rdquo;
               </blockquote>
 
-              <figcaption className="mt-6 flex items-center gap-3 border-t border-white/[0.07] pt-5">
+              <figcaption className="mt-6 flex items-center gap-3 border-t border-gray-200 pt-5">
                 <span
-                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${testimonial.accent} text-xs font-black text-gray-950`}
+                  className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${testimonial.accent} text-xs font-black text-gray-900`}
                   aria-hidden="true"
                 >
                   {testimonial.initials}
                 </span>
                 <div>
-                  <p className="text-sm font-bold text-white">
+                  <p className="text-sm font-bold text-gray-900">
                     {testimonial.name}
                   </p>
                   <p className="text-xs text-gray-500">{testimonial.role}</p>

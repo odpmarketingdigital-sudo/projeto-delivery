@@ -26,7 +26,7 @@ export function LandingBrand({
     <Link
       href="/"
       aria-label="Ipepper — página inicial"
-      className={`inline-flex items-center rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950 ${className}`}
+      className={`inline-flex items-center rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${className}`}
     >
       <Image
         src="/logotipo.svg"
@@ -35,7 +35,7 @@ export function LandingBrand({
         height={150}
         preload
         unoptimized
-        className={`w-auto ${compact ? "h-7" : "h-9 sm:h-10"}`}
+        className={`w-auto ${compact ? "h-8" : "h-10 sm:h-12"}`}
       />
     </Link>
   );

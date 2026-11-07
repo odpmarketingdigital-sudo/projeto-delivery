@@ -478,12 +478,6 @@ function SidebarBody({
         )}
       </div>
 
-      {!isCollapsed && (
-        <p className="-mt-3 px-5 pb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-          {isSuperAdmin ? "Gestão do SaaS" : "Painel do estabelecimento"}
-        </p>
-      )}
-
       <nav
         aria-label="Navegação do painel"
         onScroll={isCollapsed ? hideTooltip : undefined}

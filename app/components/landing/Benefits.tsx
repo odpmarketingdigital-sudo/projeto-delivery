@@ -35,28 +35,28 @@ export function Benefits() {
   return (
     <section
       id="beneficios"
-      className="relative scroll-mt-24 overflow-hidden border-y border-white/[0.06] bg-[#080b10] py-20 sm:py-24"
+      className="relative scroll-mt-24 overflow-hidden border-y border-gray-200 bg-white py-20 sm:py-24"
     >
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -left-40 top-1/3 h-80 w-80 rounded-full bg-amber-500/[0.07] blur-3xl"
+        className="pointer-events-none absolute -left-40 top-1/3 h-80 w-80 rounded-full bg-amber-400/[0.08] blur-3xl"
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute -right-40 bottom-0 h-80 w-80 rounded-full bg-orange-500/[0.06] blur-3xl"
+        className="pointer-events-none absolute -right-40 bottom-0 h-80 w-80 rounded-full bg-orange-400/[0.08] blur-3xl"
       />
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-16">
           <div>
-            <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-300">
-              <span className="h-px w-6 bg-amber-400/60" />
+            <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-600">
+              <span className="h-px w-6 bg-amber-500/60" />
               Por que ter o Ipepper?
             </span>
-            <h2 className="mt-4 text-balance text-3xl font-black tracking-[-0.03em] text-white sm:text-4xl">
+            <h2 className="mt-4 text-balance text-3xl font-black tracking-[-0.03em] text-gray-900 sm:text-4xl">
               Some forças com os apps. Não abra mão do seu canal.
             </h2>
-            <p className="mt-4 text-pretty text-base leading-relaxed text-gray-400">
+            <p className="mt-4 text-pretty text-base leading-relaxed text-gray-600">
               O Ipepper não veio para substituir o iFood. Ele é o acréscimo que
               transforma o WhatsApp que você já usa em um canal de vendas
               direto, sem comissão e com a sua marca na frente.
@@ -65,14 +65,14 @@ export function Benefits() {
             <ul className="mt-8 space-y-5">
               {BENEFITS.map((benefit) => (
                 <li key={benefit.title} className="flex gap-3.5">
-                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-400/10 text-emerald-400 ring-1 ring-inset ring-emerald-400/20">
+                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 ring-1 ring-inset ring-emerald-500/20">
                     <Icon name="check" className="h-3.5 w-3.5" />
                   </span>
                   <div>
-                    <h3 className="text-sm font-bold text-white">
+                    <h3 className="text-sm font-bold text-gray-900">
                       {benefit.title}
                     </h3>
-                    <p className="mt-1 text-sm leading-relaxed text-gray-400">
+                    <p className="mt-1 text-sm leading-relaxed text-gray-600">
                       {benefit.description}
                     </p>
                   </div>
@@ -82,7 +82,7 @@ export function Benefits() {
 
             <Link
               href="#recursos"
-              className="group mt-8 inline-flex items-center gap-2 text-sm font-bold text-amber-300 transition hover:text-amber-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
+              className="group mt-8 inline-flex items-center gap-2 text-sm font-bold text-amber-600 transition hover:text-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
             >
               Conhecer todos os recursos
               <Icon
@@ -97,13 +97,13 @@ export function Benefits() {
               aria-hidden="true"
               className="absolute -inset-4 rounded-[2rem] bg-gradient-to-tr from-amber-500/10 via-transparent to-orange-500/10 blur-xl"
             />
-            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#0b1017] p-5 shadow-2xl shadow-black/40 sm:p-7">
+            <div className="relative overflow-hidden rounded-3xl border border-gray-200 bg-white p-5 shadow-2xl shadow-gray-900/10 sm:p-7">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-300">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-600">
                     Comparativo rápido
                   </p>
-                  <h3 className="mt-1 text-lg font-bold tracking-tight text-white">
+                  <h3 className="mt-1 text-lg font-bold tracking-tight text-gray-900">
                     Seu estabelecimento, lado a lado
                   </h3>
                 </div>
@@ -131,7 +131,7 @@ export function Benefits() {
                     </th>
                     <th
                       scope="col"
-                      className="w-[33%] pb-3 pl-2 text-[10px] font-bold uppercase tracking-wide text-emerald-300"
+                      className="w-[33%] pb-3 pl-2 text-[10px] font-bold uppercase tracking-wide text-emerald-600"
                     >
                       Ipepper
                     </th>
@@ -141,16 +141,16 @@ export function Benefits() {
                   {COMPARISON_ROWS.map((row) => (
                     <tr
                       key={row.label}
-                      className="border-t border-white/[0.07]"
+                      className="border-t border-gray-200"
                     >
                       <th
                         scope="row"
-                        className="py-3 pr-2 text-xs font-medium leading-snug text-gray-300"
+                        className="py-3 pr-2 text-xs font-medium leading-snug text-gray-700"
                       >
                         {row.label}
                       </th>
                       <td className="py-3 pl-2 align-top">
-                        <span className="inline-flex items-start gap-1 text-xs leading-snug text-rose-300/80">
+                        <span className="inline-flex items-start gap-1 text-xs leading-snug text-rose-500/90">
                           <Icon
                             name="x"
                             className="mt-0.5 h-3 w-3 shrink-0"
@@ -159,7 +159,7 @@ export function Benefits() {
                         </span>
                       </td>
                       <td className="py-3 pl-2 align-top">
-                        <span className="inline-flex items-start gap-1 text-xs font-semibold leading-snug text-emerald-300">
+                        <span className="inline-flex items-start gap-1 text-xs font-semibold leading-snug text-emerald-600">
                           <Icon
                             name="check"
                             className="mt-0.5 h-3 w-3 shrink-0"
@@ -172,12 +172,12 @@ export function Benefits() {
                 </tbody>
               </table>
 
-              <div className="mt-5 flex gap-2.5 rounded-xl bg-amber-400/[0.06] p-3 ring-1 ring-inset ring-amber-400/15">
+              <div className="mt-5 flex gap-2.5 rounded-xl bg-amber-50 p-3 ring-1 ring-inset ring-amber-200">
                 <Icon
                   name="shield"
-                  className="mt-0.5 h-4 w-4 shrink-0 text-amber-300"
+                  className="mt-0.5 h-4 w-4 shrink-0 text-amber-600"
                 />
-                <p className="text-[11px] leading-relaxed text-gray-400">
+                <p className="text-[11px] leading-relaxed text-gray-600">
                   O Ipepper não substitui seus apps: ele soma um canal direto,
                   sem comissão, para os clientes que já chegam pelo WhatsApp.
                 </p>

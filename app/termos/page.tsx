@@ -11,6 +11,7 @@ import {
   LegalSubheading,
 } from "@/app/components/legal/LegalSection";
 import {
+  COMPANY_CNPJ,
   PRODUCT_NAME,
   SUPPORT_EMAIL,
   SUPPORT_PHONE_DISPLAY,
@@ -387,6 +388,10 @@ export default function TermosPage() {
             {PRODUCT_NAME} — Suporte
           </p>
           <ul className="mt-3 space-y-2">
+            <li>
+              CNPJ:{" "}
+              <span className="tabular-nums">{COMPANY_CNPJ}</span>
+            </li>
             <li>
               E-mail:{" "}
               <LegalLink href={`mailto:${SUPPORT_EMAIL}`}>

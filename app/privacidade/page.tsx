@@ -11,6 +11,7 @@ import {
   LegalSubheading,
 } from "@/app/components/legal/LegalSection";
 import {
+  COMPANY_CNPJ,
   PRIVACY_WHATSAPP_URL,
   PRODUCT_NAME,
   SUPPORT_EMAIL,
@@ -365,6 +366,10 @@ export default function PrivacidadePage() {
             {PRODUCT_NAME} — Encarregado de Proteção de Dados (DPO)
           </p>
           <ul className="mt-3 space-y-2">
+            <li>
+              CNPJ:{" "}
+              <span className="tabular-nums">{COMPANY_CNPJ}</span>
+            </li>
             <li>
               E-mail:{" "}
               <LegalLink href={`mailto:${SUPPORT_EMAIL}`}>

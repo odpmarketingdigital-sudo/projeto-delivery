@@ -12,6 +12,14 @@
 /** Nome comercial da plataforma. */
 export const PRODUCT_NAME = "Ipepper";
 
+/**
+ * CNPJ corporativo da Ipepper.
+ *
+ * É a identificação legal exibida nas páginas de Política de Privacidade e
+ * Termos de Uso (rodapé compartilhado e seção de contato).
+ */
+export const COMPANY_CNPJ = "33.172.672/0001-33";
+
 /** E-mail oficial de suporte, privacidade e cancelamento. */
 export const SUPPORT_EMAIL = "alpmdp@gmail.com";
 

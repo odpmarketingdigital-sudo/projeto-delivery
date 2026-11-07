@@ -7,7 +7,6 @@ const NAV_LINKS = [
   { href: "#inicio", label: "Início" },
   { href: "#como-funciona", label: "Como Funciona" },
   { href: "#recursos", label: "Recursos" },
-  { href: "#sistema", label: "Sistema" },
   { href: "#planos", label: "Planos" },
   { href: "#beneficios", label: "Benefícios" },
   { href: "#depoimentos", label: "Depoimentos" },
@@ -37,12 +36,12 @@ const SOCIAL_LINKS: { href: string; label: string; icon: IconName }[] = [
  */
 export function LandingFooter() {
   return (
-    <footer className="border-t border-white/[0.08] bg-[#05070a]">
+    <footer className="border-t border-gray-200 bg-white">
       <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.5fr_0.8fr_0.9fr_0.9fr]">
           <div className="max-w-sm">
             <LandingBrand />
-            <p className="mt-4 text-sm leading-relaxed text-gray-500">
+            <p className="mt-4 text-sm leading-relaxed text-gray-600">
               O cardápio digital que transforma o WhatsApp em um canal de
               vendas direto, organizado e sem comissão por pedido.
             </p>
@@ -55,7 +54,7 @@ export function LandingFooter() {
                   rel="noopener noreferrer"
                   aria-label={social.label}
                   title={social.label}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-gray-400 transition hover:border-amber-400/30 hover:bg-amber-400/10 hover:text-amber-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 transition hover:border-amber-400/50 hover:bg-amber-50 hover:text-amber-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
                   <Icon name={social.icon} className="h-4 w-4" />
                 </a>
@@ -64,7 +63,7 @@ export function LandingFooter() {
           </div>
 
           <nav aria-label="Links do rodapé">
-            <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-300">
+            <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-900">
               Navegue
             </h3>
             <ul className="mt-4 space-y-2.5">
@@ -72,7 +71,7 @@ export function LandingFooter() {
                 <li key={link.href}>
                   <a
                     href={link.href}
-                    className="text-sm text-gray-500 transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                    className="text-sm text-gray-500 transition hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                   >
                     {link.label}
                   </a>
@@ -82,14 +81,14 @@ export function LandingFooter() {
           </nav>
 
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-300">
+            <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-900">
               Acesso rápido
             </h3>
             <ul className="mt-4 space-y-2.5">
               <li>
                 <Link
                   href="/cadastro"
-                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-300 transition hover:text-amber-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-600 transition hover:text-amber-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
                   Criar conta grátis
                   <Icon name="arrowRight" className="h-3.5 w-3.5" />
@@ -98,7 +97,7 @@ export function LandingFooter() {
               <li>
                 <Link
                   href="/painel"
-                  className="inline-flex items-center gap-1.5 text-sm text-gray-500 transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  className="inline-flex items-center gap-1.5 text-sm text-gray-500 transition hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
                   Acessar painel
                   <Icon name="arrowRight" className="h-3.5 w-3.5" />
@@ -107,7 +106,7 @@ export function LandingFooter() {
               <li>
                 <Link
                   href="/demo"
-                  className="text-sm text-gray-500 transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  className="text-sm text-gray-500 transition hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
                   Cardápio demonstração
                 </Link>
@@ -115,7 +114,7 @@ export function LandingFooter() {
               <li>
                 <Link
                   href="/login"
-                  className="text-sm text-gray-500 transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  className="text-sm text-gray-500 transition hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
                   Entrar na minha conta
                 </Link>
@@ -125,9 +124,9 @@ export function LandingFooter() {
                   href={SUPPORT_WHATSAPP_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-sm text-gray-500 transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  className="inline-flex items-center gap-1.5 text-sm text-gray-500 transition hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
-                  <Icon name="whatsapp" className="h-3.5 w-3.5 text-emerald-400" />
+                  <Icon name="whatsapp" className="h-3.5 w-3.5 text-emerald-600" />
                   WhatsApp {SUPPORT_WHATSAPP_DISPLAY}
                 </a>
               </li>
@@ -135,14 +134,14 @@ export function LandingFooter() {
           </div>
 
           <nav aria-label="Links legais">
-            <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-300">
+            <h3 className="text-xs font-bold uppercase tracking-[0.16em] text-gray-900">
               Legal
             </h3>
             <ul className="mt-4 space-y-2.5">
               <li>
                 <Link
                   href="/privacidade"
-                  className="text-sm text-gray-500 transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  className="text-sm text-gray-500 transition hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
                   Política de Privacidade
                 </Link>
@@ -150,7 +149,7 @@ export function LandingFooter() {
               <li>
                 <Link
                   href="/termos"
-                  className="text-sm text-gray-500 transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                  className="text-sm text-gray-500 transition hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                 >
                   Termos de Uso
                 </Link>
@@ -162,7 +161,7 @@ export function LandingFooter() {
           </nav>
         </div>
 
-        <div className="mt-12 flex flex-col gap-4 border-t border-white/[0.08] pt-6 text-xs text-gray-600 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-12 flex flex-col gap-4 border-t border-gray-200 pt-6 text-xs text-gray-600 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-gray-500">
             © Ipepper. Todos os direitos reservados.
           </p>
@@ -170,7 +169,7 @@ export function LandingFooter() {
             <p>Seu cardápio, seu canal, seus clientes.</p>
             <a
               href="#inicio"
-              className="inline-flex w-fit items-center gap-1.5 font-semibold text-gray-500 transition hover:text-amber-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+              className="inline-flex w-fit items-center gap-1.5 font-semibold text-gray-500 transition hover:text-amber-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
             >
               Voltar ao topo
               <Icon name="arrowRight" className="h-3.5 w-3.5 -rotate-90" />

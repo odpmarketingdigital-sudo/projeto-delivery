@@ -40,30 +40,30 @@ export function Pricing() {
 
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
-          <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-300">
-            <span className="h-px w-6 bg-amber-400/60" />
+          <span className="inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-600">
+            <span className="h-px w-6 bg-amber-500/60" />
             Planos
-            <span className="h-px w-6 bg-amber-400/60" />
+            <span className="h-px w-6 bg-amber-500/60" />
           </span>
-          <h2 className="mt-4 text-balance text-3xl font-black tracking-[-0.03em] text-white sm:text-4xl">
+          <h2 className="mt-4 text-balance text-3xl font-black tracking-[-0.03em] text-gray-900 sm:text-4xl">
             Um plano único, sem comissão e sem surpresa
           </h2>
-          <p className="mt-4 text-pretty text-base leading-relaxed text-gray-400">
+          <p className="mt-4 text-pretty text-base leading-relaxed text-gray-600">
             Todos os recursos do Ipepper em um valor mensal fixo. Você vende
             mais e paga menos do que uma única taxa de marketplace.
           </p>
         </div>
 
         <div className="mx-auto mt-12 max-w-5xl">
-          <div className="relative overflow-hidden rounded-[2rem] border border-amber-400/25 bg-[#0b1017] p-6 shadow-2xl shadow-amber-500/10 sm:p-10">
+          <div className="relative overflow-hidden rounded-[2rem] border border-amber-300/70 bg-white p-6 shadow-2xl shadow-amber-500/10 sm:p-10">
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-amber-400/10 blur-3xl"
+              className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-amber-400/15 blur-3xl"
             />
 
             <div className="relative grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-12">
               <div>
-                <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-400/[0.08] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-amber-200">
+                <span className="inline-flex items-center gap-2 rounded-full border border-amber-500/25 bg-amber-500/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.16em] text-amber-700">
                   <Icon name="bolt" className="h-3.5 w-3.5" />
                   Oferta de lançamento
                 </span>
@@ -72,24 +72,24 @@ export function Pricing() {
                   <span className="line-through decoration-rose-400/70 decoration-2">
                     {REGULAR_PRICE_LABEL}/mês
                   </span>
-                  <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-300 ring-1 ring-inset ring-emerald-400/20">
+                  <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-emerald-700 ring-1 ring-inset ring-emerald-500/20">
                     {DISCOUNT_LABEL}
                   </span>
                 </p>
 
                 <p className="mt-1 flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-5xl font-black tracking-[-0.04em] text-white sm:text-6xl">
+                  <span className="text-5xl font-black tracking-[-0.04em] text-gray-900 sm:text-6xl">
                     {PROMO_PRICE_LABEL}
                   </span>
-                  <span className="text-base font-bold text-gray-400">/mês</span>
+                  <span className="text-base font-bold text-gray-500">/mês</span>
                 </p>
 
-                <p className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-400/[0.08] px-3 py-1.5 text-xs font-bold text-emerald-300 ring-1 ring-inset ring-emerald-400/20">
+                <p className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 ring-1 ring-inset ring-emerald-200">
                   <Icon name="check" className="h-3.5 w-3.5" />
                   Economize {MONTHLY_SAVINGS_LABEL} por mês
                 </p>
 
-                <p className="mt-4 max-w-md text-sm leading-relaxed text-gray-400">
+                <p className="mt-4 max-w-md text-sm leading-relaxed text-gray-600">
                   Preço promocional de lançamento para os primeiros
                   estabelecimentos. Depois, o valor volta para{" "}
                   {REGULAR_PRICE_LABEL} por mês.
@@ -98,7 +98,7 @@ export function Pricing() {
                 <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                   <Link
                     href="/cadastro"
-                    className="group inline-flex items-center justify-center gap-2 rounded-xl bg-amber-400 px-6 py-3.5 text-sm font-black text-gray-950 shadow-xl shadow-amber-500/25 transition hover:bg-amber-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-200 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
+                    className="group inline-flex items-center justify-center gap-2 rounded-xl bg-amber-400 px-6 py-3.5 text-sm font-black text-gray-900 shadow-xl shadow-amber-500/25 transition hover:bg-amber-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                   >
                     Começar 30 dias grátis
                     <Icon
@@ -110,9 +110,9 @@ export function Pricing() {
                     href={SUPPORT_WHATSAPP_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.03] px-6 py-3.5 text-sm font-bold text-white transition hover:border-white/25 hover:bg-white/[0.07] focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-950"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-6 py-3.5 text-sm font-bold text-gray-800 transition hover:border-gray-400 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                   >
-                    <Icon name="whatsapp" className="h-4 w-4 text-emerald-400" />
+                    <Icon name="whatsapp" className="h-4 w-4 text-emerald-600" />
                     Tirar dúvidas
                   </a>
                 </div>
@@ -123,17 +123,17 @@ export function Pricing() {
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-5 sm:p-6">
-                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-400">
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-5 sm:p-6">
+                <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-500">
                   Tudo incluído no plano
                 </p>
                 <ul className="mt-4 space-y-3">
                   {PLAN_BENEFITS.map((benefit) => (
                     <li key={benefit} className="flex gap-2.5">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-400/10 text-emerald-400 ring-1 ring-inset ring-emerald-400/20">
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 ring-1 ring-inset ring-emerald-500/20">
                         <Icon name="check" className="h-3 w-3" />
                       </span>
-                      <span className="text-sm leading-snug text-gray-300">
+                      <span className="text-sm leading-snug text-gray-700">
                         {benefit}
                       </span>
                     </li>
