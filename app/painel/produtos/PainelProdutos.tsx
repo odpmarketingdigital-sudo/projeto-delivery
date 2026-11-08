@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { Category, MenuAddon, MenuData, MenuProduct } from "@/lib/types";
+import type { Category, MenuAddon, MenuAddonGroup, MenuData, MenuProduct } from "@/lib/types";
 import { compareByOrder } from "@/lib/menuOrder";
 import { useEstablishment } from "./useEstablishment";
 import { ProductFormModal } from "./ProductFormModal";
@@ -51,6 +51,8 @@ export function PainelProdutos() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<MenuProduct[]>([]);
   const [addons, setAddons] = useState<MenuAddon[]>([]);
+  /** Grupos de opções (opcionais obrigatórios/limitados por produto). */
+  const [addonGroups, setAddonGroups] = useState<MenuAddonGroup[]>([]);
   const [isLoadingMenu, setIsLoadingMenu] = useState(false);
   const [menuError, setMenuError] = useState<string | null>(null);
 
@@ -82,10 +84,12 @@ export function PainelProdutos() {
       setCategories(menu.categories ?? []);
       setProducts(menu.products ?? []);
       setAddons(menu.addons ?? []);
+      setAddonGroups(menu.addon_groups ?? []);
     } catch (err) {
       setCategories([]);
       setProducts([]);
       setAddons([]);
+      setAddonGroups([]);
       setMenuError(err instanceof Error ? err.message : "Erro inesperado.");
     } finally {
       setIsLoadingMenu(false);
@@ -584,6 +588,7 @@ export function PainelProdutos() {
           isSuperAdmin={isSuperAdmin}
           product={addonsTarget}
           addons={addons}
+          addonGroups={addonGroups}
           onClose={() => setAddonsTarget(null)}
           onChanged={() => void fetchMenu()}
         />

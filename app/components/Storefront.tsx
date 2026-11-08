@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import type {
   MenuAddon,
+  MenuAddonGroup,
   Product,
   ProductOptionGroup,
   StorefrontMenu,
@@ -30,32 +31,93 @@ const slugify = (value: string) =>
     .replace(/[^a-z0-9]+/g, "-")}`;
 
 /**
- * Monta os grupos de opções do modal a partir dos adicionais cadastrados no
- * painel. Todos os adicionais são opcionais (múltipla escolha): o cliente
- * decide se quer incluir. Retorna `[]` quando o produto não tem adicionais —
- * nesse caso o modal exibe apenas observações e a quantidade.
+ * Monta os grupos de opções do modal a partir dos grupos de opcionais
+ * (`addon_groups`) e dos adicionais (`addons`) cadastrados no painel.
+ *
+ * - Cada grupo ATIVO do produto vira um `ProductOptionGroup` com a sua regra
+ *   de seleção (obrigatório, mínimo e máximo).
+ * - Opcionais avulsos (sem grupo) ou cujo grupo foi excluído caem num grupo
+ *   "Adicionais" opcional de múltipla escolha (compatibilidade/legado).
+ * - Itens de grupos INATIVOS são ocultados.
+ * - Grupos sem nenhuma opção não são exibidos (não dá para exigir escolha
+ *   impossível).
+ *
+ * Retorna `[]` quando o produto não tem opcionais — nesse caso o modal exibe
+ * apenas observações e a quantidade.
  */
 function buildOptionGroups(
   productId: string,
+  groups: MenuAddonGroup[],
   addons: MenuAddon[]
 ): ProductOptionGroup[] {
-  const active = sortByOrder(
-    addons.filter((a) => a.product_id === productId && a.is_active)
+  const productAddons = addons.filter(
+    (a) => a.product_id === productId && a.is_active
   );
-  if (active.length === 0) return [];
 
-  return [
-    {
-      id: `${productId}-optional`,
-      title: "Adicionais",
-      required: false,
-      options: active.map((a) => ({
+  // Todos os grupos do produto (para saber se um item está num grupo inativo).
+  const allGroupsById = new Map(
+    groups.filter((g) => g.product_id === productId).map((g) => [g.id, g])
+  );
+
+  const activeGroups = sortByOrder(
+    groups.filter((g) => g.product_id === productId && g.is_active)
+  );
+
+  const result: ProductOptionGroup[] = [];
+
+  for (const group of activeGroups) {
+    const options = sortByOrder(
+      productAddons.filter((a) => a.group_id === group.id)
+    );
+
+    if (options.length === 0) continue;
+
+    const maxSelect = Math.max(1, Math.floor(Number(group.max_selectors)) || 1);
+    const rawMin = Math.max(0, Math.floor(Number(group.min_selectors)) || 0);
+    const minSelect = group.is_required ? Math.max(1, rawMin) : rawMin;
+
+    result.push({
+      id: group.id,
+      title: group.name,
+      description: group.description || undefined,
+      required: group.is_required || minSelect > 0,
+      // Nunca exige mais seleções do que o grupo oferece (evita bloquear o
+      // produto quando `min_selectors` > nº de opções cadastradas).
+      minSelect: Math.min(minSelect, maxSelect, options.length),
+      maxSelect,
+      options: options.map((a) => ({
         id: a.id,
         name: a.name,
         price: a.price,
       })),
-    },
-  ];
+    });
+  }
+
+  // Avulsos: sem grupo, com grupo inexistente (excluído). Itens de grupos
+  // inativos ficam ocultos.
+  const ungrouped = sortByOrder(
+    productAddons.filter((a) => {
+      if (a.group_id && allGroupsById.has(a.group_id)) return false;
+      return true;
+    })
+  );
+
+  if (ungrouped.length > 0) {
+    result.push({
+      id: `${productId}-optional`,
+      title: "Adicionais",
+      required: false,
+      minSelect: 0,
+      maxSelect: ungrouped.length,
+      options: ungrouped.map((a) => ({
+        id: a.id,
+        name: a.name,
+        price: a.price,
+      })),
+    });
+  }
+
+  return result;
 }
 
 
@@ -204,6 +266,12 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
       list.push(addon);
       addonsByProduct.set(addon.product_id, list);
     }
+    const groupsByProduct = new Map<string, MenuAddonGroup[]>();
+    for (const group of menu.addon_groups ?? []) {
+      const list = groupsByProduct.get(group.product_id) ?? [];
+      list.push(group);
+      groupsByProduct.set(group.product_id, list);
+    }
     const categoryName = new Map(
       menu.categories.map((category) => [category.id, category.name])
     );
@@ -213,7 +281,11 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
         item.category_name ||
         (item.category_id ? categoryName.get(item.category_id) : null) ||
         "Outros";
-      const groups = buildOptionGroups(item.id, addonsByProduct.get(item.id) ?? []);
+      const groups = buildOptionGroups(
+        item.id,
+        groupsByProduct.get(item.id) ?? [],
+        addonsByProduct.get(item.id) ?? []
+      );
       return {
         id: item.id,
         nome: item.name,

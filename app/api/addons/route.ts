@@ -121,7 +121,8 @@ export async function GET(request: Request) {
  *  - `super_admin`: usa o `establishment_id` enviado no corpo (obrigatório).
  *  - O `product_id` informado é validado contra o estabelecimento alvo.
  *
- * Body: { establishment_id?, product_id, name, price, is_required?, is_active? }
+ * Body: { establishment_id?, product_id, name, price, is_required?, is_active?,
+ *         group_id? }
  */
 export async function POST(request: Request) {
   const guard = await requireMenuAccess();
@@ -134,6 +135,8 @@ export async function POST(request: Request) {
     price?: number | string;
     is_required?: boolean;
     is_active?: boolean;
+    /** Grupo de opcionais ao qual o item pertence (opcional). */
+    group_id?: string | null;
   };
   try {
     body = await request.json();
@@ -213,6 +216,34 @@ export async function POST(request: Request) {
     );
   }
 
+  // Grupo de opcionais (opcional): valida o vínculo com o produto/loja.
+  let groupId: string | null = body.group_id?.trim() || null;
+  if (groupId) {
+    const { data: group, error: groupError } = await adminClient
+      .from("addon_groups")
+      .select("id, product_id, establishment_id")
+      .eq("id", groupId)
+      .maybeSingle();
+
+    if (groupError) {
+      return NextResponse.json(
+        { error: groupError.message ?? "Falha ao localizar o grupo." },
+        { status: 400 }
+      );
+    }
+    if (
+      !group ||
+      group.product_id !== productId ||
+      group.establishment_id !== establishmentId
+    ) {
+      return NextResponse.json(
+        { error: "O grupo informado não pertence a este produto." },
+        { status: 400 }
+      );
+    }
+    groupId = group.id;
+  }
+
   const position = await nextAddonPosition(establishmentId, productId);
 
   const { data: created, error } = await adminClient
@@ -224,6 +255,7 @@ export async function POST(request: Request) {
       price,
       is_required: body.is_required ?? false,
       is_active: body.is_active ?? true,
+      group_id: groupId,
       position,
     })
     .select()
@@ -253,7 +285,7 @@ export async function POST(request: Request) {
  *
  * Segurança: só quem gerencia o estabelecimento dono do adicional pode editá-lo.
  *
- * Body: { id, name?, price?, is_required?, is_active?, position? }
+ * Body: { id, name?, price?, is_required?, is_active?, group_id?, position? }
  */
 export async function PUT(request: Request) {
   const guard = await requireMenuAccess();
@@ -265,6 +297,8 @@ export async function PUT(request: Request) {
     price?: number | string;
     is_required?: boolean;
     is_active?: boolean;
+    /** Grupo de opcionais (string = mover para o grupo; null = sem grupo). */
+    group_id?: string | null;
     position?: number;
   };
   try {
@@ -340,6 +374,48 @@ export async function PUT(request: Request) {
   }
   if (body.is_active !== undefined) {
     patch.is_active = Boolean(body.is_active);
+  }
+  if (body.group_id !== undefined) {
+    const rawGroupId =
+      typeof body.group_id === "string" ? body.group_id.trim() : "";
+    if (!rawGroupId) {
+      // Remove o item do grupo (fica "sem grupo").
+      patch.group_id = null;
+    } else {
+      // Valida que o grupo existe e pertence ao mesmo produto/loja do item.
+      const [{ data: addonRef }, { data: groupRef, error: groupError }] =
+        await Promise.all([
+          adminClient
+            .from("addons")
+            .select("product_id")
+            .eq("id", id)
+            .maybeSingle(),
+          adminClient
+            .from("addon_groups")
+            .select("id, product_id, establishment_id")
+            .eq("id", rawGroupId)
+            .maybeSingle(),
+        ]);
+
+      if (groupError) {
+        return NextResponse.json(
+          { error: groupError.message ?? "Falha ao localizar o grupo." },
+          { status: 400 }
+        );
+      }
+      if (
+        !groupRef ||
+        !addonRef ||
+        groupRef.product_id !== addonRef.product_id ||
+        groupRef.establishment_id !== existing.establishment_id
+      ) {
+        return NextResponse.json(
+          { error: "O grupo informado não pertence a este produto." },
+          { status: 400 }
+        );
+      }
+      patch.group_id = rawGroupId;
+    }
   }
   if (body.position !== undefined) {
     patch.position = Number(body.position);

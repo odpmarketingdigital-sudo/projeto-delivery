@@ -7,7 +7,13 @@ import {
   getOwnedEstablishmentId,
   resolveMenuEstablishment,
 } from "@/lib/supabase/menuGuard";
-import type { Category, MenuAddon, MenuData, MenuProduct } from "@/lib/types";
+import type {
+  Category,
+  MenuAddon,
+  MenuAddonGroup,
+  MenuData,
+  MenuProduct,
+} from "@/lib/types";
 
 /** Linha crua de `products` como vem do PostgREST (price pode ser string). */
 type ProductRow = Omit<MenuProduct, "price" | "category_name"> & {
@@ -84,7 +90,7 @@ export async function GET(request: Request) {
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true });
 
-  const [categoriesRes, addonsRes] = await Promise.all([
+  const [categoriesRes, addonsRes, addonGroupsRes] = await Promise.all([
     adminClient
       .from("categories")
       .select("*")
@@ -95,6 +101,14 @@ export async function GET(request: Request) {
       .from("addons")
       .select("*")
       .eq("establishment_id", establishmentId)
+      .order("name", { ascending: true }),
+    // Grupos de opcionais (inclui inativos: o painel precisa gerenciá-los).
+    // Se a tabela ainda não existir, o erro é ignorado e devolvemos [].
+    adminClient
+      .from("addon_groups")
+      .select("*")
+      .eq("establishment_id", establishmentId)
+      .order("position", { ascending: true })
       .order("name", { ascending: true }),
   ]);
 
@@ -143,6 +157,9 @@ export async function GET(request: Request) {
     categories,
     products,
     addons: (addonsRes.data as MenuAddon[]) ?? [],
+    addon_groups: addonGroupsRes.error
+      ? []
+      : ((addonGroupsRes.data as MenuAddonGroup[]) ?? []),
   };
 
   return NextResponse.json(payload, { status: 200 });

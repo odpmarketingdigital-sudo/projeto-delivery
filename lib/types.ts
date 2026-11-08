@@ -10,6 +10,8 @@ export interface ProductOption {
 export interface ProductOptionGroup {
   id: string;
   title: string;
+  /** Instrução exibida ao cliente (ex.: "Escolha entre 1 e 3 opções"). */
+  description?: string;
   required: boolean;
   minSelect?: number;
   maxSelect?: number;
@@ -380,6 +382,41 @@ export interface MenuAddon {
   is_required: boolean;
   /** false = opcional pausado (não exibido no cardápio). */
   is_active: boolean;
+  /**
+   * Grupo de opcionais ao qual o item pertence (`addon_groups.id`).
+   * `null`/ausente = item "sem grupo" (legado ou avulso).
+   */
+  group_id?: string | null;
+  /** Ordem de exibição (tolerante a nulo; ver `lib/menuOrder.ts`). */
+  position: number | null;
+  /** Alias alternativo de ordenação, quando a base usa `sort_order`. */
+  sort_order?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Grupo de opcionais de um produto (estilo Menudino/iFood).
+ * Persistido na tabela `public.addon_groups`.
+ *
+ * Ex.: "Escolha o tipo de carne" (obrigatório, mínimo 1, máximo 1) ou
+ * "Escolha 3 acompanhamentos" (obrigatório, mínimo 3, máximo 3).
+ */
+export interface MenuAddonGroup {
+  id: string;
+  establishment_id: string;
+  product_id: string;
+  name: string;
+  /** Instrução exibida ao cliente (ex.: "Escolha entre 1 e 3 opções"). */
+  description: string;
+  /** true = grupo de seleção obrigatória na vitrine. */
+  is_required: boolean;
+  /** Mínimo de itens que o cliente deve escolher no grupo. */
+  min_selectors: number;
+  /** Máximo de itens que o cliente pode escolher no grupo. */
+  max_selectors: number;
+  /** false = grupo oculto/pausado (não exibido no cardápio). */
+  is_active: boolean;
   /** Ordem de exibição (tolerante a nulo; ver `lib/menuOrder.ts`). */
   position: number | null;
   /** Alias alternativo de ordenação, quando a base usa `sort_order`. */
@@ -428,6 +465,12 @@ export interface MenuData {
   products: MenuProduct[];
   /** Adicionais de todos os produtos do estabelecimento (filtre por `product_id`). */
   addons: MenuAddon[];
+  /**
+   * Grupos de opcionais de todos os produtos do estabelecimento
+   * (filtre por `product_id`). Opcional para compatibilidade com payloads
+   * antigos; use `menu.addon_groups ?? []`.
+   */
+  addon_groups?: MenuAddonGroup[];
 }
 
 /**

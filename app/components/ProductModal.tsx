@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useCart } from "@/context/CartContext";
-import type { Product, ProductOption } from "@/lib/types";
+import type { Product, ProductOption, ProductOptionGroup } from "@/lib/types";
 import { isPriceOnRequest } from "@/lib/catalogOrder";
 
 interface ProductModalProps {
@@ -29,6 +29,51 @@ function normalizeInitialQuantity(
   return Math.min(limit, Math.max(1, Math.floor(value)));
 }
 
+/**
+ * Teto de seleções de um grupo. Sem `maxSelect` válido o grupo não tem limite
+ * (Infinity) — usado tanto no render (radio × checkbox) quanto no bloqueio.
+ */
+function groupMaxSelect(group: ProductOptionGroup): number {
+  const max = Number(group.maxSelect);
+  return Number.isFinite(max) && max > 0 ? Math.floor(max) : Infinity;
+}
+
+/**
+ * Piso de seleções de um grupo. Grupo obrigatório sempre exige ao menos 1
+ * opção, mesmo quando `minSelect` não foi configurado.
+ */
+function groupMinSelect(group: ProductOptionGroup): number {
+  const min = Number(group.minSelect);
+  const parsed = Number.isFinite(min) && min > 0 ? Math.floor(min) : 0;
+  return group.required ? Math.max(1, parsed) : parsed;
+}
+
+/** Grupo de escolha única (radio) — teto de 1 opção. */
+function isSingleChoiceGroup(group: ProductOptionGroup): boolean {
+  return groupMaxSelect(group) === 1;
+}
+
+/**
+ * Instrução exibida abaixo do título do grupo (ex.: "Escolha 1 opção",
+ * "Escolha até 3 opções"). É sempre mostrada — a descrição do grupo, quando
+ * existir, aparece como linha de apoio adicional.
+ */
+function describeGroupRequirement(min: number, max: number): string {
+  if (max === 1) {
+    return min > 0 ? "Escolha 1 opção" : "Escolha 1 opção (opcional)";
+  }
+  if (max === Infinity) {
+    return min > 0
+      ? `Escolha pelo menos ${min} ${min === 1 ? "opção" : "opções"}`
+      : "Escolha quantas quiser";
+  }
+  if (min > 0 && min === max) {
+    return `Escolha ${min} ${min === 1 ? "opção" : "opções"}`;
+  }
+  if (min > 0) return `Escolha de ${min} a ${max} opções`;
+  return `Escolha até ${max} opções`;
+}
+
 export function ProductModal({
   product,
   onClose,
@@ -51,9 +96,7 @@ export function ProductModal({
   const [selection, setSelection] = useState<Record<string, string[]>>(() => {
     const initial: Record<string, string[]> = {};
     const initialGroups = product?.option_groups ?? [];
-    for (const g of initialGroups) {
-      initial[g.id] = g.required && g.options.length > 0 ? [g.options[0].id] : [];
-    }
+    for (const g of initialGroups) initial[g.id] = [];
     return initial;
   });
   const [notes, setNotes] = useState("");
@@ -66,9 +109,7 @@ export function ProductModal({
   if (product?.id !== prevProductId) {
     setPrevProductId(product?.id);
     const newInitial: Record<string, string[]> = {};
-    for (const g of groups) {
-      newInitial[g.id] = g.required && g.options.length > 0 ? [g.options[0].id] : [];
-    }
+    for (const g of groups) newInitial[g.id] = [];
     setSelection(newInitial);
     setNotes("");
     setQuantity(normalizeInitialQuantity(initialQuantity, maxQuantity));
@@ -99,14 +140,24 @@ export function ProductModal({
   const priceOnRequest = isPriceOnRequest(product?.preco);
   const unitPrice = basePrice + selectedOptions.reduce((a, o) => a + o.price, 0);
   const totalPrice = unitPrice * quantity;
-  const missingRequired = groups.filter((g) => g.required && (selection[g.id]?.length ?? 0) === 0);
+  // Grupos que ainda não atingiram a quantidade mínima de seleções (o botão
+  // "Adicionar" fica bloqueado enquanto existir algum).
+  const invalidGroups = groups.filter(
+    (g) => (selection[g.id]?.length ?? 0) < groupMinSelect(g)
+  );
+  const hasInvalidSelection = invalidGroups.length > 0;
 
   const handleSubmit = () => {
     if (!product) return;
     if (soldOut) return;
-    if (missingRequired.length > 0) {
+    if (hasInvalidSelection) {
       setTriedSubmit(true);
-      document.getElementById(`group-${missingRequired[0].id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const target = document.getElementById(`group-${invalidGroups[0].id}`);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      // Foca a primeira opção habilitada do grupo pendente (acessibilidade).
+      target
+        ?.querySelector<HTMLInputElement>("input:not(:disabled)")
+        ?.focus({ preventScroll: true });
       return;
     }
     addCustomItem({
@@ -159,30 +210,91 @@ export function ProductModal({
               </span>
             </div>
           )}
-          {groups.map((g) => (
-            <fieldset key={g.id} id={`group-${g.id}`} className="mt-4 rounded-2xl border border-gray-200/80 bg-gray-50/60 p-3.5 dark:border-gray-700/60 dark:bg-gray-800/40">
-              <legend className="px-1 text-sm font-bold dark:text-white">{g.title} {g.required ? <span className="ml-1 rounded-full bg-gray-900 px-2 py-0.5 text-[10px] uppercase text-white dark:bg-yellow-400 dark:text-gray-950">Obrigatório</span> : <span className="ml-1 rounded-full bg-gray-200 px-2 py-0.5 text-[10px] uppercase text-gray-500">Opcional</span>}</legend>
-              {(triedSubmit && (selection[g.id]?.length ?? 0) === 0 && g.required) && <p className="mb-2 text-xs font-semibold text-red-500">Escolha uma opção para continuar.</p>}
-              <div className="flex flex-col gap-1.5">
-                {g.options.map((o) => {
-                  const checked = selection[g.id]?.includes(o.id) ?? false;
-                  return (
-                    <label key={o.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-2.5 text-sm ${checked ? "border-gray-900 bg-white dark:border-yellow-400 dark:bg-gray-900" : "border-transparent"}`}>
-                      <input type={g.required ? "radio" : "checkbox"} name={g.id} checked={checked} onChange={() => setSelection((p) => {
-                        if (g.required) return { ...p, [g.id]: [o.id] };
-                        const cur = p[g.id] ?? [];
-                        if (cur.includes(o.id)) return { ...p, [g.id]: cur.filter((x) => x !== o.id) };
-                        if (g.maxSelect && cur.length >= g.maxSelect) return p;
-                        return { ...p, [g.id]: [...cur, o.id] };
-                      })} className="h-4 w-4 accent-gray-900 dark:accent-yellow-400" />
-                      <span className="flex-1 font-medium dark:text-gray-100">{o.name}</span>
-                      <span className="text-xs font-bold tabular-nums text-gray-500">{o.price > 0 ? `+ ${formatBRL(o.price)}` : "Incluso"}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </fieldset>
-          ))}
+          {groups.map((g) => {
+            const selectedCount = selection[g.id]?.length ?? 0;
+            const min = groupMinSelect(g);
+            const max = groupMaxSelect(g);
+            const single = isSingleChoiceGroup(g);
+            const isRequired = g.required || min > 0;
+            const groupInvalid = selectedCount < min;
+            const highlightInvalid = groupInvalid && triedSubmit;
+            const hint = describeGroupRequirement(min, max);
+            const groupDescription = g.description?.trim() || "";
+            const remaining = Math.max(0, min - selectedCount);
+            return (
+              <fieldset
+                key={g.id}
+                id={`group-${g.id}`}
+                aria-describedby={`group-${g.id}-hint`}
+                className={`mt-4 rounded-2xl border p-3.5 transition-colors ${
+                  highlightInvalid
+                    ? "border-red-400 bg-red-50/70 dark:border-red-500/60 dark:bg-red-500/10"
+                    : "border-gray-200/80 bg-gray-50/60 dark:border-gray-700/60 dark:bg-gray-800/40"
+                }`}
+              >
+                <legend className="px-1 text-sm font-bold dark:text-white">
+                  {g.title}{" "}
+                  {isRequired ? <span className="ml-1 rounded-full bg-gray-900 px-2 py-0.5 text-[10px] uppercase text-white dark:bg-yellow-400 dark:text-gray-950">Obrigatório</span> : <span className="ml-1 rounded-full bg-gray-200 px-2 py-0.5 text-[10px] uppercase text-gray-500 dark:bg-gray-700 dark:text-gray-300">Opcional</span>}
+                  {Number.isFinite(max) && (
+                    <span className={`ml-1.5 text-[11px] font-semibold tabular-nums ${groupInvalid ? "text-amber-600 dark:text-amber-400" : "text-gray-500 dark:text-gray-400"}`}>{selectedCount}/{max}</span>
+                  )}
+                </legend>
+                <div className="mb-2 mt-1 space-y-0.5">
+                  <p id={`group-${g.id}-hint`} className="text-xs font-semibold text-gray-600 dark:text-gray-300">{hint}</p>
+                  {groupDescription && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{groupDescription}</p>
+                  )}
+                </div>
+                {groupInvalid && (
+                  <p
+                    role={highlightInvalid ? "alert" : undefined}
+                    className={`mb-2 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${highlightInvalid ? "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300" : "text-amber-600 dark:text-amber-400"}`}
+                  >
+                    {`Faltam ${remaining} ${remaining === 1 ? "seleção" : "seleções"} para completar este grupo.`}
+                  </p>
+                )}
+                <div className="flex flex-col gap-1.5">
+                  {g.options.map((o) => {
+                    const checked = selection[g.id]?.includes(o.id) ?? false;
+                    // O limite só bloqueia grupos de múltipla escolha, e nunca a
+                    // opção marcada (para poder desmarcar e liberar espaço). Em
+                    // grupos de escolha única nada fica `disabled`: o cliente
+                    // sempre pode trocar a opção (ex.: 120 g → 240 g).
+                    const atLimit = !single && !checked && selectedCount >= max;
+                    return (
+                      <label key={o.id} className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-sm transition ${checked ? "border-gray-900 bg-white ring-1 ring-gray-900 dark:border-yellow-400 dark:bg-gray-900 dark:ring-yellow-400" : "border-gray-200 bg-white/70 dark:border-gray-700 dark:bg-gray-900/40"} ${atLimit ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:border-gray-400 dark:hover:border-gray-500"}`}>
+                        <input
+                          type={single ? "radio" : "checkbox"}
+                          name={g.id}
+                          checked={checked}
+                          disabled={atLimit}
+                          onChange={() => setSelection((p) => {
+                            const cur = p[g.id] ?? [];
+                            // Escolha única: a nova opção substitui a anterior
+                            // (comportamento nativo de radio button).
+                            if (single) return { ...p, [g.id]: [o.id] };
+                            if (cur.includes(o.id)) return { ...p, [g.id]: cur.filter((x) => x !== o.id) };
+                            if (cur.length >= max) return p;
+                            return { ...p, [g.id]: [...cur, o.id] };
+                          })}
+                          onClick={single && min === 0 ? (event) => {
+                            // Clicar num radio JÁ marcado não dispara `onChange`.
+                            // Em grupos opcionais isso limpa a seleção.
+                            if (!checked) return;
+                            event.preventDefault();
+                            setSelection((p) => ({ ...p, [g.id]: [] }));
+                          } : undefined}
+                          className="h-4 w-4 accent-gray-900 disabled:cursor-not-allowed dark:accent-yellow-400"
+                        />
+                        <span className="flex-1 font-medium dark:text-gray-100">{o.name}</span>
+                        <span className="text-xs font-bold tabular-nums text-gray-500 dark:text-gray-400">{o.price > 0 ? `+ ${formatBRL(o.price)}` : "Incluso"}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            );
+          })}
           <div className="mt-4">
             <label htmlFor="notes" className="mb-1.5 block text-sm font-bold dark:text-white">Observações <span className="font-normal text-gray-400">(opcional)</span></label>
             <textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={300} placeholder="Ex: Sem cebola, molho à parte..." className="w-full resize-none rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm focus:border-gray-900 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
@@ -231,9 +343,20 @@ export function ProductModal({
               </span>
             </div>
           </div>
-          <div className="h-24" />
+          <div className={hasInvalidSelection ? "h-36" : "h-24"} />
         </div>
         <div className="absolute inset-x-0 bottom-0 border-t bg-white/95 px-4 pb-6 pt-3 backdrop-blur dark:bg-gray-900/95">
+          {hasInvalidSelection && (
+            <p
+              role="status"
+              aria-live="polite"
+              className={`mb-2 rounded-lg px-3 py-2 text-xs font-semibold ${triedSubmit ? "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300" : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300"}`}
+            >
+              {triedSubmit
+                ? `Complete a seleção para continuar: ${invalidGroups.map((g) => g.title).join(", ")}.`
+                : "Selecione as opções obrigatórias para adicionar ao carrinho."}
+            </p>
+          )}
           <button
             type="button"
             onClick={handleSubmit}

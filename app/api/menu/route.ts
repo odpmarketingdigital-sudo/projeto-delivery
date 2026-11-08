@@ -7,6 +7,7 @@ import { normalizeDeliverySettings } from "@/lib/delivery";
 import type {
   Category,
   MenuAddon,
+  MenuAddonGroup,
   MenuProduct,
   StorefrontInfo,
   StorefrontMenu,
@@ -182,8 +183,8 @@ export async function GET(request: Request) {
   const establishmentId = String(establishmentRow.id);
   const establishment = mapEstablishment(establishmentRow);
 
-  // 2) Categorias + adicionais (ativos) do estabelecimento.
-  const [categoriesRes, addonsRes] = await Promise.all([
+  // 2) Categorias + adicionais + grupos de opcionais (ativos) da loja.
+  const [categoriesRes, addonsRes, addonGroupsRes] = await Promise.all([
     fetchWithOrderFallback<Category>((column) =>
       adminClient
         .from("categories")
@@ -196,6 +197,15 @@ export async function GET(request: Request) {
     fetchWithOrderFallback<MenuAddon>((column) =>
       adminClient
         .from("addons")
+        .select("*")
+        .eq("establishment_id", establishmentId)
+        .eq("is_active", true)
+        .order(column, { ascending: true })
+        .order("name", { ascending: true })
+    ),
+    fetchWithOrderFallback<MenuAddonGroup>((column) =>
+      adminClient
+        .from("addon_groups")
         .select("*")
         .eq("establishment_id", establishmentId)
         .eq("is_active", true)
@@ -247,6 +257,11 @@ export async function GET(request: Request) {
     categories: (categoriesRes.data ?? []) as Category[],
     products: ((productsRes.data ?? []) as ProductRow[]).map(mapProduct),
     addons: (addonsRes.data ?? []) as MenuAddon[],
+    // Grupos de opcionais ativos (a tabela pode não existir em bases antigas;
+    // o fallback do fetchWithOrderFallback devolve lista vazia sem quebrar).
+    addon_groups: (addonGroupsRes.error
+      ? []
+      : (addonGroupsRes.data ?? [])) as MenuAddonGroup[],
   };
 
   return NextResponse.json(payload, { status: 200 });
