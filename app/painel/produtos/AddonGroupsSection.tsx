@@ -60,6 +60,8 @@ export function AddonGroupsSection({
   const [isSaving, setIsSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Controla a exibição do formulário de grupo (oculto por padrão).
+  const [isFormOpen, setIsFormOpen] = useState(false);
 
   const resetForm = () => {
     setEditingId(null);
@@ -71,6 +73,18 @@ export function AddonGroupsSection({
     setError(null);
   };
 
+  /** Fecha o formulário e descarta os campos sem salvar. */
+  const closeForm = () => {
+    setIsFormOpen(false);
+    resetForm();
+  };
+
+  /** Abre o formulário em branco para criar um novo grupo. */
+  const startCreate = () => {
+    resetForm();
+    setIsFormOpen(true);
+  };
+
   const startEdit = (group: MenuAddonGroup) => {
     setEditingId(group.id);
     setName(group.name);
@@ -79,6 +93,7 @@ export function AddonGroupsSection({
     setMinSelectors(String(group.min_selectors ?? 1));
     setMaxSelectors(String(group.max_selectors ?? 1));
     setError(null);
+    setIsFormOpen(true);
   };
 
   /** Cria um grupo (POST) ou salva as alterações de um grupo (PUT). */
@@ -125,7 +140,8 @@ export function AddonGroupsSection({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Falha ao salvar o grupo.");
-      resetForm();
+      // Recolhe o formulário e reflete a lista atualizada em seguida.
+      closeForm();
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar o grupo.");
@@ -168,7 +184,7 @@ export function AddonGroupsSection({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Falha ao excluir o grupo.");
-      if (editingId === group.id) resetForm();
+      if (editingId === group.id) closeForm();
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao excluir o grupo.");
@@ -184,6 +200,128 @@ export function AddonGroupsSection({
         Defina regras de escolha (ex.: “Tipo de carne” obrigatório, “Adicionais”
         opcional). Itens sem grupo aparecem juntos em “Adicionais”.
       </p>
+
+      {!isFormOpen && (
+        <button
+          type="button"
+          onClick={startCreate}
+          className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-amber-400 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-700 transition hover:bg-amber-100"
+        >
+          <svg
+            aria-hidden="true"
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M12 4v16m8-8H4"
+            />
+          </svg>
+          Novo Grupo de Opções
+        </button>
+      )}
+
+      {isFormOpen && (
+        <form
+          onSubmit={handleSubmit}
+          className="mt-3 space-y-2 rounded-xl border border-dashed border-slate-300 p-3"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {editingId ? "Editar grupo" : "Novo grupo"}
+          </p>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Nome do grupo (ex: Tipo de carne)"
+            disabled={isSaving}
+            className={inputClass}
+          />
+          <input
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Instrução ao cliente (opcional)"
+            disabled={isSaving}
+            className={inputClass}
+          />
+          <div className="flex items-end gap-2">
+            <div className="w-20">
+              <label
+                htmlFor="addon-group-min"
+                className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+              >
+                Mín.
+              </label>
+              <input
+                id="addon-group-min"
+                type="number"
+                min={0}
+                value={minSelectors}
+                onChange={(event) => setMinSelectors(event.target.value)}
+                disabled={isSaving}
+                className={inputClass}
+              />
+            </div>
+            <div className="w-20">
+              <label
+                htmlFor="addon-group-max"
+                className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+              >
+                Máx.
+              </label>
+              <input
+                id="addon-group-max"
+                type="number"
+                min={1}
+                value={maxSelectors}
+                onChange={(event) => setMaxSelectors(event.target.value)}
+                disabled={isSaving}
+                className={inputClass}
+              />
+            </div>
+            <label className="flex flex-1 items-center gap-2 pb-2 text-xs font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={isRequired}
+                onChange={(event) => setIsRequired(event.target.checked)}
+                disabled={isSaving}
+                className="h-4 w-4 accent-amber-500"
+              />
+              Obrigatório
+            </label>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {isSaving
+                ? "Salvando..."
+                : editingId
+                  ? "Salvar alterações"
+                  : "Criar grupo"}
+            </button>
+            <button
+              type="button"
+              onClick={closeForm}
+              disabled={isSaving}
+              className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      )}
+
+      {error && (
+        <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600">
+          {error}
+        </p>
+      )}
 
       {groups.length === 0 ? (
         <p className="mt-2.5 rounded-lg bg-slate-100 px-3 py-2 text-center text-xs font-medium text-slate-500">
@@ -253,103 +391,6 @@ export function AddonGroupsSection({
         </ul>
       )}
 
-      <form
-        onSubmit={handleSubmit}
-        className="mt-3 space-y-2 rounded-xl border border-dashed border-slate-300 p-3"
-      >
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          {editingId ? "Editar grupo" : "Novo grupo"}
-        </p>
-        <input
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder="Nome do grupo (ex: Tipo de carne)"
-          disabled={isSaving}
-          className={inputClass}
-        />
-        <input
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          placeholder="Instrução ao cliente (opcional)"
-          disabled={isSaving}
-          className={inputClass}
-        />
-        <div className="flex items-end gap-2">
-          <div className="w-20">
-            <label
-              htmlFor="addon-group-min"
-              className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500"
-            >
-              Mín.
-            </label>
-            <input
-              id="addon-group-min"
-              type="number"
-              min={0}
-              value={minSelectors}
-              onChange={(event) => setMinSelectors(event.target.value)}
-              disabled={isSaving}
-              className={inputClass}
-            />
-          </div>
-          <div className="w-20">
-            <label
-              htmlFor="addon-group-max"
-              className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500"
-            >
-              Máx.
-            </label>
-            <input
-              id="addon-group-max"
-              type="number"
-              min={1}
-              value={maxSelectors}
-              onChange={(event) => setMaxSelectors(event.target.value)}
-              disabled={isSaving}
-              className={inputClass}
-            />
-          </div>
-          <label className="flex flex-1 items-center gap-2 pb-2 text-xs font-semibold text-slate-700">
-            <input
-              type="checkbox"
-              checked={isRequired}
-              onChange={(event) => setIsRequired(event.target.checked)}
-              disabled={isSaving}
-              className="h-4 w-4 accent-amber-500"
-            />
-            Obrigatório
-          </label>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-yellow-300 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {isSaving
-              ? "Salvando..."
-              : editingId
-                ? "Salvar alterações"
-                : "Criar grupo"}
-          </button>
-          {editingId && (
-            <button
-              type="button"
-              onClick={resetForm}
-              disabled={isSaving}
-              className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
-            >
-              Cancelar
-            </button>
-          )}
-        </div>
-      </form>
-
-      {error && (
-        <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-600">
-          {error}
-        </p>
-      )}
     </section>
   );
 }

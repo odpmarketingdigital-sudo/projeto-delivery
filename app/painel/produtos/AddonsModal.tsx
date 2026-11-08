@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { FormEvent, MouseEvent } from "react";
 import { formatCurrencyInput, parseCurrencyInput } from "@/lib/currency";
 import type { MenuAddon, MenuAddonGroup, MenuProduct } from "@/lib/types";
 import { sortByOrder } from "@/lib/menuOrder";
@@ -84,6 +84,24 @@ export function AddonsModal({
       window.removeEventListener("keydown", onKey);
     };
   }, [onClose]);
+
+  // Marca se o gesto de clique começou no backdrop (ver `handleBackdropClick`).
+  const pressStartedOnBackdrop = useRef(false);
+
+  /**
+   * Fecha ao clicar no fundo escurecido (backdrop).
+   *
+   * Só fecha quando o gesto começou *e* terminou no backdrop e o alvo é o
+   * próprio overlay (`target === currentTarget`) — assim um clique/arrasto que
+   * começa dentro do card (ex.: selecionar o texto de um campo) nunca fecha o
+   * modal. O card também chama `stopPropagation`, cobrindo o caminho normal.
+   */
+  const handleBackdropClick = (e: MouseEvent<HTMLDivElement>) => {
+    const startedOnBackdrop = pressStartedOnBackdrop.current;
+    pressStartedOnBackdrop.current = false;
+    if (!startedOnBackdrop || e.target !== e.currentTarget) return;
+    onClose();
+  };
 
   const handleError = (err: unknown, fallback: string) =>
     err instanceof Error ? err.message : fallback;
@@ -221,14 +239,49 @@ export function AddonsModal({
 
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white shadow-xl">
-        <div className="border-b border-slate-200 px-5 py-4">
-          <h2 className="text-lg font-bold text-slate-900">Adicionais</h2>
-          <p className="mt-0.5 text-sm text-slate-600">
-            Opcionais de{" "}
-            <span className="font-semibold text-amber-600">{product.name}</span>
-          </p>
+    <div
+      onMouseDown={(e) => {
+        pressStartedOnBackdrop.current = e.target === e.currentTarget;
+      }}
+      onClick={handleBackdropClick}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm"
+    >
+      {/* Cliques dentro do card não devem borbulhar para o backdrop. */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="addons-modal-title"
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white shadow-xl"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <div className="min-w-0">
+            <h2 id="addons-modal-title" className="text-lg font-bold text-slate-900">
+              Adicionais
+            </h2>
+            <p className="mt-0.5 text-sm text-slate-600">
+              Opcionais de{" "}
+              <span className="font-semibold text-amber-600">{product.name}</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Fechar"
+            title="Fechar"
+            className="-mr-1 -mt-1 shrink-0 rounded-lg p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+          >
+            <svg
+              aria-hidden="true"
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l12 12M18 6 6 18" />
+            </svg>
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -240,6 +293,17 @@ export function AddonsModal({
             addons={addons}
             onChanged={onChanged}
           />
+
+          {/* Seção de adicionais individuais — separada visualmente dos grupos. */}
+          <div className="mt-5 border-t border-slate-200 pt-4">
+            <h3 className="text-sm font-bold text-slate-900">
+              Adicionais individuais
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Cadastre itens avulsos (ex.: Bacon +R$ 5,00) e vincule a um grupo,
+              se quiser.
+            </p>
+          </div>
 
           {/* Formulário de criação */}
           <form onSubmit={handleCreate} className="mt-4 flex flex-wrap items-end gap-2">
