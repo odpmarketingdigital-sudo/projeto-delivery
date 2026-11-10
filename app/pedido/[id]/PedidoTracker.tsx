@@ -47,6 +47,10 @@ interface TrackerOrder {
   delivery_fee: number;
   total: number;
   payment_method: string;
+  /** PIX Online: `pendente` | `pago` | `expirado` | `cancelado` (migração 28). */
+  payment_status: string | null;
+  /** Pix Copia e Cola salvo no pedido (reexibido enquanto pendente). */
+  pix_payload: string | null;
   notes: string | null;
   cancellation_reason: string | null;
   estimated_delivery_time: string | null;
@@ -91,6 +95,7 @@ const PAYMENT_LABEL: Record<string, string> = {
   pix: "Pix",
   cartao: "Cartão na entrega",
   dinheiro: "Dinheiro",
+  pix_online: "PIX Online",
 };
 
 /** Chaves onde o telefone do cliente pode estar salvo (perfil + legado). */
@@ -179,6 +184,9 @@ function normalizeTracker(raw: unknown): TrackerOrder | null {
     delivery_fee: num(r.delivery_fee),
     total: num(r.total),
     payment_method: typeof r.payment_method === "string" ? r.payment_method : "—",
+    payment_status:
+      typeof r.payment_status === "string" ? r.payment_status : null,
+    pix_payload: typeof r.pix_payload === "string" ? r.pix_payload : null,
     notes: typeof r.notes === "string" ? r.notes : null,
     cancellation_reason:
       typeof r.cancellation_reason === "string" ? r.cancellation_reason : null,
@@ -237,6 +245,8 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
   const [cancelPhone, setCancelPhone] = useState("");
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  // Cópia do Pix Copia e Cola reexibido enquanto o pagamento está pendente.
+  const [pixCopied, setPixCopied] = useState(false);
   const supabase = useRef(createClient());
   const prevStatus = useRef<OrderStatus | null>(null);
 
@@ -500,6 +510,18 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
     ? [addr.street && addr.number ? `${addr.street}, ${addr.number}` : addr.street, addr.neighborhood, addr.complement].filter(Boolean).join(" - ")
     : null;
 
+  /** Reexibe o Copia e Cola do PIX enquanto o pedido aguarda pagamento. */
+  const handleCopyPix = async () => {
+    if (!order.pix_payload) return;
+    try {
+      await navigator.clipboard.writeText(order.pix_payload);
+      setPixCopied(true);
+      window.setTimeout(() => setPixCopied(false), 4000);
+    } catch {
+      setPixCopied(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 antialiased dark:bg-gray-950">
       <main
@@ -551,6 +573,41 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
            */}
           <OrderProgressStepper status={order.status} />
         </section>
+        {/*
+         * PIX Online (Split Asaas): confirmação automática via webhook.
+         * Enquanto pendente, reexibe o Copia e Cola para o cliente concluir.
+         */}
+        {order.payment_method === "pix_online" && (
+          <section
+            className={`rounded-2xl border p-5 ${
+              order.payment_status === "pago"
+                ? "border-emerald-500/30 bg-emerald-500/10"
+                : "border-amber-400/40 bg-amber-400/10"
+            }`}
+          >
+            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-300">
+              Pagamento online
+            </h2>
+            <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+              {order.payment_status === "pago"
+                ? "Pagamento confirmado ✓"
+                : "Aguardando confirmação do PIX..."}
+            </p>
+            {order.payment_status !== "pago" && order.pix_payload && (
+              <button
+                type="button"
+                onClick={handleCopyPix}
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-700 dark:bg-yellow-400 dark:text-gray-950 dark:hover:bg-yellow-300"
+              >
+                {pixCopied ? "Copiado! ✓" : "Copiar chave PIX"}
+              </button>
+            )}
+            <p className="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+              O status é atualizado automaticamente após a confirmação do
+              pagamento.
+            </p>
+          </section>
+        )}
         {/*
          * Resumo do pedido no WhatsApp: link montado no servidor no momento da
          * criação do pedido (respeita a preferência da loja). O pedido já está

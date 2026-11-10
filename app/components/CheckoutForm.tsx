@@ -34,15 +34,37 @@ import { WhatsAppSendHint } from "@/app/components/WhatsAppSendHint";
 import { AddressAutocomplete } from "@/app/components/AddressAutocomplete";
 import { useIsMounted } from "@/app/components/useIsMounted";
 import {
+  PixPaymentDialog,
+  type PixPaymentDialogStatus,
+} from "@/app/components/PixPaymentDialog";
+import { isValidCpfCnpj } from "@/lib/billing";
+import {
   isGooglePlacesEnabled,
   type GooglePlaceAddress,
 } from "@/lib/googleMapsPlaces";
 
-type PaymentMethod = "pix" | "cartao" | "dinheiro";
+type PaymentMethod = "pix" | "cartao" | "dinheiro" | "pix_online";
+
+/** Estado da cobrança PIX Online exibida no checkout. */
+interface PixCheckoutState {
+  orderId: string;
+  total: number;
+  status: PixPaymentDialogStatus;
+  payload: string | null;
+  /** QR Code PNG em base64 (sem prefixo `data:`). */
+  encodedImage: string | null;
+  error: string | null;
+  /** Validade do QR Code em ISO (null = sem validade informada). */
+  expiresAt: string | null;
+  /** Rótulo da taxa retida pela plataforma (transparência). */
+  platformFeeLabel: string;
+}
 
 interface DeliveryForm {
   nome: string;
   telefone: string;
+  /** CPF/CNPJ do pagador — obrigatório no PIX Online (Asaas). */
+  documento: string;
   cep: string;
   rua: string;
   numero: string;
@@ -111,6 +133,7 @@ interface CepLookupState {
 const INITIAL_FORM: DeliveryForm = {
   nome: "",
   telefone: "",
+  documento: "",
   cep: "",
   rua: "",
   numero: "",
@@ -146,6 +169,22 @@ const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; hint: string }[] =
     { value: "cartao", label: "Cartão na Entrega", hint: "Crédito ou débito" },
     { value: "dinheiro", label: "Dinheiro", hint: "Pague ao entregador" },
   ];
+
+/**
+ * PIX Online (Split Asaas) — exibido apenas quando a loja conectou a subconta
+ * e ligou "Aceitar PIX Online" no painel (`StorefrontInfo.accept_pix_online`
+ * já chega efetivo de `/api/menu`). O cliente paga pelo app do banco e a
+ * confirmação chega automaticamente pelo webhook.
+ */
+const PIX_ONLINE_OPTION: {
+  value: PaymentMethod;
+  label: string;
+  hint: string;
+} = {
+  value: "pix_online",
+  label: "PIX Online",
+  hint: "Pague agora pelo app do banco",
+};
 
 const formatBRL = (value: number) =>
   `R$ ${value.toFixed(2).replace(".", ",")}`;
@@ -216,6 +255,7 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     return {
       nome: saved.name,
       telefone: saved.phone,
+      documento: "",
       cep: formattedCep,
       rua: saved.street,
       numero: saved.number,
@@ -238,6 +278,11 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   const [errors, setErrors] = useState<FormErrors>({});
   const [payment, setPayment] = useState<PaymentMethod | "">("");
   const [troco, setTroco] = useState("");
+  // PIX Online (Split Asaas): cobrança em exibição e ciclo de confirmação.
+  const [pixPayment, setPixPayment] = useState<PixCheckoutState | null>(null);
+  const [pixCopied, setPixCopied] = useState(false);
+  // Relógio do cronômetro do QR Code (atualiza 1x por segundo enquanto espera).
+  const [pixNow, setPixNow] = useState(() => Date.now());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderConfirmed, setOrderConfirmed] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -275,6 +320,10 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   }, []);
   // Rastreia se já houve itens para só redirecionar quando o carrinho ESVAZIAR.
   const hadItems = useRef(false);
+  // PIX Online: depois que o carrinho é limpo a tela de pagamento assume — este
+  // ref impede o redirecionamento automático para o cardápio enquanto o fluxo
+  // de pagamento/acompanhamento está ativo.
+  const pixFlowDone = useRef(false);
 
   // ---- Dados da loja (taxa de entrega + WhatsApp) -------------------------
   // Com slug (rota /[slug]/checkout), a loja é resolvida pelo slug — fonte de
@@ -302,6 +351,74 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   const [establishment, setEstablishment] =
     useState<StorefrontMenu["establishment"] | null>(null);
   const [menuMetaError, setMenuMetaError] = useState<string | null>(null);
+
+  // ---- PIX Online (Split Asaas) -------------------------------------------
+  // `accept_pix_online` já vem "efetivo" de /api/menu (loja conectada + chave
+  // ligada); sem isso a opção nem aparece no checkout.
+  const pixOnlineAvailable = establishment?.accept_pix_online === true;
+  const paymentOptions = useMemo(
+    () =>
+      pixOnlineAvailable ? [...PAYMENT_OPTIONS, PIX_ONLINE_OPTION] : PAYMENT_OPTIONS,
+    [pixOnlineAvailable]
+  );
+  // A loja desligou o PIX Online com o checkout aberto: limpa a seleção.
+  if (payment === "pix_online" && establishment && !pixOnlineAvailable) {
+    setPayment("");
+  }
+
+  /** Segundos restantes do QR Code (recalculado a cada segundo). */
+  const pixRemainingSeconds = useMemo(() => {
+    const expiresAt = pixPayment?.expiresAt;
+    if (!expiresAt) return null;
+    const expiry = Date.parse(expiresAt);
+    if (Number.isNaN(expiry)) return null;
+    return Math.max(0, Math.floor((expiry - pixNow) / 1000));
+  }, [pixPayment?.expiresAt, pixNow]);
+
+  // Cronômetro ativo apenas enquanto aguarda o pagamento.
+  useEffect(() => {
+    if (pixPayment?.status !== "waiting") return;
+    setPixNow(Date.now());
+    const id = window.setInterval(() => setPixNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [pixPayment?.status]);
+
+  // Polling de confirmação: o webhook do Asaas é a fonte primária; este ciclo
+  // é fallback (e cobre ambientes onde o webhook ainda não foi configurado).
+  useEffect(() => {
+    const orderId = pixPayment?.orderId;
+    if (!orderId || pixPayment?.status !== "waiting") return;
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await fetch(
+          `/api/asaas/pix-payment?order_id=${encodeURIComponent(orderId)}`,
+          { cache: "no-store" }
+        );
+        const data = (await res.json().catch(() => ({}))) as { paid?: boolean };
+        if (cancelled || data.paid !== true) return;
+        setPixPayment((prev) =>
+          prev && prev.orderId === orderId ? { ...prev, status: "paid" } : prev
+        );
+      } catch {
+        /* polling silencioso — tenta de novo no próximo ciclo */
+      }
+    };
+    const id = window.setInterval(check, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [pixPayment?.orderId, pixPayment?.status]);
+
+  // Pagamento confirmado: leva o cliente para o acompanhamento do pedido.
+  useEffect(() => {
+    if (pixPayment?.status !== "paid") return;
+    const orderId = pixPayment.orderId;
+    pixFlowDone.current = true;
+    const id = window.setTimeout(() => router.replace(`/pedido/${orderId}`), 1800);
+    return () => window.clearTimeout(id);
+  }, [pixPayment?.status, pixPayment?.orderId, router]);
 
   // Cotação de entrega feita no servidor (fonte da verdade da taxa).
   // O estado é "chaveado" por loja+CEP: cotações antigas deixam de ser
@@ -721,9 +838,10 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   }, [establishment]);
 
   // Se o carrinho esvaziar após ter itens (ex: removendo tudo), volta ao cardápio.
-  // Não redireciona quem abre o checkout já vazio (mostra estado vazio).
+  // Não redireciona quem abre o checkout já vazio (mostra estado vazio) nem o
+  // fluxo de PIX Online (o carrinho é limpo antes de exibir o QR Code).
   useEffect(() => {
-    if (!isHydrated || orderConfirmed) return;
+    if (!isHydrated || orderConfirmed || pixPayment || pixFlowDone.current) return;
     if (effectiveCount > 0) {
       hadItems.current = true;
       return;
@@ -731,7 +849,7 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     if (hadItems.current && effectiveCount === 0) {
       router.replace(backHref);
     }
-  }, [isHydrated, orderConfirmed, effectiveCount, router, backHref]);
+  }, [isHydrated, orderConfirmed, pixPayment, effectiveCount, router, backHref]);
 
   const updateField = (field: keyof DeliveryForm, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -798,6 +916,135 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     }));
   };
 
+  /**
+   * Cria (ou reaproveita) a cobrança PIX no Asaas para um pedido já gravado.
+   *
+   * `refresh` força uma cobrança nova — usado quando o QR Code expira.
+   */
+  const requestPixPayment = async (
+    orderId: string,
+    totalValue: number,
+    refresh = false
+  ) => {
+    setPixCopied(false);
+    setPixPayment((prev) => ({
+      orderId,
+      total: totalValue,
+      status: "loading",
+      payload: prev?.orderId === orderId ? prev.payload : null,
+      encodedImage: prev?.orderId === orderId ? prev.encodedImage : null,
+      error: null,
+      expiresAt: prev?.orderId === orderId ? prev.expiresAt : null,
+      platformFeeLabel: prev?.platformFeeLabel ?? "R$ 0,50",
+    }));
+
+    try {
+      const res = await fetch("/api/asaas/pix-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: orderId, refresh }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        paid?: boolean;
+        payload?: string;
+        encoded_image?: string;
+        expires_at?: string | null;
+        platform_fee_label?: string;
+      };
+
+      if (data.paid === true) {
+        setPixPayment((prev) =>
+          prev && prev.orderId === orderId ? { ...prev, status: "paid" } : prev
+        );
+        return;
+      }
+
+      if (!res.ok || typeof data.payload !== "string" || !data.payload) {
+        throw new Error(data.error ?? "Não foi possível gerar o PIX Online.");
+      }
+
+      setPixPayment((prev) =>
+        prev && prev.orderId === orderId
+          ? {
+              ...prev,
+              status: "waiting",
+              payload: data.payload ?? null,
+              encodedImage:
+                typeof data.encoded_image === "string"
+                  ? data.encoded_image
+                  : null,
+              expiresAt:
+                typeof data.expires_at === "string" ? data.expires_at : null,
+              platformFeeLabel:
+                typeof data.platform_fee_label === "string"
+                  ? data.platform_fee_label
+                  : prev.platformFeeLabel,
+              error: null,
+            }
+          : prev
+      );
+    } catch (err) {
+      setPixPayment((prev) =>
+        prev && prev.orderId === orderId
+          ? {
+              ...prev,
+              status: "error",
+              error:
+                err instanceof Error
+                  ? err.message
+                  : "Não foi possível gerar o PIX Online.",
+            }
+          : prev
+      );
+    }
+  };
+
+  /** Copia o Pix Copia e Cola (com fallback para navegadores antigos). */
+  const handleCopyPix = async () => {
+    const payload = pixPayment?.payload;
+    if (!payload) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(payload);
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = payload;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      }
+      setPixCopied(true);
+      window.setTimeout(() => setPixCopied(false), 4000);
+    } catch {
+      setPixCopied(false);
+    }
+  };
+
+  /** Fecha o pagamento e segue para o acompanhamento (pagamento pendente). */
+  const handleClosePix = () => {
+    const orderId = pixPayment?.orderId;
+    pixFlowDone.current = true;
+    setPixPayment(null);
+    if (orderId) router.replace(`/pedido/${orderId}`);
+  };
+
+  /** QR Code expirado: gera uma nova cobrança para o mesmo pedido. */
+  const handleRegeneratePix = () => {
+    if (!pixPayment) return;
+    void requestPixPayment(pixPayment.orderId, pixPayment.total, true);
+  };
+
+  /** Falha ao gerar o PIX: tenta de novo (reaproveita a mesma cobrança). */
+  const handleRetryPix = () => {
+    if (!pixPayment) return;
+    void requestPixPayment(pixPayment.orderId, pixPayment.total);
+  };
+
   const validate = (): FormErrors => {
     const next: FormErrors = {};
 
@@ -808,6 +1055,15 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     const phoneDigits = form.telefone.replace(/\D/g, "");
     if (phoneDigits.length < 10 || phoneDigits.length > 11) {
       next.telefone = "Informe um telefone válido com DDD.";
+    }
+
+    // CPF/CNPJ: obrigatório no PIX Online (o Asaas exige o documento do
+    // pagador para criar o cliente/cobrança); opcional nas demais formas.
+    const documentDigits = form.documento.replace(/\D/g, "");
+    if (payment === "pix_online" && !isValidCpfCnpj(documentDigits)) {
+      next.documento = "Informe o CPF/CNPJ do pagador (obrigatório no PIX Online).";
+    } else if (documentDigits && !isValidCpfCnpj(documentDigits)) {
+      next.documento = "CPF/CNPJ inválido.";
     }
 
     if (!form.rua.trim()) next.rua = "Informe a rua.";
@@ -1002,6 +1258,8 @@ export function CheckoutForm({ slug }: { slug?: string }) {
           customer: {
             name: form.nome.trim(),
             phone: form.telefone.trim(),
+            // PIX Online: documento do pagador (somente dígitos).
+            document: form.documento.replace(/\D/g, "") || undefined,
             cep: cepDigits ?? undefined,
             street: form.rua.trim(),
             number: form.numero.trim(),
@@ -1109,16 +1367,18 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       } else {
         clearPendingOrderWhatsAppUrl();
       }
+      // PIX Online: o pedido foi criado; a cobrança é gerada logo abaixo e a
+      // tela de pagamento (QR Code) assume o lugar do checkout.
+      const onlinePix = payment === "pix_online";
+      const confirmedTotal =
+        typeof data.order?.total === "number" ? data.order.total : grandTotal;
       setConfirmedSummary({
-        total:
-          typeof data.order?.total === "number"
-            ? data.order.total
-            : grandTotal,
+        total: confirmedTotal,
         establishmentName: establishment?.name ?? "",
         estimatedDeliveryTime: confirmedEstimatedDeliveryTime,
         whatsappUrl,
       });
-      setOrderConfirmed(true);
+      setOrderConfirmed(!onlinePix);
       clearCart();
       // Reseta os dados exclusivos desta compra para que um novo checkout
       // (inclusive quando o navegador restaura esta tela pelo histórico)
@@ -1130,6 +1390,22 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       setPayment("");
       setErrors({});
       if (targetId) {
+        if (onlinePix) {
+          // Deixa o modal aberto e dispara a criação da cobrança PIX.
+          setIsSubmitting(false);
+          setPixPayment({
+            orderId: targetId,
+            total: confirmedTotal,
+            status: "loading",
+            payload: null,
+            encodedImage: null,
+            error: null,
+            expiresAt: null,
+            platformFeeLabel: "R$ 0,50",
+          });
+          void requestPixPayment(targetId, confirmedTotal);
+          return;
+        }
         router.replace(`/pedido/${targetId}`);
         return;
       }
@@ -1260,6 +1536,31 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 antialiased dark:bg-gray-950">
         <p className="text-sm font-medium text-gray-400">Carregando...</p>
+      </div>
+    );
+  }
+
+  // PIX Online: checkout concluído, aguardando a confirmação do pagamento.
+  // Fica ANTES do estado "carrinho vazio" porque o carrinho já foi limpo após
+  // a criação do pedido e a tela de pagamento precisa continuar visível.
+  if (pixPayment) {
+    return (
+      <div className="flex min-h-screen flex-col bg-gray-50 antialiased dark:bg-gray-950">
+        <PixPaymentDialog
+          establishmentName={establishment?.name ?? "Estabelecimento"}
+          total={pixPayment.total}
+          platformFeeLabel={pixPayment.platformFeeLabel}
+          status={pixPayment.status}
+          payload={pixPayment.payload}
+          encodedImage={pixPayment.encodedImage}
+          error={pixPayment.error}
+          remainingSeconds={pixRemainingSeconds}
+          copied={pixCopied}
+          onCopy={handleCopyPix}
+          onRegenerate={handleRegeneratePix}
+          onRetry={handleRetryPix}
+          onClose={handleClosePix}
+        />
       </div>
     );
   }
@@ -1831,6 +2132,35 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                 {errorText("telefone")}
               </div>
 
+              <div id="field-documento">
+                <label
+                  htmlFor="documento"
+                  className="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >
+                  CPF/CNPJ do pagador{" "}
+                  <span className="font-normal text-gray-400">
+                    {payment === "pix_online"
+                      ? "(obrigatório no PIX Online)"
+                      : "(opcional)"}
+                  </span>
+                </label>
+                <input
+                  id="documento"
+                  name="documento"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="000.000.000-00"
+                  value={form.documento}
+                  onChange={(event) =>
+                    updateField("documento", event.target.value)
+                  }
+                  aria-invalid={errors.documento ? true : undefined}
+                  className={inputClassName("documento")}
+                />
+                {errorText("documento")}
+              </div>
+
               <div className="flex flex-col gap-4 sm:flex-row">
                 <div id="field-rua" className="flex-1">
                   <label
@@ -2074,7 +2404,7 @@ export function CheckoutForm({ slug }: { slug?: string }) {
               aria-labelledby="pagamento-title"
               className="mt-4 flex flex-col gap-2.5"
             >
-              {PAYMENT_OPTIONS.map((option) => {
+              {paymentOptions.map((option) => {
                 const isActive = payment === option.value;
                 return (
                   <button
@@ -2124,6 +2454,14 @@ export function CheckoutForm({ slug }: { slug?: string }) {
             {errors.pagamento && (
               <p className="mt-2 text-xs font-medium text-red-500">
                 {errors.pagamento}
+              </p>
+            )}
+
+            {payment === "pix_online" && (
+              <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-relaxed text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
+                Após confirmar o pedido você recebe o QR Code para pagar no app
+                do seu banco. A confirmação é automática — taxa de serviço online
+                de R$ 0,50 retida pela plataforma, sem custo extra para você.
               </p>
             )}
 

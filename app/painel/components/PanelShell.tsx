@@ -109,6 +109,7 @@ function toggleSidebarCollapsed(): void {
 export type PanelPage =
   | "pedidos"
   | "dashboard"
+  | "financeiro"
   | "clientes"
   | "cupons"
   | "produtos"
@@ -123,6 +124,7 @@ export type PanelPage =
 type IconName =
   | "orders"
   | "dashboard"
+  | "wallet"
   | "customers"
   | "coupons"
   | "products"
@@ -144,6 +146,12 @@ const STORE_NAV_ITEMS: NavItem[] = [
     href: "/painel/dashboard",
     label: "Dashboard",
     icon: "dashboard",
+  },
+  {
+    page: "financeiro",
+    href: "/painel/financeiro",
+    label: "Financeiro",
+    icon: "wallet",
   },
   {
     page: "clientes",
@@ -203,6 +211,7 @@ const SAAS_NAV_ITEMS: NavItem[] = [
 /** Rota atual → página destacada na sidebar. */
 export function resolvePanelPage(pathname: string): PanelPage | null {
   if (pathname.startsWith("/painel/dashboard")) return "dashboard";
+  if (pathname.startsWith("/painel/financeiro")) return "financeiro";
   if (pathname.startsWith("/painel/clientes")) return "clientes";
   if (pathname.startsWith("/painel/cupons")) return "cupons";
   if (pathname.startsWith("/painel/configuracoes")) return "configuracoes";
@@ -251,6 +260,12 @@ function NavIcon({ name }: { name: IconName }) {
     dashboard: (
       <>
         <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+      </>
+    ),
+    wallet: (
+      <>
+        <path d="M20 8V6a2 2 0 0 0-2-2H5.5A2.5 2.5 0 0 0 3 6.5V17a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-2" />
+        <path d="M21 8h-5a3 3 0 0 0 0 6h5V8Z" />
       </>
     ),
     customers: (

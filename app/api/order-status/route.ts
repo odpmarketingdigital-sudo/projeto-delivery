@@ -75,6 +75,16 @@ export async function GET(request: Request) {
         delivery_fee: Number(order.delivery_fee ?? 0) || 0,
         total: Number(order.total ?? 0) || 0,
         payment_method: order.payment_method ?? "—",
+        /** PIX online (migração 20261110000028): status + copia e cola. */
+        payment_status:
+          typeof order.payment_status === "string" ? order.payment_status : null,
+        pix_payload:
+          order.payment_method === "pix_online" &&
+          typeof order.pix_payload === "string"
+            ? order.pix_payload
+            : null,
+        pix_expiration:
+          typeof order.pix_expiration === "string" ? order.pix_expiration : null,
         notes: typeof order.notes === "string" ? order.notes : null,
         cancellation_reason:
           typeof order.cancellation_reason === "string"

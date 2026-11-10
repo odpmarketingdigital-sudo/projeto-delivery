@@ -74,6 +74,7 @@ const PAYMENT_LABELS: Record<string, string> = {
   pix: "Pix",
   cartao: "Cartão na entrega",
   dinheiro: "Dinheiro",
+  pix_online: "PIX Online",
 };
 
 /** Valor monetário no padrão brasileiro (`R$ 29,90`). */

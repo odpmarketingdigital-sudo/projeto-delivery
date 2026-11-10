@@ -39,12 +39,42 @@ import {
   type ImagePreset,
   type ResizedImage,
 } from "@/lib/image-resize";
+import {
+  formatCpfCnpjInput,
+  formatPhoneInput,
+  formatPostalCodeInput,
+} from "@/lib/billing";
+import {
+  ASAAS_COMPANY_TYPES,
+  ASAAS_COMPANY_TYPE_LABELS,
+  EMPTY_ASAAS_SUBACCOUNT_FORM,
+  PLATFORM_FEE_LABEL,
+  isAsaasCompanyType,
+  resolveOnlinePaymentStatus,
+  validateAsaasSubaccountForm,
+  type AsaasSubaccountForm,
+  type OnlinePaymentStatusTone,
+} from "@/lib/asaasSubaccount";
 
 const STORAGE_BUCKET = "products";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 const ACCEPT_ATTR = ACCEPTED_IMAGE_TYPES.join(",");
 const ALLOWED_EXT = new Set(["png", "jpg", "jpeg", "webp"]);
+
+/**
+ * Cores do badge de situação do recebimento online (classes estáticas para o
+ * Tailwind). `active` = recebendo; `paused` = subconta pronta com o PIX
+ * desligado no cardápio; `inactive` = nenhuma subconta criada.
+ */
+const ONLINE_PAYMENT_STATUS_BADGE_CLASSES: Record<
+  OnlinePaymentStatusTone,
+  string
+> = {
+  active: "bg-green-100 text-green-700",
+  paused: "bg-amber-100 text-amber-800",
+  inactive: "bg-slate-100 text-slate-600",
+};
 
 /**
  * Presets de recorte/otimização aplicados **no navegador** antes do upload:
@@ -172,6 +202,45 @@ function numberInputValue(value: number): string {
   return Number.isInteger(value) ? String(value) : String(value).replace(".", ",");
 }
 
+/**
+ * Monta o formulário de recebimento online a partir da linha do estabelecimento.
+ *
+ * Prefere o snapshot salvo em `asaas_subaccount` e, na primeira conexão, usa
+ * tudo o que o cadastro da loja já sabe: responsável/razão social, documento,
+ * e-mail, telefone (contato ou WhatsApp oficial) e CEP. Logradouro e bairro são
+ * completados depois pelo CEP (`/api/geocode`), porque `establishments` só
+ * guarda o CEP da loja.
+ */
+function buildSubaccountFormFromRow(row: Establishment): AsaasSubaccountForm {
+  const profile = row.asaas_subaccount ?? null;
+  const rawDocument = profile?.cpfCnpj ?? row.document_number ?? "";
+  const rawCep =
+    profile?.postalCode ?? (row.store_cep != null ? String(row.store_cep) : "");
+  // Telefone: snapshot → telefone de contato → WhatsApp oficial (normalmente é
+  // o número mais atualizado da loja). O WhatsApp pode estar salvo com o DDI
+  // 55; `formatWhatsAppPhoneForDisplay` devolve o formato nacional.
+  const storePhone =
+    row.phone?.trim() || formatWhatsAppPhoneForDisplay(row.whatsapp) || "";
+  const rawPhone = profile?.phone ?? storePhone;
+  return {
+    name: profile?.name ?? (row.owner_name?.trim() || row.name || ""),
+    cpfCnpj: rawDocument ? formatCpfCnpjInput(rawDocument) : "",
+    email: profile?.email ?? row.email ?? "",
+    phone: formatPhoneInput(rawPhone),
+    incomeValue:
+      profile?.incomeValue != null ? String(profile.incomeValue) : "",
+    postalCode: formatPostalCodeInput(rawCep),
+    address: profile?.address ?? "",
+    addressNumber: profile?.addressNumber ?? "",
+    complement: profile?.complement ?? "",
+    province: profile?.province ?? "",
+    companyType: profile?.companyType ?? "",
+    birthDate: profile?.birthDate ?? "",
+    pixKey: row.pix_key ?? "",
+    acceptPixOnline: row.accept_pix_online === true,
+  };
+}
+
 async function uploadToStorage(
   supabase: ReturnType<typeof createClient>,
   establishmentId: string,
@@ -257,6 +326,24 @@ export default function ConfiguracoesIdentidade() {
   // consegue ligar o recurso nem por chamada direta (a API revalida).
   const [catalogModeAllowed, setCatalogModeAllowed] = useState(false);
 
+  // Pagamento online (Asaas Split) — dados de recebimento da subconta.
+  const [subaccountForm, setSubaccountForm] = useState<AsaasSubaccountForm>(
+    EMPTY_ASAAS_SUBACCOUNT_FORM
+  );
+  const [isSavingSubaccount, setIsSavingSubaccount] = useState(false);
+  const [subaccountError, setSubaccountError] = useState<string | null>(null);
+  const [subaccountSuccess, setSubaccountSuccess] = useState<string | null>(null);
+  // Endereço da subconta: `establishments` guarda apenas o CEP da loja, então
+  // logradouro/bairro são completados pela consulta de CEP (`/api/geocode`).
+  const [subaccountCepStatus, setSubaccountCepStatus] = useState<
+    "idle" | "loading" | "found" | "error"
+  >("idle");
+  const [subaccountCepMessage, setSubaccountCepMessage] = useState<
+    string | null
+  >(null);
+  // Último CEP consultado — evita repetir a chamada externa a cada render.
+  const lastSubaccountCepRef = useRef<string | null>(null);
+
   // Link público da loja: exibido apenas para leitura/cópia (o slug é definido
   // no cadastro do estabelecimento e não é editável por esta tela).
   const siteOrigin = useSyncExternalStore(
@@ -333,6 +420,13 @@ export default function ConfiguracoesIdentidade() {
         );
         // Número usado pelo checkout: WhatsApp oficial com fallback ao telefone.
         setWhatsappValue(row.whatsapp ?? row.phone ?? "");
+        // Pagamento online: snapshot da subconta (ou preenchimento inicial com
+        // os dados já conhecidos da loja).
+        setSubaccountForm(buildSubaccountFormFromRow(row));
+        // Troca de loja: reinicia a consulta de CEP (endereço recomeça vazio).
+        setSubaccountCepStatus("idle");
+        setSubaccountCepMessage(null);
+        lastSubaccountCepRef.current = null;
       });
   }, [selectedId, supabase]);
 
@@ -376,6 +470,124 @@ export default function ConfiguracoesIdentidade() {
   // Prévia formatada do número digitado (`null` = vazio ou inválido).
   const whatsappPreview = formatWhatsAppPhoneForDisplay(whatsappValue);
   const whatsappInvalid = whatsappValue.trim() !== "" && !whatsappPreview;
+
+  // Pagamento online: documento (só dígitos) define PF/CNPJ para exibir os
+  // campos exigidos pelo Asaas (data de nascimento x tipo de empresa).
+  const subaccountDocumentDigits = subaccountForm.cpfCnpj.replace(/\D/g, "");
+  const subaccountIsCompany = subaccountDocumentDigits.length === 14;
+  const subaccountConnected = Boolean(establishmentData?.asaas_account_id);
+  // CEP da subconta (somente dígitos) — usado pelo preenchimento do endereço.
+  const subaccountCepDigits = parseCep(subaccountForm.postalCode) ?? "";
+  // Situação exibida no título da seção (feedback imediato, sem rolar a tela).
+  // Usa o toggle local para refletir a intenção do lojista antes de salvar.
+  const onlinePaymentStatus = resolveOnlinePaymentStatus({
+    hasSubaccount: subaccountConnected,
+    acceptPixOnline: subaccountForm.acceptPixOnline,
+  });
+
+  /** Atualiza um campo do recebimento online e limpa os avisos da seção. */
+  const updateSubaccountField = (patch: Partial<AsaasSubaccountForm>) => {
+    setSubaccountForm((prev) => ({ ...prev, ...patch }));
+    setSubaccountError(null);
+    setSubaccountSuccess(null);
+  };
+
+  /**
+   * Completa logradouro/bairro do recebimento online a partir do CEP salvo no
+   * cadastro da loja (`/api/geocode` → BrasilAPI/ViaCEP). Nunca sobrescreve o
+   * que o lojista já digitou e falha em silêncio: sem internet ou com CEP
+   * desconhecido o formulário continua utilizável.
+   */
+  const fillSubaccountAddressFromCep = useCallback(
+    async (rawCep: string, options?: { force?: boolean }) => {
+      const force = options?.force === true;
+      const cep = parseCep(rawCep);
+      if (!cep) {
+        if (force) {
+          setSubaccountCepStatus("error");
+          setSubaccountCepMessage(
+            "Informe um CEP válido (8 dígitos) para buscar o endereço."
+          );
+        }
+        return;
+      }
+      // Consulta automática: uma vez por CEP (o botão "força" nova tentativa).
+      if (!force && lastSubaccountCepRef.current === cep) return;
+      lastSubaccountCepRef.current = cep;
+
+      setSubaccountCepStatus("loading");
+      setSubaccountCepMessage(null);
+      try {
+        const res = await fetch(`/api/geocode?cep=${encodeURIComponent(cep)}`);
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          address?: {
+            street?: string | null;
+            neighborhood?: string | null;
+            city?: string | null;
+            state?: string | null;
+          } | null;
+        };
+        if (!res.ok || !json.address) {
+          throw new Error(json.error ?? "CEP não encontrado.");
+        }
+
+        const street = json.address.street?.trim() ?? "";
+        const neighborhood = json.address.neighborhood?.trim() ?? "";
+        const city = json.address.city?.trim() ?? "";
+        const state = json.address.state?.trim() ?? "";
+
+        if (!street && !neighborhood) {
+          setSubaccountCepStatus("error");
+          setSubaccountCepMessage(
+            "CEP localizado, mas sem rua/bairro. Preencha o endereço manualmente."
+          );
+          return;
+        }
+
+        setSubaccountForm((prev) => ({
+          ...prev,
+          // Só completa os campos vazios (preserva edições do lojista).
+          address: prev.address.trim() ? prev.address : street,
+          province: prev.province.trim() ? prev.province : neighborhood,
+        }));
+        setSubaccountCepStatus("found");
+        const location = [street, neighborhood, city, state]
+          .filter((part) => part !== "")
+          .join(", ");
+        setSubaccountCepMessage(
+          `Endereço do CEP ${formatCep(cep)}${location ? `: ${location}` : ""}. Confira o número.`
+        );
+      } catch (err) {
+        setSubaccountCepStatus("error");
+        setSubaccountCepMessage(
+          err instanceof Error
+            ? err.message
+            : "Não foi possível buscar o endereço deste CEP."
+        );
+      }
+    },
+    []
+  );
+
+  // Preenchimento automático ao abrir a seção: se o CEP já veio do cadastro da
+  // loja e a rua/bairro ainda estão vazios, completa sem o lojista digitar.
+  // A consulta roda em um microtask (fora do corpo do efeito) para não disparar
+  // renders em cascata — regra `react-hooks/set-state-in-effect`.
+  useEffect(() => {
+    if (!selectedId) return;
+    if (subaccountCepDigits.length !== 8) return;
+    if (subaccountForm.address.trim() && subaccountForm.province.trim()) return;
+    void Promise.resolve().then(() =>
+      fillSubaccountAddressFromCep(subaccountCepDigits)
+    );
+  }, [
+    selectedId,
+    subaccountCepDigits,
+    subaccountForm.address,
+    subaccountForm.province,
+    fillSubaccountAddressFromCep,
+  ]);
 
   /**
    * Copia o link público da loja para a área de transferência. O endereço é
@@ -935,6 +1147,63 @@ export default function ConfiguracoesIdentidade() {
       );
     } finally {
       setIsSavingWhatsApp(false);
+    }
+  };
+
+  /**
+   * Conecta/atualiza o recebimento online (Asaas Split). Na primeira conexão a
+   * rota cria a subconta e guarda o `asaas_account_id`; depois atualiza a chave
+   * PIX de resgate e a preferência de "Aceitar PIX Online".
+   */
+  const handleSaveSubaccount = async () => {
+    if (!selectedId) return;
+
+    setSubaccountError(null);
+    setSubaccountSuccess(null);
+
+    const validation = validateAsaasSubaccountForm(subaccountForm);
+    if (!validation.ok) {
+      setSubaccountError(validation.error);
+      return;
+    }
+
+    setIsSavingSubaccount(true);
+    try {
+      const res = await fetch("/api/asaas/subaccount", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          establishment_id: selectedId,
+          ...subaccountForm,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        notice?: string | null;
+        updated?: boolean;
+        establishment?: Partial<Establishment>;
+      };
+      if (!res.ok) {
+        throw new Error(json.error ?? "Falha ao conectar o pagamento online.");
+      }
+
+      const saved = json.establishment;
+      if (saved) {
+        setEstablishmentData((prev) => (prev ? { ...prev, ...saved } : prev));
+      }
+
+      setSubaccountSuccess(
+        json.notice ??
+          (json.updated
+            ? "Dados de recebimento atualizados."
+            : "Subconta conectada com sucesso! O PIX online já pode ser ativado.")
+      );
+    } catch (err) {
+      setSubaccountError(
+        err instanceof Error ? err.message : "Erro inesperado ao salvar."
+      );
+    } finally {
+      setIsSavingSubaccount(false);
     }
   };
 
@@ -1804,6 +2073,397 @@ export default function ConfiguracoesIdentidade() {
                 </>
               ) : (
                 "Salvar WhatsApp e envio"
+              )}
+            </button>
+          </div>
+        </section>
+
+        {/* Pagamento Online / Financeiro — Split de Pagamentos (Asaas) */}
+        <section
+          aria-labelledby="online-payment-title"
+          className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-yellow-400" />
+            <h2
+              id="online-payment-title"
+              className="font-semibold text-slate-900"
+            >
+              Pagamento Online / Financeiro
+            </h2>
+            {/*
+             * Situação sempre visível ao lado do título: o lojista sabe se o
+             * PIX online está ativo sem precisar rolar até o fim da seção.
+             * Reflete também o toggle local (feedback imediato ao ligar/desligar).
+             */}
+            <span
+              role="status"
+              aria-live="polite"
+              title={onlinePaymentStatus.description}
+              className={`ml-auto inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${ONLINE_PAYMENT_STATUS_BADGE_CLASSES[onlinePaymentStatus.tone]}`}
+            >
+              <span aria-hidden="true">{onlinePaymentStatus.emoji}</span>
+              {onlinePaymentStatus.label}
+            </span>
+          </div>
+          <p className="mt-1.5 text-xs text-slate-600">
+            {onlinePaymentStatus.description}
+          </p>
+
+          {/* Aviso transparente de taxas (plataforma + gateway) */}
+          <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs leading-relaxed text-amber-800">
+            <p className="font-semibold text-amber-900">
+              Como funcionam as taxas do pagamento online
+            </p>
+            <ul className="mt-1 list-disc space-y-1 pl-4">
+              <li>
+                <strong>Taxa da plataforma:</strong> {PLATFORM_FEE_LABEL} por
+                pedido pago online, retida automaticamente do repasse. O restante
+                cai direto na sua conta de recebimento.
+              </li>
+              <li>
+                <strong>Taxa do gateway (Asaas):</strong> a taxa de processamento
+                do PIX é definida pelo seu contrato com o Asaas e é descontada
+                por ele no momento do recebimento.
+              </li>
+              <li>
+                Nada é cobrado enquanto o recebimento online estiver desligado.
+              </li>
+            </ul>
+          </div>
+
+          <p className="mt-3 text-xs text-slate-600">
+            Preencha os dados do titular da conta que vai receber os repasses.
+            Usamos essas informações para criar a sua conta de recebimento no
+            Asaas (subconta) e conectar o PIX online ao cardápio.
+          </p>
+          <p className="mt-1.5 text-xs text-slate-500">
+            Os campos abaixo já vêm preenchidos com os dados da sua loja (nome,
+            documento, e-mail, telefone e CEP) — revise e edite somente o que
+            precisar.
+          </p>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <label htmlFor="asaas-name" className="mb-1.5 block text-sm font-medium text-slate-700">
+                Razão social / Nome completo
+              </label>
+              <input
+                id="asaas-name"
+                type="text"
+                autoComplete="name"
+                maxLength={120}
+                value={subaccountForm.name}
+                onChange={(e) => updateSubaccountField({ name: e.target.value })}
+                placeholder="Ex.: Burger Gourmet Ltda / Maria da Silva"
+                className={contactInputClass}
+              />
+            </div>
+            <div>
+              <label htmlFor="asaas-document" className="mb-1.5 block text-sm font-medium text-slate-700">
+                CPF / CNPJ
+              </label>
+              <input
+                id="asaas-document"
+                type="text"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={18}
+                value={subaccountForm.cpfCnpj}
+                onChange={(e) =>
+                  updateSubaccountField({ cpfCnpj: formatCpfCnpjInput(e.target.value) })
+                }
+                placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                className={contactInputClass}
+              />
+            </div>
+            <div>
+              <label htmlFor="asaas-email" className="mb-1.5 block text-sm font-medium text-slate-700">
+                E-mail
+              </label>
+              <input
+                id="asaas-email"
+                type="email"
+                autoComplete="email"
+                maxLength={120}
+                value={subaccountForm.email}
+                onChange={(e) => updateSubaccountField({ email: e.target.value })}
+                placeholder="financeiro@sualoja.com.br"
+                className={contactInputClass}
+              />
+            </div>
+            <div>
+              <label htmlFor="asaas-phone" className="mb-1.5 block text-sm font-medium text-slate-700">
+                Telefone / Celular
+              </label>
+              <input
+                id="asaas-phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={20}
+                value={subaccountForm.phone}
+                onChange={(e) =>
+                  updateSubaccountField({ phone: formatPhoneInput(e.target.value) })
+                }
+                placeholder="(17) 99999-9999"
+                className={contactInputClass}
+              />
+            </div>
+            <div>
+              <label htmlFor="asaas-income" className="mb-1.5 block text-sm font-medium text-slate-700">
+                Faturamento / Renda mensal (R$)
+              </label>
+              <input
+                id="asaas-income"
+                type="text"
+                inputMode="decimal"
+                value={subaccountForm.incomeValue}
+                onChange={(e) => updateSubaccountField({ incomeValue: e.target.value })}
+                placeholder="Ex.: 5000"
+                className={contactInputClass}
+              />
+            </div>
+            <div>
+              <label htmlFor="asaas-cep" className="mb-1.5 block text-sm font-medium text-slate-700">
+                CEP
+              </label>
+              <input
+                id="asaas-cep"
+                type="text"
+                inputMode="numeric"
+                autoComplete="postal-code"
+                maxLength={9}
+                value={subaccountForm.postalCode}
+                onChange={(e) => {
+                  const postalCode = formatPostalCodeInput(e.target.value);
+                  updateSubaccountField({ postalCode });
+                  // Ao completar os 8 dígitos, completa rua/bairro automaticamente.
+                  const cep = parseCep(postalCode);
+                  if (cep) void fillSubaccountAddressFromCep(cep);
+                }}
+                placeholder="00000-000"
+                aria-describedby={
+                  subaccountCepMessage ? "asaas-cep-message" : undefined
+                }
+                className={contactInputClass}
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  void fillSubaccountAddressFromCep(subaccountForm.postalCode, {
+                    force: true,
+                  })
+                }
+                disabled={subaccountCepStatus === "loading"}
+                className="mt-1 text-xs font-semibold text-amber-700 underline-offset-2 transition hover:text-amber-800 hover:underline focus:outline-none focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:text-slate-400 disabled:no-underline"
+              >
+                {subaccountCepStatus === "loading"
+                  ? "Buscando endereço..."
+                  : "Buscar endereço pelo CEP"}
+              </button>
+              {subaccountCepMessage && (
+                <p
+                  id="asaas-cep-message"
+                  role="status"
+                  aria-live="polite"
+                  className={`mt-1 text-xs leading-relaxed ${
+                    subaccountCepStatus === "error"
+                      ? "text-amber-700"
+                      : "text-slate-500"
+                  }`}
+                >
+                  {subaccountCepMessage}
+                </p>
+              )}
+            </div>
+            <div>
+              <label htmlFor="asaas-address" className="mb-1.5 block text-sm font-medium text-slate-700">
+                Endereço (rua/avenida)
+              </label>
+              <input
+                id="asaas-address"
+                type="text"
+                autoComplete="address-line1"
+                maxLength={120}
+                value={subaccountForm.address}
+                onChange={(e) => updateSubaccountField({ address: e.target.value })}
+                placeholder="Rua das Flores"
+                className={contactInputClass}
+              />
+            </div>
+            <div>
+              <label htmlFor="asaas-address-number" className="mb-1.5 block text-sm font-medium text-slate-700">
+                Número
+              </label>
+              <input
+                id="asaas-address-number"
+                type="text"
+                maxLength={12}
+                value={subaccountForm.addressNumber}
+                onChange={(e) => updateSubaccountField({ addressNumber: e.target.value })}
+                placeholder="123"
+                className={contactInputClass}
+              />
+            </div>
+            <div>
+              <label htmlFor="asaas-complement" className="mb-1.5 block text-sm font-medium text-slate-700">
+                Complemento (opcional)
+              </label>
+              <input
+                id="asaas-complement"
+                type="text"
+                maxLength={60}
+                value={subaccountForm.complement}
+                onChange={(e) => updateSubaccountField({ complement: e.target.value })}
+                placeholder="Sala 2 / Bloco B"
+                className={contactInputClass}
+              />
+            </div>
+            <div>
+              <label htmlFor="asaas-province" className="mb-1.5 block text-sm font-medium text-slate-700">
+                Bairro
+              </label>
+              <input
+                id="asaas-province"
+                type="text"
+                maxLength={60}
+                value={subaccountForm.province}
+                onChange={(e) => updateSubaccountField({ province: e.target.value })}
+                placeholder="Centro"
+                className={contactInputClass}
+              />
+            </div>
+            {subaccountIsCompany ? (
+              <div>
+                <label htmlFor="asaas-company-type" className="mb-1.5 block text-sm font-medium text-slate-700">
+                  Tipo de empresa
+                </label>
+                <select
+                  id="asaas-company-type"
+                  value={subaccountForm.companyType}
+                  onChange={(e) =>
+                    updateSubaccountField({
+                      companyType: isAsaasCompanyType(e.target.value)
+                        ? e.target.value
+                        : "",
+                    })
+                  }
+                  className={contactInputClass}
+                >
+                  <option value="">Selecione…</option>
+                  {ASAAS_COMPANY_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {ASAAS_COMPANY_TYPE_LABELS[type]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <label htmlFor="asaas-birthdate" className="mb-1.5 block text-sm font-medium text-slate-700">
+                  Data de nascimento (titular)
+                </label>
+                <input
+                  id="asaas-birthdate"
+                  type="date"
+                  value={subaccountForm.birthDate}
+                  onChange={(e) => updateSubaccountField({ birthDate: e.target.value })}
+                  className={contactInputClass}
+                />
+              </div>
+            )}
+            <div className="sm:col-span-2">
+              <label htmlFor="asaas-pix-key" className="mb-1.5 block text-sm font-medium text-slate-700">
+                Chave PIX de resgate
+              </label>
+              <input
+                id="asaas-pix-key"
+                type="text"
+                maxLength={120}
+                value={subaccountForm.pixKey}
+                onChange={(e) => updateSubaccountField({ pixKey: e.target.value })}
+                placeholder="E-mail, telefone, CPF/CNPJ ou chave aleatória"
+                aria-describedby="asaas-pix-key-hint"
+                className={contactInputClass}
+              />
+              <p id="asaas-pix-key-hint" className="mt-1 text-xs text-slate-500">
+                Chave usada pela plataforma para repassar os valores dos pedidos.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p id="accept-pix-label" className="text-sm font-medium text-slate-800">
+                Aceitar PIX Online no cardápio
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Quando ligado, o cliente paga o pedido via PIX no checkout e o
+                repasse cai na sua conta de recebimento (menos as taxas).
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={subaccountForm.acceptPixOnline}
+              aria-labelledby="accept-pix-label"
+              onClick={() =>
+                updateSubaccountField({
+                  acceptPixOnline: !subaccountForm.acceptPixOnline,
+                })
+              }
+              disabled={!selectedId || isSavingSubaccount}
+              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-60 ${
+                subaccountForm.acceptPixOnline ? "bg-yellow-400" : "bg-slate-200"
+              }`}
+            >
+              <span className="sr-only">
+                {subaccountForm.acceptPixOnline ? "Desativar" : "Ativar"} PIX online
+              </span>
+              <span
+                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                  subaccountForm.acceptPixOnline ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+
+          {establishmentData && establishmentData.asaas_account_id === undefined && (
+            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
+              As colunas de pagamento online ainda não existem no banco. Execute a
+              migração{" "}
+              <code>20261110000027_add_asaas_subaccount_to_establishments.sql</code>{" "}
+              no SQL Editor do Supabase para conectar o recebimento online.
+            </p>
+          )}
+
+          {subaccountError && (
+            <p className="mt-3 text-sm text-red-600">{subaccountError}</p>
+          )}
+          {subaccountSuccess && (
+            <p className="mt-3 flex items-center gap-2 text-sm text-green-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+              {subaccountSuccess}
+            </p>
+          )}
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => void handleSaveSubaccount()}
+              disabled={isSavingSubaccount || !selectedId}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSavingSubaccount ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />
+                  Salvando...
+                </>
+              ) : subaccountConnected ? (
+                "Salvar recebimento online"
+              ) : (
+                "Conectar recebimento online"
               )}
             </button>
           </div>

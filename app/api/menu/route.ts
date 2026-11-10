@@ -40,6 +40,14 @@ type EstablishmentRow = Partial<StorefrontInfo> & {
    * Sem ela o cardápio ignora `direct_whatsapp_checkout`.
    */
   catalog_mode_allowed?: boolean | null;
+  /**
+   * Recebimento online (migração 20261110000027). `accept_pix_online` só é
+   * repassado como `true` quando a subconta existe (`asaas_account_id`).
+   */
+  accept_pix_online?: boolean | null;
+  asaas_account_id?: string | null;
+  /** Credencial da subconta (nunca é repassada ao cliente). */
+  asaas_api_key?: string | null;
 };
 
 /** Linha crua de `products` (price pode vir string). */
@@ -88,6 +96,17 @@ function mapEstablishment(row: EstablishmentRow): StorefrontInfo {
     direct_whatsapp_checkout:
       row.direct_whatsapp_checkout === true &&
       row.catalog_mode_allowed === true,
+    /**
+     * PIX Online (Split Asaas — migração 20261110000027): o checkout só
+     * oferece a opção quando a loja conectou a subconta E ligou a chave.
+     * A credencial da subconta (`asaas_api_key`) nunca sai do servidor.
+     */
+    accept_pix_online:
+      row.accept_pix_online === true &&
+      typeof row.asaas_account_id === "string" &&
+      row.asaas_account_id.trim() !== "" &&
+      typeof row.asaas_api_key === "string" &&
+      row.asaas_api_key.trim() !== "",
     delivery_fee: delivery.delivery_fee,
     delivery_type: delivery.delivery_type,
     distance_base_km: delivery.distance_base_km,

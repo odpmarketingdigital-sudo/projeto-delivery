@@ -132,6 +132,19 @@ export function OrderCard({
               ⏱ Previsão: {estimateLabel}
             </p>
           )}
+          {order.payment_method === "pix_online" && (
+            <p
+              className={`mt-1 text-[11px] font-bold ${
+                order.payment_status === "pago"
+                  ? "text-emerald-600"
+                  : "text-amber-600"
+              }`}
+            >
+              {order.payment_status === "pago"
+                ? "✓ PIX pago"
+                : "PIX aguardando pagamento"}
+            </p>
+          )}
         </div>
 
         <span

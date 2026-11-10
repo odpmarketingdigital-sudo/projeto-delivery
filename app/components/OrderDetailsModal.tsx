@@ -50,6 +50,7 @@ const PAYMENT_LABEL: Record<string, string> = {
   pix: "Pix",
   cartao: "Cartão na entrega",
   dinheiro: "Dinheiro",
+  pix_online: "PIX Online",
 };
 
 function formatBRL(value: number): string {

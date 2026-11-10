@@ -70,6 +70,7 @@ const PAYMENT_LABEL: Record<string, string> = {
   pix: "Pix",
   cartao: "Cartão na entrega",
   dinheiro: "Dinheiro",
+  pix_online: "PIX Online",
 };
 
 /** Chave usada no localStorage para o telefone do cliente. */

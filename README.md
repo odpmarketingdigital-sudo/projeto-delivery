@@ -66,6 +66,35 @@ suspensão automática por data).
 Passo a passo de configuração do webhook (Sandbox e Produção):
 [`docs/asaas-webhook.md`](docs/asaas-webhook.md).
 
+## PIX Online no checkout (Split Asaas — Etapa 2)
+
+- `POST /api/asaas/pix-payment` — cria (ou reaproveita) a cobrança PIX do pedido
+  `pix_online` dentro da subconta da loja (`POST /v3/payments`) com Split fixo de
+  **R$ 0,50** para a carteira da plataforma (`ASAAS_PLATFORM_WALLET_ID`); devolve
+  `payload` (Copia e Cola) e `encoded_image` (QR Code);
+- `GET /api/asaas/pix-payment?order_id=...` — status para o polling do modal
+  (concilia direto com o Asaas quando o webhook ainda não chegou);
+- `POST /api/asaas/webhook` — trata `PAYMENT_CONFIRMED`/`PAYMENT_RECEIVED`,
+  marca `orders.payment_status = 'pago'` de forma idempotente e o painel recebe
+  o UPDATE pelo Realtime (`postgres_changes` em `orders`);
+- O checkout só oferece a opção quando `/api/menu` devolve
+  `accept_pix_online: true` (subconta conectada **e** credencial salva) e exige
+  CPF/CNPJ do pagador; a confirmação é automática (webhook + fallback de polling).
+- **Extrato de Pagamentos** em `/painel/financeiro` (`GET /api/financeiro`):
+  cards do mês com total vendido online, taxas da plataforma (R$ 0,50 × pedidos
+  pagos) e saldo líquido repassado, mais a tabela por pedido (bruto, taxa,
+  líquido, situação do pagamento e do repasse) com filtros Todos/Pagos/Pendentes.
+- **Configuração em `/painel/configuracoes`**: badge de situação ao lado do
+  título da seção (🟢 Ativo / Conectado, 🟡 Conectado com PIX desativado,
+  ⚪ Inativo / Não conectado) e formulário de subconta já preenchido com os
+  dados da loja (razão social, CPF/CNPJ, e-mail, telefone e CEP), com
+  rua/bairro completados pela consulta de CEP (`/api/geocode`).
+
+Migrações: `20261110000027_add_asaas_subaccount_to_establishments.sql` (Etapa 1)
+e `20261110000028_add_asaas_pix_online_payments.sql` (`asaas_api_key` +
+colunas de pagamento em `orders`). Passo a passo e variáveis de ambiente:
+[`docs/asaas-pix-split.md`](docs/asaas-pix-split.md).
+
 ## Vitrine pública (`/[slug]`)
 
 - O cardápio só é servido quando a loja está `status = 'ativo'`, com

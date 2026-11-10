@@ -25,6 +25,7 @@ import {
   type CouponRecord,
 } from "@/lib/coupons";
 import { buildStoreOrderWhatsAppUrl } from "@/lib/whatsappOrder";
+import { isValidCpfCnpj, onlyDigits } from "@/lib/billing";
 
 /**
  * Status válidos de um pedido — espelha `OrderStatus` (lib/types.ts) e o
@@ -154,7 +155,8 @@ export async function GET(request: Request) {
  * Body: {
  *   establishment_id: string,
  *   customer: { name, phone, street, number, neighborhood, complement?, reference? },
- *   payment_method: "pix" | "cartao" | "dinheiro",
+ *   payment_method: "pix" | "cartao" | "dinheiro" | "pix_online",
+ *   customer.document?: string,  // CPF/CNPJ do pagador (PIX Online)
  *   change_for?: number | null,
  *   notes?: string,
  *   coupon_code?: string,
@@ -186,6 +188,8 @@ export async function POST(request: Request) {
       longitude?: number | string;
       /** `place_id` do Google — gravado junto ao endereço. */
       place_id?: string;
+      /** CPF/CNPJ do pagador — obrigatório no PIX Online (Asaas). */
+      document?: string;
     };
     payment_method?: string;
     change_for?: number | null;
@@ -366,11 +370,54 @@ export async function POST(request: Request) {
   }
 
   const paymentMethod = body.payment_method?.trim() ?? "";
-  if (!["pix", "cartao", "dinheiro"].includes(paymentMethod)) {
+  if (!["pix", "cartao", "dinheiro", "pix_online"].includes(paymentMethod)) {
     return NextResponse.json(
       { error: "Selecione a forma de pagamento." },
       { status: 400 }
     );
+  }
+
+  // CPF/CNPJ do pagador (somente dígitos) — o Asaas exige o documento para
+  // criar o cliente/cobrança do PIX Online. Nas demais formas é ignorado.
+  const customerDocument =
+    typeof customer.document === "string" ? onlyDigits(customer.document) : "";
+
+  if (paymentMethod === "pix_online") {
+    // PIX Online (Split Asaas — migração 20261110000027/28): só aceita quando
+    // a loja conectou a subconta, ligou a chave no painel E tem a credencial
+    // da subconta salva (necessária para emitir a cobrança com Split).
+    const pixStore = establishment as {
+      accept_pix_online?: boolean | null;
+      asaas_account_id?: string | null;
+      asaas_api_key?: string | null;
+    };
+    const pixOnlineAvailable =
+      pixStore.accept_pix_online === true &&
+      typeof pixStore.asaas_account_id === "string" &&
+      pixStore.asaas_account_id.trim() !== "" &&
+      typeof pixStore.asaas_api_key === "string" &&
+      pixStore.asaas_api_key.trim() !== "";
+
+    if (!pixOnlineAvailable) {
+      return NextResponse.json(
+        {
+          error:
+            "O PIX Online não está disponível nesta loja no momento. " +
+            "Escolha outra forma de pagamento.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidCpfCnpj(customerDocument)) {
+      return NextResponse.json(
+        {
+          error:
+            "Informe um CPF/CNPJ válido do pagador para usar o PIX Online.",
+        },
+        { status: 400 }
+      );
+    }
   }
 
   // Server-side: bloqueia pedidos fora do horário de funcionamento. Lojas sem
@@ -714,6 +761,15 @@ export async function POST(request: Request) {
     total: total ?? 0,
     total_amount: total ?? 0,
     payment_method: paymentMethod,
+    // PIX Online (migração 20261110000028): status inicial do pagamento e o
+    // CPF/CNPJ do pagador. Condicional para não gravar colunas que podem não
+    // existir quando a loja não usa o recurso (bases legadas).
+    ...(paymentMethod === "pix_online"
+      ? {
+          payment_status: "pendente",
+          customer_document: customerDocument || null,
+        }
+      : {}),
     change_for: changeForValue ?? null,
     notes: notesValue ?? null,
     estimated_delivery_time: estimatedDeliveryTime,
@@ -887,6 +943,11 @@ export async function POST(request: Request) {
         estimated_delivery_time: estimatedDeliveryTime,
         estimated_delivery_at: estimatedDeliveryAt,
         status: "pendente",
+        /** Forma escolhida (inclui `pix_online` no Split de Pagamentos). */
+        payment_method: paymentMethod,
+        /** `pendente` no PIX Online até o webhook confirmar o pagamento. */
+        payment_status:
+          paymentMethod === "pix_online" ? "pendente" : undefined,
         /** Distância da rota usada no cálculo (km) e tempo estimado. */
         delivery_distance_km: deliveryQuote.distance_km,
         delivery_duration_minutes: deliveryQuote.duration_minutes,

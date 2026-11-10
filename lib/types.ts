@@ -1,3 +1,4 @@
+import type { AsaasSubaccountProfile } from "./asaasSubaccount";
 import type { DeliveryType } from "./delivery";
 import type { SubscriptionStatus } from "./subscriptions";
 
@@ -118,6 +119,16 @@ export interface PanelOrder {
   payment_method: string;
   change_for: number | null;
   notes: string | null;
+  /**
+   * Situação do pagamento online (migração 20261110000028):
+   * `pendente` | `pago` | `expirado` | `cancelado`. Pedidos pagos na entrega
+   * permanecem `pendente`.
+   */
+  payment_status?: string | null;
+  /** Id da cobrança PIX no Asaas (`orders.asaas_payment_id`). */
+  asaas_payment_id?: string | null;
+  /** Momento da confirmação do pagamento online (`payment_confirmed_at`). */
+  payment_confirmed_at?: string | null;
   /** Tipo informado pela loja, quando disponível (`entrega`/`retirada`). */
   delivery_type?: string | null;
   status: OrderStatus;
@@ -245,6 +256,12 @@ export interface Establishment {
   email: string;
   /** Telefone de contato (opcional; null quando não informado). */
   phone: string | null;
+  /**
+   * CPF/CNPJ do estabelecimento (coluna `document_number`, migração
+   * 20261110000020 — só dígitos). Usado para pré-preencher o recebimento
+   * online (subconta Asaas).
+   */
+  document_number?: string | null;
   /** WhatsApp oficial da loja (coluna `whatsapp`, migração 20261110000006). */
   whatsapp?: string | null;
   /**
@@ -339,6 +356,20 @@ export interface Establishment {
    * (coluna `overdue_suspended_at`, migração 20261110000023).
    */
   overdue_suspended_at?: string | null;
+  /**
+   * Split de pagamentos (Asaas Subcontas) — migração 20261110000027.
+   * ID da subconta (conta de recebimento) no Asaas; null quando o pagamento
+   * online ainda não foi conectado pelo lojista.
+   */
+  asaas_account_id?: string | null;
+  /** Wallet ID da subconta Asaas — destino dos splits de pagamento. */
+  asaas_wallet_id?: string | null;
+  /** Snapshot dos dados de recebimento enviados ao Asaas (formulário). */
+  asaas_subaccount?: AsaasSubaccountProfile | null;
+  /** Chave PIX de resgate informada pelo lojista. */
+  pix_key?: string | null;
+  /** Liga/desliga o PIX online no cardápio (Split de Pagamentos). */
+  accept_pix_online?: boolean | null;
   created_at: string;
   updated_at: string;
 }
@@ -530,6 +561,13 @@ export interface StorefrontInfo {
    * Ausente = desligado.
    */
   direct_whatsapp_checkout?: boolean;
+  /**
+   * PIX Online (Split Asaas — migração 20261110000027). Já vem "efetivo" de
+   * `/api/menu`: `true` somente quando a loja conectou a subconta
+   * (`asaas_account_id`) e ligou "Aceitar PIX Online" no painel.
+   * Ausente = desligado.
+   */
+  accept_pix_online?: boolean;
   /** Telefone de contato (fallback quando `whatsapp` não existe). */
   phone: string | null;
   /** Taxa de entrega padrão cobrada no checkout. */
