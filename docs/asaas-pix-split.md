@@ -43,8 +43,39 @@ Checkout exibe QR Code + Copia e Cola (cronômetro do QR)
 | `ASAAS_API_KEY` | sim | Chave da conta principal (cria subcontas, webhooks e conciliação). |
 | `ASAAS_PLATFORM_WALLET_ID` | sim (PIX Online) | `walletId` da carteira da Ipepper que recebe os R$ 0,50. Recupere em `GET /v3/wallets`. |
 | `ASAAS_WEBHOOK_TOKEN` | sim | Mesmo token já usado por `/api/webhooks/asaas`; enviado no header `asaas-access-token`. |
-| `ASAAS_API_URL` | não | Padrão: sandbox (`https://sandbox.asaas.com/api/v3`). Em produção use `https://api.asaas.com/v3`. |
+| `ASAAS_API_URL` | não | Base da API. Padrão: sandbox (`https://sandbox.asaas.com/api/v3`). Em produção use `https://api.asaas.com/v3`. O `/v3` é completado quando a URL traz só o domínio. |
+| `ASAAS_ENV` | não | Usada quando `ASAAS_API_URL` está vazia: `production`/`prod` aponta para `https://api.asaas.com/v3`; qualquer outro valor (ou vazio) mantém o sandbox. |
 | `NEXT_PUBLIC_APP_URL` | não | Base do webhook registrado nas subcontas (`<url>/api/asaas/webhook`). Padrão `https://ipepper.com.br`. |
+
+> A API key é **diferente** em sandbox e produção. Uma chave de produção
+> chamada na base do sandbox (ou vice-versa) é recusada pelo gateway — confira
+> `asaas_base_url` na resposta de erro antes de rotacionar a chave.
+
+## Diagnóstico de 401/403 (integração recusada)
+
+`POST /api/asaas/subaccount` (tela `/painel/configuracoes`) registra o corpo
+detalhado do Asaas com `console.error` no servidor
+(`[asaas] POST /accounts falhou (HTTP 403, Sandbox)`) e devolve o mesmo
+diagnóstico no JSON:
+
+| Campo | Conteúdo |
+| --- | --- |
+| `error` | Mensagem para o lojista; em 401/403 inclui as causas prováveis. |
+| `code` | Código do erro do Asaas (ex.: `invalid_cpfCnpj`), quando existir. |
+| `asaas_status` | HTTP devolvido pelo gateway (`400`, `401`, `403`…). |
+| `asaas_environment` | `sandbox` ou `production`, inferido de `ASAAS_API_URL`/`ASAAS_ENV`. |
+| `asaas_base_url` | Base efetivamente usada na chamada. |
+| `asaas_request` | Método, endpoint e se a credencial era da subconta. |
+| `details` | Corpo bruto do Asaas (`{ "errors": [{ "code", "description" }] }`); quando não é JSON, o trecho fica em `details.raw`. |
+
+Interpretação do 403:
+
+| Sintoma | Causa provável | Correção |
+| --- | --- | --- |
+| `details.raw` com HTML, sem `errors[]` | IP do servidor bloqueado (firewall/WAF do Asaas) | Libere o IP da hospedagem no painel do Asaas |
+| `asaas_status: 401` com `code: invalid_access_token` | API key inválida, revogada ou de outro ambiente | Gere a chave no ambiente de `asaas_base_url` e atualize `ASAAS_API_KEY` |
+| 403 ao alternar para produção | Chave de produção apontando para o sandbox (ou vice-versa) | Alinhe `ASAAS_API_KEY` × `ASAAS_API_URL`/`ASAAS_ENV` |
+| `errors[0].description` citando permissão/subconta | Conta principal sem permissão para criar subcontas | Habilite subcontas na conta-mãe do Asaas |
 
 ## Migrações
 

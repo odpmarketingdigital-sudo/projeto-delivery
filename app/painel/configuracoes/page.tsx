@@ -1182,8 +1182,16 @@ export default function ConfiguracoesIdentidade() {
         notice?: string | null;
         updated?: boolean;
         establishment?: Partial<Establishment>;
+        /** Diagnóstico do Asaas devolvido em falhas (401/403). */
+        code?: string | null;
+        asaas_status?: number;
+        asaas_environment?: string;
+        details?: unknown;
       };
       if (!res.ok) {
+        // Detalhes completos no console do navegador — mostram se o 403 é API
+        // key inválida, ambiente divergente (sandbox × produção) ou permissão.
+        console.error("[configuracoes] o Asaas recusou a operação", json);
         throw new Error(json.error ?? "Falha ao conectar o pagamento online.");
       }
 

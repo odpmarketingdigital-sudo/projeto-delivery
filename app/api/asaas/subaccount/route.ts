@@ -19,6 +19,8 @@ import { NextResponse } from "next/server";
 import {
   AsaasError,
   createAsaasSubaccount,
+  describeAsaasEnvironment,
+  describeAsaasFailure,
   ensureAsaasWebhook,
   findAsaasSubaccountByCpfCnpj,
 } from "@/lib/asaas";
@@ -255,14 +257,40 @@ export async function POST(request: Request) {
         }
       }
       if (!accountId) {
-        const status = error instanceof AsaasError ? error.status : 502;
-        const message =
-          error instanceof AsaasError
-            ? error.message
-            : "Não foi possível conectar ao Asaas.";
+        const failure = describeAsaasFailure(
+          error,
+          "Não foi possível conectar ao Asaas."
+        );
+        const environment = describeAsaasEnvironment();
+
+        // Log com o corpo detalhado do Asaas: é o que revela se o 403 é API
+        // key inválida, ambiente divergente (sandbox × produção) ou restrição
+        // de permissão/IP na conta.
+        console.error(
+          "[asaas/subaccount] o Asaas recusou a criação da subconta",
+          {
+            status: failure.status,
+            code: failure.code,
+            environment: environment.label,
+            base_url: environment.baseUrl,
+            request: failure.context,
+            details: failure.details,
+          }
+        );
+
+        // A resposta devolve o mesmo diagnóstico para a tela de configurações
+        // (a UI exibe `error`; o restante serve para inspeção via devtools).
         return NextResponse.json(
-          { error: message },
-          { status: status >= 400 && status < 600 ? status : 502 }
+          {
+            error: failure.message,
+            code: failure.code,
+            asaas_status: failure.context?.gateway_status ?? failure.status,
+            asaas_environment: environment.environment,
+            asaas_base_url: environment.baseUrl,
+            asaas_request: failure.context,
+            details: failure.details,
+          },
+          { status: failure.status }
         );
       }
     }
@@ -351,9 +379,18 @@ export async function POST(request: Request) {
         { apiKey: webhookApiKey }
       );
     } catch (error) {
+      const failure = describeAsaasFailure(
+        error,
+        "Não foi possível registrar o webhook da subconta."
+      );
       console.warn(
         "[asaas/subaccount] não foi possível registrar o webhook da subconta",
-        error instanceof Error ? error.message : error
+        {
+          message: failure.message,
+          code: failure.code,
+          request: failure.context,
+          details: failure.details,
+        }
       );
     }
   }

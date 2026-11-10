@@ -18,11 +18,104 @@
 import { onlyDigits, type BillingType } from "./billing";
 import type { AsaasSubscriptionCycle } from "./subscriptions";
 
-/** URL do Sandbox quando `ASAAS_API_URL` não está configurada. */
-const DEFAULT_API_URL = "https://sandbox.asaas.com/api/v3";
+/** URL do Sandbox (usada quando `ASAAS_API_URL`/`ASAAS_ENV` não definem nada). */
+const SANDBOX_API_URL = "https://sandbox.asaas.com/api/v3";
+
+/** URL de Produção. */
+const PRODUCTION_API_URL = "https://api.asaas.com/v3";
 
 /** O Asaas recomenda timeout mínimo de 60s na criação de assinaturas. */
 const REQUEST_TIMEOUT_MS = 60_000;
+
+/**
+ * Causas prováveis de 401/403 — o Asaas normalmente responde esses status sem
+ * `errors[]` detalhado (bloqueio de WAF/IP, chave de outro ambiente ou conta
+ * sem permissão para subcontas).
+ */
+const AUTH_ERROR_HINT =
+  "Verifique se a API key é válida e pertence ao MESMO ambiente da " +
+  "ASAAS_API_URL (sandbox ou produção), se ela tem permissão para subcontas " +
+  "e se o IP do servidor está liberado no painel do Asaas.";
+
+/** Ambiente do Asaas em uso (a API key é diferente em cada um). */
+export type AsaasEnvironment = "sandbox" | "production";
+
+/** Rótulo em português usado nas mensagens de erro. */
+function environmentLabel(environment: AsaasEnvironment): string {
+  return environment === "sandbox" ? "Sandbox" : "Produção";
+}
+
+/**
+ * Normaliza a base informada em `ASAAS_API_URL`.
+ *
+ * Aceita a URL completa (`https://api.asaas.com/v3`), com barra no final ou
+ * sem o segmento de versão (`https://api.asaas.com`) — o Asaas exige `/v3`
+ * (ou `/api/v3`) no path, então completamos quando estiver ausente.
+ */
+function normalizeApiUrl(raw: string): string {
+  const trimmed = raw.trim().replace(/\/+$/, "");
+  if (!trimmed) return SANDBOX_API_URL;
+  return /\/(?:api\/)?v3$/i.test(trimmed) ? trimmed : `${trimmed}/v3`;
+}
+
+/**
+ * Base da API do Asaas lida em tempo de execução.
+ *
+ * Precedência:
+ *  1. `ASAAS_API_URL` — URL completa da API (sandbox ou produção);
+ *  2. `ASAAS_ENV` — `production`/`prod` usa a API de produção;
+ *  3. Sandbox (padrão de desenvolvimento).
+ */
+export function getAsaasBaseUrl(): string {
+  const configured = process.env.ASAAS_API_URL?.trim();
+  if (configured) return normalizeApiUrl(configured);
+
+  const environment = process.env.ASAAS_ENV?.trim().toLowerCase();
+  if (environment === "production" || environment === "prod") {
+    return PRODUCTION_API_URL;
+  }
+
+  return SANDBOX_API_URL;
+}
+
+/** Ambiente inferido da base configurada (usado nos diagnósticos de erro). */
+export function getAsaasEnvironment(): AsaasEnvironment {
+  return /sandbox/i.test(getAsaasBaseUrl()) ? "sandbox" : "production";
+}
+
+/** Diagnóstico do ambiente devolvido nas respostas de erro da API interna. */
+export function describeAsaasEnvironment(): {
+  environment: AsaasEnvironment;
+  label: string;
+  baseUrl: string;
+} {
+  const environment = getAsaasEnvironment();
+  return {
+    environment,
+    label: environmentLabel(environment),
+    baseUrl: getAsaasBaseUrl(),
+  };
+}
+
+/** Detalhe de erro devolvido pelo Asaas (`errors[]`). */
+export interface AsaasErrorDetail {
+  code?: string;
+  description?: string;
+}
+
+/** Diagnóstico da chamada que falhou (nunca inclui a API key). */
+export interface AsaasRequestContext {
+  method: "GET" | "POST" | "DELETE";
+  /** Endpoint chamado, com query string (ex.: `/accounts`). */
+  endpoint: string;
+  /** Base da API usada (sandbox ou produção). */
+  base_url: string;
+  environment: AsaasEnvironment;
+  /** `true` quando a chamada usou a credencial de uma subconta. */
+  subaccount: boolean;
+  /** HTTP devolvido pelo Asaas (quando houve resposta). */
+  gateway_status?: number;
+}
 
 /** Erro normalizado da API do Asaas (nunca expõe a API key). */
 export class AsaasError extends Error {
@@ -30,13 +123,68 @@ export class AsaasError extends Error {
   readonly status: number;
   /** Código do erro no Asaas (ex.: `invalid_cpfCnpj`). */
   readonly code: string | null;
+  /** Corpo devolvido pelo Asaas (ex.: `{ errors: [{ code, description }] }`). */
+  readonly details: unknown;
+  /** Diagnóstico da chamada (ambiente, endpoint e credencial usada). */
+  readonly request: AsaasRequestContext | null;
 
-  constructor(message: string, status = 502, code: string | null = null) {
+  constructor(
+    message: string,
+    status = 502,
+    code: string | null = null,
+    context: { details?: unknown; request?: AsaasRequestContext } = {}
+  ) {
     super(message);
     this.name = "AsaasError";
     this.status = status;
     this.code = code;
+    this.details = context.details ?? null;
+    this.request = context.request ?? null;
   }
+}
+
+/** Falha do gateway já normalizada para o JSON das rotas internas. */
+export interface AsaasFailure {
+  /** Mensagem pronta para exibir ao usuário. */
+  message: string;
+  /** HTTP que a rota interna deve devolver. */
+  status: number;
+  code: string | null;
+  /** Corpo detalhado devolvido pelo Asaas (ex.: `errors[]`). */
+  details: unknown;
+  /** Diagnóstico da chamada (ambiente, endpoint e credencial usada). */
+  context: AsaasRequestContext | null;
+}
+
+/**
+ * Converte qualquer falha do gateway em um objeto serializável.
+ *
+ * Usado pelas rotas internas para devolver `details`/`asaas_status`/
+ * `asaas_environment` no JSON — é o que permite distinguir API key inválida,
+ * divergência sandbox × produção e restrição de permissão/IP no 403.
+ */
+export function describeAsaasFailure(
+  error: unknown,
+  fallbackMessage = "Não foi possível conectar ao Asaas.",
+  fallbackStatus = 502
+): AsaasFailure {
+  if (error instanceof AsaasError) {
+    return {
+      message: error.message,
+      status: error.status >= 400 && error.status < 600 ? error.status : 502,
+      code: error.code,
+      details: error.details,
+      context: error.request,
+    };
+  }
+
+  return {
+    message: fallbackMessage,
+    status: fallbackStatus,
+    code: null,
+    details: null,
+    context: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -132,11 +280,9 @@ function getConfig(apiKeyOverride?: string): { apiKey: string; baseUrl: string }
     );
   }
 
-  const baseUrl = (
-    process.env.ASAAS_API_URL?.trim() || DEFAULT_API_URL
-  ).replace(/\/+$/, "");
-
-  return { apiKey, baseUrl };
+  // `ASAAS_API_URL` (ou `ASAAS_ENV`) define sandbox × produção — a base não
+  // pode ficar hardcoded, senão a chave de produção é recusada no sandbox.
+  return { apiKey, baseUrl: getAsaasBaseUrl() };
 }
 
 /** `true` quando o Asaas está configurado (usado por diagnósticos). */
@@ -145,7 +291,48 @@ export function isAsaasConfigured(): boolean {
 }
 
 interface AsaasErrorBody {
-  errors?: Array<{ code?: string; description?: string }>;
+  /** Lista de erros de validação/negócio do Asaas. */
+  errors?: AsaasErrorDetail[];
+  /** Mensagem simples (algumas respostas de bloqueio usam este campo). */
+  message?: string;
+}
+
+/** Recorta corpos longos (HTML de proxy/WAF) para caber no log e no JSON. */
+function truncate(text: string, max = 500): string {
+  const trimmed = text.trim();
+  return trimmed.length <= max ? trimmed : `${trimmed.slice(0, max)}…`;
+}
+
+/**
+ * Monta a mensagem para o usuário a partir da resposta de erro do Asaas.
+ *
+ * Erros de negócio vêm em `errors[]`; já 401/403 costumam vir sem detalhe
+ * (ou em HTML, quando há bloqueio de WAF/IP). Nesses casos anexamos as causas
+ * prováveis — API key, ambiente (sandbox × produção) e permissão.
+ */
+function buildAsaasErrorMessage(
+  status: number,
+  errors: AsaasErrorDetail[],
+  fallback?: string
+): string {
+  const descriptions = errors
+    .map((item) => item.description?.trim())
+    .filter((item): item is string => Boolean(item));
+
+  const primary =
+    descriptions[0] ||
+    fallback?.trim() ||
+    `O Asaas recusou a operação (HTTP ${status}).`;
+
+  // Demais detalhes (o Asaas pode devolver vários erros na mesma resposta).
+  const extra =
+    descriptions.length > 1 ? ` (${descriptions.slice(1).join("; ")})` : "";
+
+  if (status === 401 || status === 403) {
+    return `${primary}${extra} ${AUTH_ERROR_HINT}`;
+  }
+
+  return `${primary}${extra}`;
 }
 
 /**
@@ -162,6 +349,19 @@ async function asaasRequest<T>(
   } = { method: "GET" }
 ): Promise<T> {
   const { apiKey, baseUrl } = getConfig(init.apiKey);
+
+  /**
+   * Diagnóstico anexado a qualquer falha — nunca inclui a API key. É o que
+   * permite distinguir, no 403, chave inválida de ambiente divergente e de
+   * restrição de permissão/IP.
+   */
+  const context: AsaasRequestContext = {
+    method: init.method,
+    endpoint: path,
+    base_url: baseUrl,
+    environment: getAsaasEnvironment(),
+    subaccount: Boolean(init.apiKey?.trim()),
+  };
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -186,29 +386,60 @@ async function asaasRequest<T>(
       throw new AsaasError(
         "O Asaas demorou demais para responder. Tente novamente em instantes.",
         504,
-        "gateway_timeout"
+        "gateway_timeout",
+        { request: context }
       );
     }
     throw new AsaasError(
       "Não foi possível conectar ao Asaas. Verifique a conexão do servidor.",
       502,
-      "gateway_unreachable"
+      "gateway_unreachable",
+      { request: context }
     );
   } finally {
     clearTimeout(timeout);
   }
 
-  const payload = (await response
-    .json()
-    .catch(() => null)) as (T & AsaasErrorBody) | null;
+  // Lê como texto para preservar respostas não-JSON (HTML de WAF/proxy).
+  const rawBody = await response.text().catch(() => "");
+  let payload: (T & AsaasErrorBody) | null = null;
+  if (rawBody) {
+    try {
+      payload = JSON.parse(rawBody) as T & AsaasErrorBody;
+    } catch {
+      payload = null;
+    }
+  }
 
   if (!response.ok) {
-    const firstError = payload?.errors?.[0];
+    const apiErrors = payload?.errors ?? [];
+    const firstError = apiErrors[0];
+    // Sem JSON: guarda um trecho do corpo bruto (identifica bloqueio de WAF).
+    const details: unknown =
+      payload ?? (rawBody ? { raw: truncate(rawBody) } : null);
+
+    context.gateway_status = response.status;
+
+    // Corpo completo do Asaas no log do servidor — necessário para saber se o
+    // 403 é API key inválida, ambiente divergente (sandbox × produção) ou
+    // permissão/IP bloqueado.
+    console.error(
+      `[asaas] ${init.method} ${path} falhou (HTTP ${response.status}, ` +
+        `${environmentLabel(context.environment)})`,
+      {
+        base_url: baseUrl,
+        subaccount: context.subaccount,
+        code: firstError?.code ?? null,
+        errors: apiErrors,
+        details,
+      }
+    );
+
     throw new AsaasError(
-      firstError?.description ||
-        `O Asaas recusou a operação (HTTP ${response.status}).`,
+      buildAsaasErrorMessage(response.status, apiErrors, payload?.message),
       response.status,
-      firstError?.code ?? null
+      firstError?.code ?? null,
+      { details, request: context }
     );
   }
 
@@ -220,7 +451,11 @@ async function asaasRequest<T>(
     throw new AsaasError(
       "O Asaas devolveu uma resposta inválida.",
       502,
-      "invalid_response"
+      "invalid_response",
+      {
+        details: rawBody ? { raw: truncate(rawBody) } : null,
+        request: context,
+      }
     );
   }
 
