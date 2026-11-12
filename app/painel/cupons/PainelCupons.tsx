@@ -12,6 +12,8 @@ import { useEstablishment } from "@/app/painel/produtos/useEstablishment";
 import { STORE_TIME_ZONE } from "@/lib/openingHours";
 import {
   couponDiscountLabel,
+  couponDiscountTypeLabel,
+  couponMaxUses,
   formatCouponBRL,
   toCouponNumber,
   type CouponRecord,
@@ -188,8 +190,9 @@ export function PainelCupons() {
               Cupons de desconto
             </h1>
             <p className="mt-1 text-sm text-slate-600">
-              Crie códigos promocionais, defina limites de uso e acompanhe a
-              utilização no checkout.
+              Crie códigos promocionais (percentual, valor fixo ou frete grátis),
+              defina pedido mínimo, validade, limite de usos e cupons exclusivos
+              para o primeiro pedido do cliente.
             </p>
           </div>
 
@@ -301,7 +304,7 @@ export function PainelCupons() {
           </p>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-slate-300">
-            <table className="w-full min-w-[960px] text-left text-sm">
+            <table className="w-full min-w-[1080px] text-left text-sm">
               <thead className="bg-slate-100 text-[11px] uppercase tracking-wider text-slate-600">
                 <tr>
                   <th scope="col" className="px-4 py-3 font-bold">
@@ -315,6 +318,9 @@ export function PainelCupons() {
                   </th>
                   <th scope="col" className="px-4 py-3 text-right font-bold">
                     Usos
+                  </th>
+                  <th scope="col" className="px-4 py-3 font-bold">
+                    Validade
                   </th>
                   <th scope="col" className="px-4 py-3 font-bold">
                     Status
@@ -333,10 +339,7 @@ export function PainelCupons() {
                     coupon.min_order_value == null
                       ? 0
                       : toCouponNumber(coupon.min_order_value);
-                  const limit =
-                    coupon.usage_limit == null
-                      ? null
-                      : toCouponNumber(coupon.usage_limit);
+                  const limit = couponMaxUses(coupon);
                   const used = toCouponNumber(coupon.used_count);
 
                   return (
@@ -346,17 +349,32 @@ export function PainelCupons() {
                           {coupon.code}
                         </code>
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-800">
-                        {couponDiscountLabel({
-                          discount_type: coupon.discount_type,
-                          discount_value: toCouponNumber(coupon.discount_value),
-                        })}
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span className="block font-semibold text-slate-800">
+                          {couponDiscountLabel({
+                            discount_type: coupon.discount_type,
+                            discount_value: toCouponNumber(
+                              coupon.discount_value
+                            ),
+                          })}
+                        </span>
+                        <span className="mt-1 flex items-center gap-1.5 text-[11px] text-slate-500">
+                          {couponDiscountTypeLabel(coupon.discount_type)}
+                          {coupon.first_order_only && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700">
+                              1º pedido
+                            </span>
+                          )}
+                        </span>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-700">
                         {minOrder > 0 ? formatCouponBRL(minOrder) : "—"}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-700">
                         {used} / {limit ?? "∞"}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-slate-600">
+                        {coupon.expires_at ? formatDate(coupon.expires_at) : "—"}
                       </td>
                       <td className="px-4 py-3">
                         <span

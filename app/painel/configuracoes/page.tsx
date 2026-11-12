@@ -33,6 +33,19 @@ import {
 } from "@/lib/deliveryEstimate";
 import { formatWhatsAppPhoneForDisplay } from "@/lib/whatsappOrder";
 import {
+  formatCurrencyInput,
+  formatCurrencyValue,
+  parseCurrencyInput,
+} from "@/lib/currency";
+import { normalizeMinOrderValue } from "@/lib/minOrder";
+import {
+  MAX_MEAL_VOUCHER_NAME_LENGTH,
+  MAX_MEAL_VOUCHERS,
+  MEAL_VOUCHER_OPTIONS,
+  normalizeMealVoucherName,
+  normalizeMealVouchers,
+} from "@/lib/mealVouchers";
+import {
   BANNER_IMAGE_PRESET,
   LOGO_IMAGE_PRESET,
   resizeAndCropToWebP,
@@ -309,6 +322,26 @@ export default function ConfiguracoesIdentidade() {
   const [deliverySuccess, setDeliverySuccess] = useState<string | null>(null);
   const [deliveryWarning, setDeliveryWarning] = useState<string | null>(null);
 
+  // Pedido mínimo do subtotal dos itens (migração 20261111000003).
+  const [minOrderValue, setMinOrderValue] = useState("0,00");
+  const [isSavingMinOrder, setIsSavingMinOrder] = useState(false);
+  const [minOrderError, setMinOrderError] = useState<string | null>(null);
+  const [minOrderSuccess, setMinOrderSuccess] = useState<string | null>(null);
+  const [minOrderWarning, setMinOrderWarning] = useState<string | null>(null);
+
+  // Vale-Refeição / Alimentação na entrega (migração 20261111000004):
+  // bandeiras aceitas pela loja na maquininha presencial.
+  const [mealVouchers, setMealVouchers] = useState<string[]>([]);
+  const [customMealVoucher, setCustomMealVoucher] = useState("");
+  const [isSavingMealVouchers, setIsSavingMealVouchers] = useState(false);
+  const [mealVoucherError, setMealVoucherError] = useState<string | null>(null);
+  const [mealVoucherSuccess, setMealVoucherSuccess] = useState<string | null>(
+    null
+  );
+  const [mealVoucherWarning, setMealVoucherWarning] = useState<string | null>(
+    null
+  );
+
   // Envio do resumo do pedido para o WhatsApp da loja (migração 16).
   // Default `true` — mesma regra de `isWhatsAppCheckoutEnabled`.
   const [whatsappCheckoutEnabled, setWhatsappCheckoutEnabled] = useState(true);
@@ -318,12 +351,14 @@ export default function ConfiguracoesIdentidade() {
   const [whatsappError, setWhatsappError] = useState<string | null>(null);
   const [whatsappSuccess, setWhatsappSuccess] = useState<string | null>(null);
   const [whatsappWarning, setWhatsappWarning] = useState<string | null>(null);
-  // Modo catálogo (migração 17): pedido/orçamento direto no WhatsApp, sem
-  // passar pelo checkout. Default `false` — o fluxo de delivery não muda.
+  // Modo catálogo (migração 17) — pedido/orçamento direto no WhatsApp.
+  // O recurso não é mais exibido nesta tela: continua controlado pelo Super
+  // Admin (`catalog_mode_allowed`, migração 25) e pela coluna
+  // `direct_whatsapp_checkout` no banco. O estado é mantido apenas para
+  // preservar/repassar o valor já gravado ao salvar o WhatsApp (sem alterá-lo).
   const [directWhatsAppCheckout, setDirectWhatsAppCheckout] = useState(false);
   // Liberação do Modo catálogo pelo Super Admin (`catalog_mode_allowed`,
-  // migração 25). Sem ela a chave fica bloqueada nesta tela — o lojista não
-  // consegue ligar o recurso nem por chamada direta (a API revalida).
+  // migração 25). Lida do banco para decidir se o valor acima é reenviado.
   const [catalogModeAllowed, setCatalogModeAllowed] = useState(false);
 
   // Pagamento online (Asaas Split) — dados de recebimento da subconta.
@@ -395,6 +430,14 @@ export default function ConfiguracoesIdentidade() {
             settings.estimated_delivery_time_max
           ),
         });
+        // Pedido mínimo (migração 20261111000003): bases legadas sem a coluna
+        // caem em 0,00 (sem mínimo).
+        setMinOrderValue(
+          formatCurrencyValue(normalizeMinOrderValue(row.min_order_value))
+        );
+        // Vale-Refeição/Alimentação na entrega (migração 20261111000004):
+        // base legada sem a coluna cai em lista vazia (não aceita vale).
+        setMealVouchers(normalizeMealVouchers(row.accepted_meal_vouchers));
         setStoreLocation(
           settings.store_latitude != null && settings.store_longitude != null
             ? {
@@ -414,7 +457,7 @@ export default function ConfiguracoesIdentidade() {
         const catalogAllowed = row.catalog_mode_allowed === true;
         setCatalogModeAllowed(catalogAllowed);
         // Migração 17: modo catálogo desligado por padrão (ausência = false).
-        // Sem a liberação do Super Admin a chave aparece bloqueada/desligada.
+        // O valor só é lido para ser reenviado (inalterado) ao salvar o WhatsApp.
         setDirectWhatsAppCheckout(
           catalogAllowed && row.direct_whatsapp_checkout === true
         );
@@ -1077,6 +1120,208 @@ export default function ConfiguracoesIdentidade() {
   };
 
   /**
+   * Salva o pedido mínimo do subtotal dos itens (migração 20261111000003).
+   * `0,00` desativa a exigência — a loja volta a aceitar qualquer valor.
+   */
+  const handleSaveMinOrder = async () => {
+    if (!selectedId) return;
+
+    const parsed = parseCurrencyInput(minOrderValue);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setMinOrderError(
+        "Informe um valor de pedido mínimo válido (zero ou mais)."
+      );
+      return;
+    }
+
+    setIsSavingMinOrder(true);
+    setMinOrderError(null);
+    setMinOrderSuccess(null);
+    setMinOrderWarning(null);
+    try {
+      const res = await fetch("/api/establishment", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          establishment_id: selectedId,
+          min_order_value: parsed,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        warning?: string;
+        establishment?: Establishment;
+      };
+      if (!res.ok) {
+        throw new Error(json.error ?? "Falha ao salvar o pedido mínimo.");
+      }
+
+      const warning =
+        typeof json.warning === "string" && json.warning ? json.warning : null;
+      setMinOrderWarning(warning);
+
+      // A API devolve o valor gravado; sem ele, mantém o que foi enviado.
+      const savedValue = normalizeMinOrderValue(
+        json.establishment?.min_order_value ?? parsed
+      );
+      setMinOrderValue(formatCurrencyValue(savedValue));
+      if (json.establishment) {
+        const saved = json.establishment;
+        setEstablishmentData((prev) => ({ ...(prev ?? saved), ...saved }));
+      }
+
+      setMinOrderSuccess(
+        warning
+          ? "Pedido mínimo salvo parcialmente."
+          : savedValue > 0
+            ? `Pedido mínimo salvo (R$ ${formatCurrencyValue(
+                savedValue
+              )}). A vitrine, a sacola e o checkout já usam a regra.`
+            : "Pedido mínimo desativado — a loja aceita qualquer valor."
+      );
+    } catch (err) {
+      setMinOrderError(
+        err instanceof Error ? err.message : "Erro inesperado ao salvar."
+      );
+    } finally {
+      setIsSavingMinOrder(false);
+    }
+  };
+
+  /**
+   * Marca/desmarca uma bandeira de vale na lista local. O salvamento só
+   * acontece no botão "Salvar bandeiras" (mesmo padrão das demais seções).
+   */
+  const toggleMealVoucher = (voucher: string) => {
+    const alreadySelected = mealVouchers.some(
+      (item) => item.toLowerCase() === voucher.toLowerCase()
+    );
+    if (!alreadySelected && mealVouchers.length >= MAX_MEAL_VOUCHERS) {
+      setMealVoucherError(
+        `Cadastre no máximo ${MAX_MEAL_VOUCHERS} bandeiras de vale.`
+      );
+      return;
+    }
+
+    setMealVoucherError(null);
+    setMealVoucherSuccess(null);
+    setMealVoucherWarning(null);
+    setMealVouchers((prev) =>
+      alreadySelected
+        ? prev.filter((item) => item.toLowerCase() !== voucher.toLowerCase())
+        : [...prev, voucher]
+    );
+  };
+
+  /** Remove uma bandeira da lista (usado pelas customizadas e pelos chips). */
+  const removeMealVoucher = (voucher: string) => {
+    setMealVoucherError(null);
+    setMealVoucherSuccess(null);
+    setMealVoucherWarning(null);
+    setMealVouchers((prev) =>
+      prev.filter((item) => item.toLowerCase() !== voucher.toLowerCase())
+    );
+  };
+
+  /** Adiciona uma bandeira customizada (ex.: vale da própria região). */
+  const handleAddCustomMealVoucher = () => {
+    setMealVoucherError(null);
+    setMealVoucherSuccess(null);
+    setMealVoucherWarning(null);
+
+    const name = normalizeMealVoucherName(customMealVoucher);
+    if (!name) {
+      setMealVoucherError("Informe o nome da bandeira que deseja adicionar.");
+      return;
+    }
+    if (customMealVoucher.trim().length > MAX_MEAL_VOUCHER_NAME_LENGTH) {
+      setMealVoucherError(
+        `O nome da bandeira deve ter até ${MAX_MEAL_VOUCHER_NAME_LENGTH} caracteres.`
+      );
+      return;
+    }
+    if (
+      mealVouchers.some((item) => item.toLowerCase() === name.toLowerCase())
+    ) {
+      setMealVoucherError(`A bandeira "${name}" já está na lista.`);
+      return;
+    }
+    if (mealVouchers.length >= MAX_MEAL_VOUCHERS) {
+      setMealVoucherError(
+        `Cadastre no máximo ${MAX_MEAL_VOUCHERS} bandeiras de vale.`
+      );
+      return;
+    }
+
+    setMealVouchers((prev) => [...prev, name]);
+    setCustomMealVoucher("");
+  };
+
+  /**
+   * Salva as bandeiras de vale-refeição/alimentação aceitas NA ENTREGA
+   * (migração 20261111000004). É cobrança presencial na maquininha — nunca
+   * passa pelo pagamento online/gateway.
+   */
+  const handleSaveMealVouchers = async () => {
+    if (!selectedId) return;
+
+    setIsSavingMealVouchers(true);
+    setMealVoucherError(null);
+    setMealVoucherSuccess(null);
+    setMealVoucherWarning(null);
+    try {
+      const res = await fetch("/api/establishment", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          establishment_id: selectedId,
+          accepted_meal_vouchers: mealVouchers,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        warning?: string;
+        establishment?: Establishment;
+      };
+      if (!res.ok) {
+        throw new Error(
+          json.error ?? "Falha ao salvar as bandeiras de vale."
+        );
+      }
+
+      const warning =
+        typeof json.warning === "string" && json.warning ? json.warning : null;
+      setMealVoucherWarning(warning);
+
+      const saved = normalizeMealVouchers(
+        json.establishment?.accepted_meal_vouchers ?? mealVouchers
+      );
+      setMealVouchers(saved);
+      const savedEstablishment = json.establishment;
+      if (savedEstablishment) {
+        setEstablishmentData((prev) => ({
+          ...(prev ?? savedEstablishment),
+          ...savedEstablishment,
+        }));
+      }
+
+      setMealVoucherSuccess(
+        warning
+          ? "Bandeiras salvas parcialmente."
+          : saved.length > 0
+            ? `Bandeiras salvas (${saved.length}). O checkout já mostra "Vale-Refeição / Alimentação" na entrega.`
+            : "Vale-refeição desativado — a opção não aparece mais no checkout."
+      );
+    } catch (err) {
+      setMealVoucherError(
+        err instanceof Error ? err.message : "Erro inesperado ao salvar."
+      );
+    } finally {
+      setIsSavingMealVouchers(false);
+    }
+  };
+
+  /**
    * Salva o telefone/WhatsApp da loja junto da preferência de envio do resumo
    * no checkout. O número é o mesmo usado pelo botão do WhatsApp no checkout —
    * sem número válido o botão simplesmente não aparece lá.
@@ -1108,9 +1353,9 @@ export default function ConfiguracoesIdentidade() {
           // String vazia limpa o número cadastrado na loja.
           whatsapp,
           whatsapp_checkout_enabled: whatsappCheckoutEnabled,
-          // Migração 17: modo catálogo (pedido direto no WhatsApp). Só é enviado
-          // quando o Super Admin liberou a loja (migração 25) — a API também
-          // recusa o `true` sem liberação.
+          // Migração 17: modo catálogo (pedido direto no WhatsApp). A chave não é
+          // mais exibida nesta tela; o valor gravado é reenviado sem alterações
+          // (a liberação continua exclusiva do Super Admin, migração 25).
           ...(catalogModeAllowed
             ? { direct_whatsapp_checkout: directWhatsAppCheckout }
             : {}),
@@ -1214,6 +1459,14 @@ export default function ConfiguracoesIdentidade() {
       setIsSavingSubaccount(false);
     }
   };
+
+  // Bandeiras fora da lista padrão (customizadas) já selecionadas pela loja.
+  const customMealVouchers = mealVouchers.filter(
+    (voucher) =>
+      !MEAL_VOUCHER_OPTIONS.some(
+        (option) => option.toLowerCase() === voucher.toLowerCase()
+      )
+  );
 
   return (
     <div className="flex flex-1 flex-col">
@@ -1820,6 +2073,239 @@ export default function ConfiguracoesIdentidade() {
           </div>
         </section>
 
+        {/* Pedido mínimo do subtotal dos itens (migração 20261111000003) */}
+        <section
+          aria-labelledby="min-order-title"
+          className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
+        >
+          <div className="flex items-center gap-2">
+            <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-yellow-400" />
+            <h2 id="min-order-title" className="font-semibold text-slate-900">
+              Pedido mínimo
+            </h2>
+          </div>
+          <p className="mt-1 text-xs text-slate-600">
+            Valor mínimo em produtos (sem a taxa de entrega) para o cliente
+            finalizar o pedido. Abaixo desse valor a sacola e o checkout mostram
+            quanto falta e bloqueiam o avanço. Use 0,00 para não exigir mínimo.
+          </p>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label
+                htmlFor="min-order-value"
+                className="mb-1.5 block text-sm font-medium text-slate-700"
+              >
+                Valor mínimo do pedido (R$)
+              </label>
+              <input
+                id="min-order-value"
+                type="text"
+                inputMode="decimal"
+                value={minOrderValue}
+                onChange={(e) => {
+                  setMinOrderValue(formatCurrencyInput(e.target.value));
+                  setMinOrderError(null);
+                  setMinOrderSuccess(null);
+                  setMinOrderWarning(null);
+                }}
+                placeholder="0,00"
+                className={deliveryInputClass}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                A comparação usa o subtotal dos itens (antes do frete). 0,00 =
+                sem pedido mínimo.
+              </p>
+            </div>
+          </div>
+
+          {minOrderError && (
+            <p className="mt-3 text-sm text-red-600">{minOrderError}</p>
+          )}
+          {minOrderSuccess && (
+            <p className="mt-3 flex items-center gap-2 text-sm text-green-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+              {minOrderSuccess}
+            </p>
+          )}
+          {minOrderWarning && (
+            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
+              {minOrderWarning}
+            </p>
+          )}
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => void handleSaveMinOrder()}
+              disabled={isSavingMinOrder || !selectedId}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSavingMinOrder ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />
+                  Salvando...
+                </>
+              ) : (
+                "Salvar pedido mínimo"
+              )}
+            </button>
+          </div>
+        </section>
+
+        {/* Vale-Refeição / Alimentação na entrega (migração 20261111000004) */}
+        <section
+          aria-labelledby="meal-voucher-title"
+          className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
+        >
+          <div className="flex items-center gap-2">
+            <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-yellow-400" />
+            <h2 id="meal-voucher-title" className="font-semibold text-slate-900">
+              Vale-Refeição / Alimentação (Pagamento na entrega)
+            </h2>
+          </div>
+          <p className="mt-1 text-xs text-slate-600">
+            Marque as bandeiras que sua loja aceita cobrar{" "}
+            <strong>presencialmente na entrega</strong> (maquininha). O cliente
+            escolhe a bandeira no checkout e o entregador leva a maquininha
+            correspondente.
+          </p>
+          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+            Esta opção é exclusiva para cobrança presencial na entrega — o
+            pagamento <strong>não</strong> passa pelo sistema (não usa PIX
+            Online/gateway).
+          </p>
+
+          <fieldset className="mt-4">
+            <legend className="mb-2 block text-sm font-medium text-slate-700">
+              Bandeiras aceitas na entrega
+            </legend>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {MEAL_VOUCHER_OPTIONS.map((option) => {
+                const checked = mealVouchers.some(
+                  (voucher) => voucher.toLowerCase() === option.toLowerCase()
+                );
+                return (
+                  <label
+                    key={option}
+                    className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm transition ${
+                      checked
+                        ? "border-yellow-400 bg-yellow-50 text-slate-900"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleMealVoucher(option)}
+                      className="h-4 w-4 accent-yellow-500"
+                    />
+                    <span className="font-medium">{option}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          {customMealVouchers.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Outras bandeiras cadastradas
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {customMealVouchers.map((voucher) => (
+                  <span
+                    key={voucher}
+                    className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800"
+                  >
+                    {voucher}
+                    <button
+                      type="button"
+                      onClick={() => removeMealVoucher(voucher)}
+                      aria-label={`Remover a bandeira ${voucher}`}
+                      className="text-amber-700 transition hover:text-red-600 focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <label
+                htmlFor="custom-meal-voucher"
+                className="mb-1.5 block text-sm font-medium text-slate-700"
+              >
+                Outra bandeira (opcional)
+              </label>
+              <input
+                id="custom-meal-voucher"
+                type="text"
+                value={customMealVoucher}
+                maxLength={MAX_MEAL_VOUCHER_NAME_LENGTH}
+                onChange={(e) => {
+                  setCustomMealVoucher(e.target.value);
+                  setMealVoucherError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  handleAddCustomMealVoucher();
+                }}
+                placeholder="Ex.: Vale Local"
+                className={deliveryInputClass}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleAddCustomMealVoucher}
+              className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+            >
+              Adicionar
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            Sem nenhuma bandeira marcada a opção &quot;Vale-Refeição /
+            Alimentação&quot; não aparece no checkout.
+          </p>
+
+          {mealVoucherError && (
+            <p className="mt-3 text-sm text-red-600">{mealVoucherError}</p>
+          )}
+          {mealVoucherSuccess && (
+            <p className="mt-3 flex items-center gap-2 text-sm text-green-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+              {mealVoucherSuccess}
+            </p>
+          )}
+          {mealVoucherWarning && (
+            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
+              {mealVoucherWarning}
+            </p>
+          )}
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => void handleSaveMealVouchers()}
+              disabled={isSavingMealVouchers || !selectedId}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSavingMealVouchers ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />
+                  Salvando...
+                </>
+              ) : (
+                "Salvar bandeiras"
+              )}
+            </button>
+          </div>
+        </section>
+
         {/* Envio do resumo do pedido no WhatsApp (migração 20261110000016) */}
         <section
           aria-labelledby="whatsapp-checkout-title"
@@ -1922,97 +2408,6 @@ export default function ConfiguracoesIdentidade() {
             </button>
           </div>
 
-          {/* Modo catálogo (migração 17): sacola -> WhatsApp, sem checkout.
-              A chave depende da liberação do Super Admin (migração 25). */}
-          <div
-            className={`mt-3 flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between ${
-              catalogModeAllowed
-                ? "border-slate-200 bg-slate-50"
-                : "border-slate-200 bg-slate-100/70"
-            }`}
-          >
-            <div>
-              <p
-                id="direct-whatsapp-checkout-label"
-                className={`text-sm font-medium ${
-                  catalogModeAllowed ? "text-slate-800" : "text-slate-500"
-                }`}
-              >
-                Modo catálogo: enviar pedido/orçamento direto no WhatsApp
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Com esta opção ativa, o botão da sacola abre o WhatsApp da loja
-                com o pedido e o cliente não passa pelo checkout. Produtos sem
-                preço aparecem como “Sob Consulta” e o valor é combinado no
-                atendimento.
-              </p>
-              {catalogModeAllowed ? (
-                <p className="mt-1 text-xs text-slate-500">
-                  {whatsappPreview
-                    ? `Pedido enviado para: ${whatsappPreview}`
-                    : "Cadastre um WhatsApp válido acima para que o botão funcione na sacola."}
-                </p>
-              ) : (
-                <p className="mt-2 inline-flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-relaxed text-amber-700">
-                  <svg
-                    aria-hidden="true"
-                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                    />
-                  </svg>
-                  <span>
-                    Modo Catálogo exclusivo para planos liberados. Entre em
-                    contato com o suporte para ativar.
-                  </span>
-                </p>
-              )}
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={catalogModeAllowed && directWhatsAppCheckout}
-              aria-labelledby="direct-whatsapp-checkout-label"
-              aria-describedby={
-                catalogModeAllowed ? undefined : "catalog-mode-locked-hint"
-              }
-              onClick={() => {
-                setDirectWhatsAppCheckout((prev) => !prev);
-                setWhatsappSuccess(null);
-                setWhatsappError(null);
-                setWhatsappWarning(null);
-              }}
-              disabled={!selectedId || isSavingWhatsApp || !catalogModeAllowed}
-              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-60 ${
-                catalogModeAllowed && directWhatsAppCheckout
-                  ? "bg-yellow-400"
-                  : "bg-slate-200"
-              }`}
-            >
-              <span className="sr-only">
-                {directWhatsAppCheckout ? "Desativar" : "Ativar"} envio direto do
-                pedido pelo WhatsApp
-              </span>
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
-                  catalogModeAllowed && directWhatsAppCheckout
-                    ? "translate-x-6"
-                    : "translate-x-1"
-                }`}
-              />
-            </button>
-            <span id="catalog-mode-locked-hint" className="sr-only">
-              Recurso bloqueado pelo Super Admin.
-            </span>
-          </div>
-
           {/*
            * Base sem a migração 16: o campo não vem no `select("*")`. Avisa o
            * lojista antes de ele tentar salvar (o PUT também devolve erro).
@@ -2024,31 +2419,6 @@ export default function ConfiguracoesIdentidade() {
                 no banco. Execute a migração{" "}
                 <code>20261110000016_add_whatsapp_checkout_setting.sql</code> no
                 SQL Editor do Supabase para que esta preferência seja gravada.
-              </p>
-            )}
-
-          {establishmentData &&
-            establishmentData.direct_whatsapp_checkout === undefined && (
-              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
-                A coluna <code>direct_whatsapp_checkout</code> ainda não existe
-                no banco. Execute a migração{" "}
-                <code>20261110000017_add_direct_whatsapp_checkout.sql</code> no
-                SQL Editor do Supabase para que o modo catálogo seja gravado.
-              </p>
-            )}
-
-          {/*
-           * Base sem a migração 25 (liberação do Super Admin): a chave acima
-           * fica bloqueada. Orienta quem executa o SQL no Supabase.
-           */}
-          {establishmentData &&
-            establishmentData.catalog_mode_allowed === undefined && (
-              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
-                A coluna <code>catalog_mode_allowed</code> ainda não existe no
-                banco, então o Modo Catálogo continua bloqueado. Execute a
-                migração{" "}
-                <code>20261110000025_add_catalog_mode_allowed.sql</code> no SQL
-                Editor do Supabase.
               </p>
             )}
 

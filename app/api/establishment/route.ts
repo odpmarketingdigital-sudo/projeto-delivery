@@ -17,6 +17,11 @@ import {
   formatWhatsAppPhoneForDisplay,
   normalizeWhatsAppNumber,
 } from "@/lib/whatsappOrder";
+import {
+  MAX_MEAL_VOUCHER_NAME_LENGTH,
+  MAX_MEAL_VOUCHERS,
+  normalizeMealVouchers,
+} from "@/lib/mealVouchers";
 
 /** Campos aceitos no body do PUT /api/establishment. */
 export interface IdentityUpdate {
@@ -49,6 +54,17 @@ export interface IdentityUpdate {
   estimated_delivery_time_min?: number;
   /** Tempo máximo estimado de entrega (minutos) — migração 20261110000015. */
   estimated_delivery_time_max?: number;
+  /**
+   * Pedido mínimo do subtotal dos itens (sem frete) — coluna
+   * `min_order_value`, migração 20261111000003. `0` = sem pedido mínimo.
+   */
+  min_order_value?: number;
+  /**
+   * Bandeiras de vale-refeição/alimentação aceitas NA ENTREGA (maquininha) —
+   * coluna `accepted_meal_vouchers`, migração 20261111000004. Envie `[]` para
+   * deixar de aceitar vale na entrega.
+   */
+  accepted_meal_vouchers?: unknown;
   /**
    * Liga/desliga o envio do resumo do pedido para o WhatsApp da loja no
    * checkout (migração 20261110000016).
@@ -217,6 +233,28 @@ function isMissingOpeningHoursColumn(
   const message = error?.message ?? "";
   return (
     /opening_hours/i.test(message) &&
+    (/does not exist/i.test(message) || /could not find/i.test(message))
+  );
+}
+
+/** Coluna `min_order_value` ainda não migrada (20261111000003)? */
+function isMissingMinOrderValueColumn(
+  error: { code?: string | null; message?: string | null } | null
+): boolean {
+  const message = error?.message ?? "";
+  return (
+    /min_order_value/i.test(message) &&
+    (/does not exist/i.test(message) || /could not find/i.test(message))
+  );
+}
+
+/** Coluna `accepted_meal_vouchers` ainda não migrada (20261111000004)? */
+function isMissingAcceptedMealVouchersColumn(
+  error: { code?: string | null; message?: string | null } | null
+): boolean {
+  const message = error?.message ?? "";
+  return (
+    /accepted_meal_vouchers/i.test(message) &&
     (/does not exist/i.test(message) || /could not find/i.test(message))
   );
 }
@@ -398,6 +436,65 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: parsed.error }, { status: 400 });
     }
     updateFields.opening_hours = parsed.value;
+  }
+
+  // ---- Pedido mínimo (migração 20261111000003) ----------------------------
+  if (body.min_order_value !== undefined) {
+    const minOrderValue = nonNegativeNumber(body.min_order_value);
+    if (minOrderValue == null) {
+      return NextResponse.json(
+        {
+          error:
+            "O valor mínimo do pedido deve ser um número maior ou igual a zero (use 0 para desativar).",
+        },
+        { status: 400 }
+      );
+    }
+    updateFields.min_order_value = minOrderValue;
+  }
+
+  // ---- Vale-Refeição / Alimentação na entrega (migração 20261111000004) ----
+  if (body.accepted_meal_vouchers !== undefined) {
+    if (!Array.isArray(body.accepted_meal_vouchers)) {
+      return NextResponse.json(
+        {
+          error:
+            "accepted_meal_vouchers deve ser uma lista de bandeiras (ex.: [\"Alelo\"]).",
+        },
+        { status: 400 }
+      );
+    }
+    const rawEntries = body.accepted_meal_vouchers;
+    // Rejeita itens que não sejam texto (o painel sempre envia strings).
+    if (rawEntries.some((entry) => typeof entry !== "string")) {
+      return NextResponse.json(
+        { error: "Cada bandeira de vale deve ser informada como texto." },
+        { status: 400 }
+      );
+    }
+    if (rawEntries.length > MAX_MEAL_VOUCHERS) {
+      return NextResponse.json(
+        {
+          error: `Cadastre no máximo ${MAX_MEAL_VOUCHERS} bandeiras de vale.`,
+        },
+        { status: 400 }
+      );
+    }
+    if (
+      rawEntries.some(
+        (entry) =>
+          (entry as string).trim().length > MAX_MEAL_VOUCHER_NAME_LENGTH
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error: `O nome de cada bandeira deve ter até ${MAX_MEAL_VOUCHER_NAME_LENGTH} caracteres.`,
+        },
+        { status: 400 }
+      );
+    }
+    // Normaliza (apara, remove vazios/duplicados) antes de gravar.
+    updateFields.accepted_meal_vouchers = normalizeMealVouchers(rawEntries);
   }
 
   // ---- Entrega e frete (migração 20261110000014) --------------------------
@@ -596,7 +693,7 @@ export async function PUT(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Informe ao menos um campo: `name`, `description`, `whatsapp`, `whatsapp_checkout_enabled`, `direct_whatsapp_checkout`, `opening_hours`, `logo_url`, `banner_url` ou configurações de entrega.",
+          "Informe ao menos um campo: `name`, `description`, `whatsapp`, `whatsapp_checkout_enabled`, `direct_whatsapp_checkout`, `opening_hours`, `min_order_value`, `accepted_meal_vouchers`, `logo_url`, `banner_url` ou configurações de entrega.",
       },
       { status: 400 }
     );
@@ -618,6 +715,10 @@ export async function PUT(request: Request) {
     "alter table public.establishments add column if not exists description text;";
   const OPENING_HOURS_SQL =
     "alter table public.establishments add column if not exists opening_hours jsonb not null default '{}'::jsonb;";
+  const MIN_ORDER_VALUE_SQL =
+    "alter table public.establishments add column if not exists min_order_value numeric(10,2) not null default 0;";
+  const ACCEPTED_MEAL_VOUCHERS_SQL =
+    "alter table public.establishments add column if not exists accepted_meal_vouchers jsonb not null default '[]'::jsonb;";
 
   const buildSelect = (
     withDescription: boolean,
@@ -653,6 +754,12 @@ export async function PUT(request: Request) {
   const hasDirectCheckout = DIRECT_CHECKOUT_FIELDS.some(
     (field) => field in updateFields
   );
+  // Pedido mínimo (migração 20261111000003) — mesma tolerância das demais
+  // colunas novas: base legada sem ela salva o restante e avisa via `warning`.
+  const hasMinOrderValue = "min_order_value" in updateFields;
+  // Vale-Refeição/Alimentação na entrega (migração 20261111000004) — mesma
+  // tolerância: base legada sem a coluna salva o restante e avisa via `warning`.
+  const hasAcceptedMealVouchers = "accepted_meal_vouchers" in updateFields;
   // Número da loja (coluna `whatsapp`, migração 20261110000006) — base legada
   // sem a coluna não pode derrubar o restante do formulário.
   const hasWhatsAppNumber = "whatsapp" in updateFields;
@@ -711,6 +818,74 @@ export async function PUT(request: Request) {
       },
       { status: 400 }
     );
+  }
+
+  if (
+    updateError &&
+    hasMinOrderValue &&
+    isMissingMinOrderValueColumn(updateError)
+  ) {
+    const rest: Record<string, unknown> = { ...currentFields };
+    delete rest.min_order_value;
+
+    if (Object.keys(rest).length > 0) {
+      currentFields = rest;
+      ({ data: updated, error: updateError } = await runUpdate(
+        rest,
+        "description" in rest,
+        "opening_hours" in rest
+      ));
+      const minOrderWarning =
+        "O pedido mínimo ainda não foi gravado: a coluna da migração " +
+        "20261111000003_add_min_order_value_to_establishments.sql não existe. " +
+        `Execute no SQL Editor do Supabase: ${MIN_ORDER_VALUE_SQL}`;
+      warning = warning ? `${warning} ${minOrderWarning}` : minOrderWarning;
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            "A coluna de pedido mínimo ainda não existe no banco. Execute a " +
+            "migração 20261111000003_add_min_order_value_to_establishments.sql no SQL Editor do Supabase. " +
+            `SQL: ${MIN_ORDER_VALUE_SQL}`,
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (
+    updateError &&
+    hasAcceptedMealVouchers &&
+    isMissingAcceptedMealVouchersColumn(updateError)
+  ) {
+    const rest: Record<string, unknown> = { ...currentFields };
+    delete rest.accepted_meal_vouchers;
+
+    if (Object.keys(rest).length > 0) {
+      currentFields = rest;
+      ({ data: updated, error: updateError } = await runUpdate(
+        rest,
+        "description" in rest,
+        "opening_hours" in rest
+      ));
+      const mealVoucherWarning =
+        "As bandeiras de vale-refeição/alimentação ainda não foram gravadas: a coluna da migração " +
+        "20261111000004_add_meal_vouchers.sql não existe. " +
+        `Execute no SQL Editor do Supabase: ${ACCEPTED_MEAL_VOUCHERS_SQL}`;
+      warning = warning
+        ? `${warning} ${mealVoucherWarning}`
+        : mealVoucherWarning;
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            "A coluna de vale-refeição/alimentação ainda não existe no banco. Execute a " +
+            "migração 20261111000004_add_meal_vouchers.sql no SQL Editor do Supabase. " +
+            `SQL: ${ACCEPTED_MEAL_VOUCHERS_SQL}`,
+        },
+        { status: 400 }
+      );
+    }
   }
 
   if (
@@ -915,6 +1090,12 @@ export async function PUT(request: Request) {
     // Telefone/WhatsApp da loja: fora do `select` base para não quebrar bases
     // legadas, então devolvemos o valor recém-validado junto do registro.
     "whatsapp",
+    // Pedido mínimo: mesma razão (migração 20261111000003 pode estar pendente
+    // e o campo não entra no `select` base).
+    "min_order_value",
+    // Bandeiras de vale-refeição/alimentação na entrega (migração
+    // 20261111000004) — mesmo tratamento.
+    "accepted_meal_vouchers",
   ]) {
     if (field in currentFields) {
       deliveryUpdates[field] = currentFields[field];

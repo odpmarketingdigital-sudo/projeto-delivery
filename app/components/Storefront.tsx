@@ -9,7 +9,8 @@ import type {
   StorefrontMenu,
 } from "@/lib/types";
 import { sortByOrder } from "@/lib/menuOrder";
-import { describeNextOpening, isStoreOpen } from "@/lib/openingHours";
+import { isHalfHalfCompanion } from "@/lib/halfHalf";
+import { describeNextOpening, getCurrentClosingTime, isStoreOpen } from "@/lib/openingHours";
 import { ProductCard } from "@/app/components/ProductCard";
 import { ProductModal } from "@/app/components/ProductModal";
 import { CartSummary } from "@/app/components/CartSummary";
@@ -22,6 +23,10 @@ import {
 import { useCart } from "@/context/CartContext";
 import { useTrackableOrder } from "@/app/components/useTrackableOrder";
 import { useIsMounted } from "@/app/components/useIsMounted";
+import { normalizeMinOrderValue } from "@/lib/minOrder";
+
+const formatBRL = (value: number) =>
+  `R$ ${value.toFixed(2).replace(".", ",")}`;
 
 const slugify = (value: string) =>
   `categoria-${value
@@ -190,6 +195,22 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
     ? describeNextOpening(storeStatus.nextOpening)
     : null;
 
+  // Horário de fechamento do turno ATUAL — exibido no selo verde
+  // ("Aberto agora • Fecha às 23:00"). Mesmo motivo do `storeStatus`: só depois
+  // da montagem, para o HTML do servidor não divergir na hidratação.
+  const closingTime = useMemo(
+    () =>
+      isMounted && menu && storeStatus?.isOpen
+        ? getCurrentClosingTime(menu.establishment.opening_hours, now)
+        : null,
+    [isMounted, menu, storeStatus, now]
+  );
+
+  // Pedido mínimo da loja (subtotal dos itens, sem frete). `0` = sem mínimo.
+  const minOrderValue = normalizeMinOrderValue(
+    menu?.establishment.min_order_value
+  );
+
   // Carrega a loja identificada. Prioridade:
   //   1) `slug` vindo da rota dinâmica (prop);
   //   2) `?establishment_id=` / `?slug=` da query string (comportamento legado);
@@ -297,6 +318,7 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
         establishmentId: item.establishment_id,
         track_stock: item.track_stock === true,
         stock_quantity: Number(item.stock_quantity) || 0,
+        allow_half_half: item.allow_half_half === true,
         ...(groups.length > 0 ? { option_groups: groups } : {}),
       };
     });
@@ -323,6 +345,19 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
 
   // Categoria ativa derivada (sem efeito: estado inicial vazio → primeira).
   const activeCategory = currentCategory || categories[0] || "";
+
+  // Candidatos ao 2º sabor de um produto meio a meio: itens ativos da mesma
+  // categoria, habilitados para meio a meio (o próprio item já é o 1º sabor)
+  // e que não estão esgotados por controle de estoque.
+  const halfHalfOptions = useMemo(() => {
+    if (!selectedProduct || selectedProduct.allow_half_half !== true) return [];
+    const category = selectedProduct.category ?? selectedProduct.categoria;
+    return products.filter(
+      (item) =>
+        (item.category ?? item.categoria) === category &&
+        isHalfHalfCompanion(item, selectedProduct.id)
+    );
+  }, [products, selectedProduct]);
 
   const scrollToCategory = (category: string) => {
     setCurrentCategory(category);
@@ -448,7 +483,11 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
                       storeStatus.isOpen ? "bg-green-500" : "bg-red-500"
                     }`}
                   />
-                  {storeStatus.isOpen ? "Aberto agora" : "Fechado no momento"}
+                  {storeStatus.isOpen
+                    ? closingTime
+                      ? `Aberto agora • Fecha às ${closingTime}`
+                      : "Aberto agora"
+                    : "Fechado no momento"}
                 </span>
                 {!storeStatus.isOpen && nextOpeningLabel && (
                   <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
@@ -456,6 +495,12 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
                   </span>
                 )}
               </div>
+            )}
+
+            {minOrderValue > 0 && (
+              <span className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                Pedido mínimo: {formatBRL(minOrderValue)}
+              </span>
             )}
           </div>
         </div>
@@ -661,6 +706,7 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
       <ProductModal
         key={modalKey}
         product={selectedProduct}
+        halfHalfOptions={halfHalfOptions}
         onClose={() => setSelectedProduct(null)}
       />
 
@@ -692,6 +738,7 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
             establishmentId={menu?.establishment.id ?? null}
             storeClosed={storeClosed}
             nextOpeningLabel={nextOpeningLabel}
+            minOrderValue={minOrderValue}
           />
         )}
         <StorefrontBottomNav

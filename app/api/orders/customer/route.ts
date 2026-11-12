@@ -178,6 +178,7 @@ function normalizeOrder(raw: unknown): PanelOrder | null {
     delivery_fee: num(r.delivery_fee),
     total: num(r.total),
     payment_method: typeof r.payment_method === "string" ? r.payment_method : "—",
+    meal_voucher: typeof r.meal_voucher === "string" ? r.meal_voucher : null,
     change_for: typeof r.change_for === "number" ? r.change_for : null,
     notes: typeof r.notes === "string" ? r.notes : null,
     delivery_type:
@@ -217,5 +218,10 @@ function normalizeItem(raw: unknown): PanelOrder["items"][0] {
           }))
       : [],
     notes: typeof it.notes === "string" ? it.notes : undefined,
+    ...(typeof it.half_half === "object" && it.half_half !== null
+      ? {
+          half_half: it.half_half as PanelOrder["items"][number]["half_half"],
+        }
+      : {}),
   };
 }

@@ -347,6 +347,46 @@ export function isStoreOpen(
 }
 
 /**
+ * Horário de fechamento do turno EM ANDAMENTO ("HH:mm"), usado no selo
+ * "Aberto agora • Fecha às 23:00" da vitrine.
+ *
+ * Retorna `null` quando:
+ *  - a loja não tem horários cadastrados (abertura manual/legado);
+ *  - a loja não está aberta no instante informado;
+ *  - o dia atual está marcado como 24h (`open_time === close_time`), caso em
+ *    que não existe um fechamento real para exibir.
+ *
+ * A madrugada de um turno que cruza a meia-noite (ex.: 18:00–02:00) continua
+ * valendo: o fechamento devolvido é o do dia anterior.
+ */
+export function getCurrentClosingTime(
+  openingHours: unknown,
+  now: Date = new Date(),
+  timeZone: string = STORE_TIME_ZONE
+): string | null {
+  const hours = normalizeOpeningHours(openingHours);
+  if (Object.keys(hours).length === 0) return null;
+
+  const zoned = getZonedNow(now, timeZone);
+  const today = hours[String(zoned.dayIndex)] ?? null;
+
+  if (today && isOpenAt(today, zoned.minutes)) {
+    const open = timeToMinutes(today.open_time);
+    const close = timeToMinutes(today.close_time);
+    // Abertura e fechamento iguais = 24h nesse dia: não há fechamento a exibir.
+    if (open === close) return null;
+    return today.close_time;
+  }
+
+  const yesterday = hours[String((zoned.dayIndex + 6) % 7)] ?? null;
+  if (yesterday && isOvernightCarryover(yesterday, zoned.minutes)) {
+    return yesterday.close_time;
+  }
+
+  return null;
+}
+
+/**
  * Texto curto para exibir a próxima abertura:
  * "hoje às 18:00", "amanhã às 08:00" ou "segunda-feira às 08:00".
  */

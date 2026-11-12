@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import {
+  couponMaxUses,
   isValidCouponCode,
   normalizeCouponCode,
   toCouponNumber,
@@ -24,7 +25,10 @@ interface CouponFormState {
   discount_type: CouponDiscountType;
   discount_value: string;
   min_order_value: string;
-  usage_limit: string;
+  max_uses: string;
+  first_order_only: boolean;
+  /** Valor no formato aceito por `<input type="datetime-local">`. */
+  expires_at: string;
   active: boolean;
 }
 
@@ -33,7 +37,9 @@ const EMPTY_FORM: CouponFormState = {
   discount_type: "percentage",
   discount_value: "",
   min_order_value: "",
-  usage_limit: "",
+  max_uses: "",
+  first_order_only: false,
+  expires_at: "",
   active: true,
 };
 
@@ -45,6 +51,17 @@ function parseDecimal(raw: string): number {
     return Number(cleaned.replace(/\./g, "").replace(",", "."));
   }
   return Number(cleaned);
+}
+
+/** ISO (UTC) → "YYYY-MM-DDTHH:mm" no fuso do navegador. */
+function toDateTimeLocal(iso?: string | null): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function toFormState(editing: CouponRecord | null): CouponFormState {
@@ -60,10 +77,10 @@ function toFormState(editing: CouponRecord | null): CouponFormState {
       editing.min_order_value == null
         ? ""
         : String(toCouponNumber(editing.min_order_value)).replace(".", ","),
-    usage_limit:
-      editing.usage_limit == null
-        ? ""
-        : String(toCouponNumber(editing.usage_limit)),
+    max_uses:
+      couponMaxUses(editing) == null ? "" : String(couponMaxUses(editing)),
+    first_order_only: editing.first_order_only === true,
+    expires_at: toDateTimeLocal(editing.expires_at),
     active: editing.active,
   };
 }
@@ -125,17 +142,22 @@ export function CouponFormModal({
       return;
     }
 
-    const discountValue = parseDecimal(form.discount_value);
-    if (!Number.isFinite(discountValue) || discountValue <= 0) {
-      setError("Informe um valor de desconto maior que zero.");
-      return;
-    }
-    if (form.discount_type === "percentage" && discountValue > 100) {
-      setError("O desconto percentual não pode ultrapassar 100%.");
-      return;
+    const isFreeShipping = form.discount_type === "free_shipping";
+    const discountValue = isFreeShipping
+      ? 0
+      : parseDecimal(form.discount_value);
+    if (!isFreeShipping) {
+      if (!Number.isFinite(discountValue) || discountValue <= 0) {
+        setError("Informe um valor de desconto maior que zero.");
+        return;
+      }
+      if (form.discount_type === "percentage" && discountValue > 100) {
+        setError("O desconto percentual não pode ultrapassar 100%.");
+        return;
+      }
     }
 
-    let minOrderValue: number | null = null;
+    let minOrderValue = 0;
     if (form.min_order_value.trim()) {
       minOrderValue = parseDecimal(form.min_order_value);
       if (!Number.isFinite(minOrderValue) || minOrderValue < 0) {
@@ -144,13 +166,23 @@ export function CouponFormModal({
       }
     }
 
-    let usageLimit: number | null = null;
-    if (form.usage_limit.trim()) {
-      usageLimit = Number(form.usage_limit);
-      if (!Number.isInteger(usageLimit) || usageLimit < 1) {
+    let maxUses: number | null = null;
+    if (form.max_uses.trim()) {
+      maxUses = Number(form.max_uses);
+      if (!Number.isInteger(maxUses) || maxUses < 1) {
         setError("O limite de usos deve ser um número inteiro maior que zero.");
         return;
       }
+    }
+
+    let expiresAt: string | null = null;
+    if (form.expires_at.trim()) {
+      const parsed = new Date(form.expires_at);
+      if (Number.isNaN(parsed.getTime())) {
+        setError("Informe uma data de validade válida.");
+        return;
+      }
+      expiresAt = parsed.toISOString();
     }
 
     const payload = {
@@ -158,7 +190,9 @@ export function CouponFormModal({
       discount_type: form.discount_type,
       discount_value: discountValue,
       min_order_value: minOrderValue,
-      usage_limit: usageLimit,
+      max_uses: maxUses,
+      first_order_only: form.first_order_only,
+      expires_at: expiresAt,
       active: form.active,
     };
 
@@ -250,32 +284,39 @@ export function CouponFormModal({
               >
                 <option value="percentage">Percentual (%)</option>
                 <option value="fixed">Valor fixo (R$)</option>
+                <option value="free_shipping">Frete grátis</option>
               </select>
             </div>
 
-            <div>
-              <label
-                htmlFor="coupon-value"
-                className="mb-1.5 block text-sm font-semibold text-slate-800"
-              >
-                {form.discount_type === "percentage"
-                  ? "Desconto (%)"
-                  : "Desconto (R$)"}
-              </label>
-              <input
-                id="coupon-value"
-                type="text"
-                inputMode="decimal"
-                placeholder={
-                  form.discount_type === "percentage" ? "Ex.: 10" : "Ex.: 5,00"
-                }
-                value={form.discount_value}
-                onChange={(event) =>
-                  set({ discount_value: event.target.value })
-                }
-                className={inputClass}
-              />
-            </div>
+            {form.discount_type === "free_shipping" ? (
+              <div className="flex items-center rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-medium text-emerald-800">
+                O desconto será o valor da taxa de entrega do pedido.
+              </div>
+            ) : (
+              <div>
+                <label
+                  htmlFor="coupon-value"
+                  className="mb-1.5 block text-sm font-semibold text-slate-800"
+                >
+                  {form.discount_type === "percentage"
+                    ? "Desconto (%)"
+                    : "Desconto (R$)"}
+                </label>
+                <input
+                  id="coupon-value"
+                  type="text"
+                  inputMode="decimal"
+                  placeholder={
+                    form.discount_type === "percentage" ? "Ex.: 10" : "Ex.: 5,00"
+                  }
+                  value={form.discount_value}
+                  onChange={(event) =>
+                    set({ discount_value: event.target.value })
+                  }
+                  className={inputClass}
+                />
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -315,14 +356,52 @@ export function CouponFormModal({
                 step={1}
                 inputMode="numeric"
                 placeholder="Ilimitado"
-                value={form.usage_limit}
-                onChange={(event) =>
-                  set({ usage_limit: event.target.value })
-                }
+                value={form.max_uses}
+                onChange={(event) => set({ max_uses: event.target.value })}
                 className={inputClass}
               />
             </div>
           </div>
+
+          <div>
+            <label
+              htmlFor="coupon-expires"
+              className="mb-1.5 block text-sm font-semibold text-slate-800"
+            >
+              Validade{" "}
+              <span className="font-normal text-slate-500">(opcional)</span>
+            </label>
+            <input
+              id="coupon-expires"
+              type="datetime-local"
+              value={form.expires_at}
+              onChange={(event) => set({ expires_at: event.target.value })}
+              className={inputClass}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Depois desta data o cupom deixa de ser aceito no checkout.
+            </p>
+          </div>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3.5">
+            <input
+              type="checkbox"
+              checked={form.first_order_only}
+              onChange={(event) =>
+                set({ first_order_only: event.target.checked })
+              }
+              className="mt-0.5 h-4 w-4 accent-yellow-400"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-800">
+                Válido apenas para o primeiro pedido do cliente
+              </span>
+              <span className="block text-xs text-slate-500">
+                Considera pedidos não cancelados feitos com o mesmo telefone
+                nesta loja.
+              </span>
+            </span>
+          </label>
 
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-white p-3.5">
             <input

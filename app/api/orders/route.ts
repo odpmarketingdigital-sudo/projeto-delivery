@@ -20,12 +20,44 @@ import {
   couponEligibilityError,
   isValidCouponCode,
   normalizeCouponCode,
+  normalizeCouponPhone,
   roundCurrency,
   toCouponNumber,
   type CouponRecord,
 } from "@/lib/coupons";
+import {
+  COUPON_PHONE_MIN_DIGITS,
+  customerHasPreviousOrders,
+} from "@/lib/coupons-server";
+import {
+  describeMinOrderShortfall,
+  normalizeMinOrderValue,
+} from "@/lib/minOrder";
+import {
+  MEAL_VOUCHER_PAYMENT_METHOD,
+  matchAcceptedMealVoucher,
+  mealVoucherPaymentLabel,
+  normalizeMealVouchers,
+} from "@/lib/mealVouchers";
 import { buildStoreOrderWhatsAppUrl } from "@/lib/whatsappOrder";
 import { isValidCpfCnpj, onlyDigits } from "@/lib/billing";
+import {
+  resolveHalfHalfBasePrice,
+  toHalfHalfSelection,
+  withHalfHalfLabel,
+} from "@/lib/halfHalf";
+import type { HalfHalfFlavor, HalfHalfSelection } from "@/lib/types";
+
+/** Linha de `products` usada no recálculo dos itens do pedido. */
+type OrderProductRow = {
+  id: string;
+  name: string;
+  price: number | string;
+  is_active: boolean;
+  category_id?: string | null;
+  /** Coluna nova (migração 20261111000001); ausente em bases legadas. */
+  allow_half_half?: boolean | null;
+};
 
 /**
  * Status válidos de um pedido — espelha `OrderStatus` (lib/types.ts) e o
@@ -155,12 +187,13 @@ export async function GET(request: Request) {
  * Body: {
  *   establishment_id: string,
  *   customer: { name, phone, street, number, neighborhood, complement?, reference? },
- *   payment_method: "pix" | "cartao" | "dinheiro" | "pix_online",
+ *   payment_method: "pix" | "cartao" | "dinheiro" | "pix_online" | "vale_refeicao",
+ *   meal_voucher?: string,      // bandeira do vale (obrigatória em vale_refeicao)
  *   customer.document?: string,  // CPF/CNPJ do pagador (PIX Online)
  *   change_for?: number | null,
  *   notes?: string,
  *   coupon_code?: string,
- *   items: [{ productId, quantity, addonIds: string[], notes? }]
+ *   items: [{ productId, quantity, addonIds: string[], halfHalfFlavorIds?: string[], notes? }]
  * }
  *
  * Colunas gravadas em `public.orders` (migration 20261110000006): customer_*
@@ -192,6 +225,8 @@ export async function POST(request: Request) {
       document?: string;
     };
     payment_method?: string;
+    /** Bandeira do vale-refeição/alimentação (somente `vale_refeicao`). */
+    meal_voucher?: string;
     change_for?: number | null;
     notes?: string;
     /** Código do cupom aplicado no checkout (opcional). */
@@ -200,6 +235,12 @@ export async function POST(request: Request) {
       productId?: string;
       quantity?: number;
       addonIds?: string[];
+      /**
+       * Meio a meio: ids dos 2 sabores escolhidos, sendo um deles o próprio
+       * `productId` (item clicado = 1º sabor). Sem este campo o item é uma
+       * pizza inteira (1 sabor). A API revalida e recalcula o preço.
+       */
+      halfHalfFlavorIds?: string[];
       notes?: string;
     }>;
   };
@@ -370,7 +411,11 @@ export async function POST(request: Request) {
   }
 
   const paymentMethod = body.payment_method?.trim() ?? "";
-  if (!["pix", "cartao", "dinheiro", "pix_online"].includes(paymentMethod)) {
+  if (
+    !["pix", "cartao", "dinheiro", "pix_online", MEAL_VOUCHER_PAYMENT_METHOD].includes(
+      paymentMethod
+    )
+  ) {
     return NextResponse.json(
       { error: "Selecione a forma de pagamento." },
       { status: 400 }
@@ -414,6 +459,43 @@ export async function POST(request: Request) {
         {
           error:
             "Informe um CPF/CNPJ válido do pagador para usar o PIX Online.",
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Vale-Refeição / Alimentação NA ENTREGA (migração 20261111000004).
+  //
+  // Modalidade presencial (maquininha): NUNCA passa pelo gateway online. A
+  // bandeira escolhida é revalidada contra a lista gravada pela loja — o
+  // servidor não confia na lista que o navegador exibiu.
+  let mealVoucherValue: string | null = null;
+  if (paymentMethod === MEAL_VOUCHER_PAYMENT_METHOD) {
+    const acceptedMealVouchers = normalizeMealVouchers(
+      (establishment as { accepted_meal_vouchers?: unknown })
+        .accepted_meal_vouchers
+    );
+    if (acceptedMealVouchers.length === 0) {
+      return NextResponse.json(
+        {
+          error:
+            "Esta loja não aceita vale-refeição/alimentação na entrega. " +
+            "Escolha outra forma de pagamento.",
+        },
+        { status: 400 }
+      );
+    }
+
+    mealVoucherValue = matchAcceptedMealVoucher(
+      acceptedMealVouchers,
+      body.meal_voucher
+    );
+    if (!mealVoucherValue) {
+      return NextResponse.json(
+        {
+          error:
+            "Selecione a bandeira do vale-refeição/alimentação aceita pela loja.",
         },
         { status: 400 }
       );
@@ -467,28 +549,41 @@ export async function POST(request: Request) {
     );
   }
 
+  // Ids de produtos necessários: itens do pedido + sabores meio a meio (para
+  // validar categoria/preço no servidor).
   const productIds = [
     ...new Set(
       rawItems
-        .map((item) => item.productId?.trim())
+        .flatMap((item) => [
+          item.productId?.trim(),
+          ...(Array.isArray(item.halfHalfFlavorIds)
+            ? item.halfHalfFlavorIds.map((id) => id.trim())
+            : []),
+        ])
         .filter((id): id is string => Boolean(id))
     ),
   ];
 
   // Constrói a consulta de produtos. Aplica `.in("id", ...)` apenas quando há
   // IDs válidos para filtrar — evita passar `"__none__"` (string inválida para
-  // coluna uuid) e quebrar a consulta.
-  const { data: productRows, error: productsError } =
-    productIds.length > 0
-      ? await adminClient
-          .from("products")
-          .select("id, name, price, is_active")
-          .eq("establishment_id", establishmentId)
-          .in("id", productIds)
-      : await adminClient
-          .from("products")
-          .select("id, name, price, is_active")
-          .eq("establishment_id", establishmentId);
+  // coluna uuid) e quebrar a consulta. `allow_half_half` é opcional na base:
+  // quando a coluna ainda não existe, a consulta é repetida sem ela.
+  const fetchOrderProducts = (fields: string) => {
+    const query = adminClient
+      .from("products")
+      .select(fields)
+      .eq("establishment_id", establishmentId);
+    return productIds.length > 0 ? query.in("id", productIds) : query;
+  };
+
+  let { data: productRows, error: productsError } = await fetchOrderProducts(
+    "id, name, price, is_active, category_id, allow_half_half"
+  );
+  if (productsError && /allow_half_half/i.test(productsError.message ?? "")) {
+    ({ data: productRows, error: productsError } = await fetchOrderProducts(
+      "id, name, price, is_active, category_id"
+    ));
+  }
 
   if (productsError) {
     return NextResponse.json(
@@ -498,12 +593,10 @@ export async function POST(request: Request) {
   }
 
   const productById = new Map(
-    ((productRows ?? []) as Array<{
-      id: string;
-      name: string;
-      price: number | string;
-      is_active: boolean;
-    }>).map((row) => [row.id, row])
+    ((productRows ?? []) as unknown as OrderProductRow[]).map((row) => [
+      row.id,
+      row,
+    ])
   );
 
   const allAddonIds = [
@@ -555,6 +648,7 @@ export async function POST(request: Request) {
     line_total: number;
     addons: Array<{ id: string; name: string; price: number }>;
     notes?: string;
+    half_half?: HalfHalfSelection;
   }> = [];
   let subtotal = 0;
 
@@ -593,24 +687,133 @@ export async function POST(request: Request) {
       selectedAddons.push({ id: addon.id, name: addon.name, price });
     }
 
-    const basePrice = Number(product.price) || 0;
+    // Meio a meio: revalida no servidor que o item aceita a divisão, que os 2
+    // sabores pertencem à mesma categoria/loja (um deles é o próprio produto)
+    // e recalcula o preço pelo sabor mais caro (nunca usa o total enviado pelo
+    // navegador). Sem `halfHalfFlavorIds` o item é uma pizza inteira.
+    const halfHalfIds = Array.isArray(item.halfHalfFlavorIds)
+      ? [
+          ...new Set(
+            item.halfHalfFlavorIds
+              .map((flavorId) => flavorId.trim())
+              .filter(Boolean)
+          ),
+        ]
+      : [];
+
+    let displayName = product.name;
+    let basePrice = Number(product.price) || 0;
+    let halfHalf: HalfHalfSelection | undefined;
+
+    if (halfHalfIds.length > 0) {
+      if (product.allow_half_half !== true) {
+        return NextResponse.json(
+          { error: `O produto "${product.name}" não aceita meio a meio.` },
+          { status: 400 }
+        );
+      }
+      if (halfHalfIds.length !== 2) {
+        return NextResponse.json(
+          { error: `Escolha exatamente 2 sabores para "${product.name}".` },
+          { status: 400 }
+        );
+      }
+      if (!halfHalfIds.includes(productId)) {
+        return NextResponse.json(
+          {
+            error: `No meio a meio de "${product.name}", o próprio item deve ser um dos sabores.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      // O 1º sabor é sempre o produto do item; a ordem enviada não importa.
+      const orderedFlavorIds = [
+        productId,
+        ...halfHalfIds.filter((flavorId) => flavorId !== productId),
+      ];
+
+      const flavors: HalfHalfFlavor[] = [];
+      for (const flavorId of orderedFlavorIds) {
+        const flavor = productById.get(flavorId);
+        if (!flavor || !flavor.is_active) {
+          return NextResponse.json(
+            {
+              error: `Um dos sabores de "${product.name}" não está mais disponível.`,
+            },
+            { status: 400 }
+          );
+        }
+        if (flavorId !== productId && flavor.allow_half_half !== true) {
+          return NextResponse.json(
+            {
+              error: `O sabor "${flavor.name}" não está habilitado para meio a meio.`,
+            },
+            { status: 400 }
+          );
+        }
+        if ((flavor.category_id ?? null) !== (product.category_id ?? null)) {
+          return NextResponse.json(
+            {
+              error: `Os sabores de "${product.name}" precisam ser da mesma categoria.`,
+            },
+            { status: 400 }
+          );
+        }
+        flavors.push({
+          id: flavor.id,
+          name: flavor.name,
+          price: Number(flavor.price) || 0,
+        });
+      }
+
+      const halfHalfPrice = resolveHalfHalfBasePrice(flavors);
+      if (halfHalfPrice == null) {
+        return NextResponse.json(
+          {
+            error: `Um dos sabores de "${product.name}" está sem preço definido. Ajuste o valor no cardápio para vender meio a meio.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      basePrice = halfHalfPrice;
+      displayName = withHalfHalfLabel(product.name, flavors);
+      halfHalf = toHalfHalfSelection(flavors);
+    }
+
     const unitPrice = basePrice + addonsPrice;
     const lineTotal = unitPrice * quantity;
     subtotal += lineTotal;
 
     orderItems.push({
       product_id: product.id,
-      name: product.name,
+      name: displayName,
       quantity,
       unit_price: unitPrice,
       line_total: lineTotal,
       addons: selectedAddons,
+      ...(halfHalf ? { half_half: halfHalf } : {}),
       ...(item.notes?.trim() ? { notes: item.notes.trim() } : {}),
     });
   }
 
   // Taxa de entrega já validada/recalculada acima por `quoteDelivery`.
   const deliveryFee = deliveryQuote.fee;
+
+  // Pedido mínimo da loja (`establishments.min_order_value`, migração
+  // 20261111000003): compara o SUBTOTAL dos itens (sem a taxa de entrega).
+  // O valor do navegador nunca é considerado — a regra vale só para o
+  // subtotal recalculado aqui, a partir dos preços do banco.
+  const minOrderMessage = describeMinOrderShortfall(
+    normalizeMinOrderValue(
+      (establishment as { min_order_value?: unknown }).min_order_value
+    ),
+    subtotal
+  );
+  if (minOrderMessage) {
+    return NextResponse.json({ error: minOrderMessage }, { status: 400 });
+  }
 
   // Cupom de desconto (opcional): SEMPRE revalidado no servidor — o desconto
   // calculado pelo navegador nunca é aceito como fonte da verdade.
@@ -643,7 +846,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: missingTable
-            ? "Cupons indisponíveis no momento. Execute a migração 20261110000011_create_coupons.sql no Supabase."
+            ? "Cupons indisponíveis no momento. Execute as migrações de cupons (20261110000011 e 20261111000002) no Supabase."
             : message,
         },
         { status: 400 }
@@ -663,6 +866,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: eligibilityError }, { status: 400 });
     }
 
+    // "Apenas no primeiro pedido": exige telefone e nenhum pedido anterior
+    // (cancelados não contam) na mesma loja.
+    if (coupon.first_order_only === true) {
+      const couponPhone = normalizeCouponPhone(body.customer?.phone);
+      if (couponPhone.length < COUPON_PHONE_MIN_DIGITS) {
+        return NextResponse.json(
+          {
+            error:
+              "Informe um telefone válido com DDD para usar este cupom de primeiro pedido.",
+          },
+          { status: 400 }
+        );
+      }
+      const hasPreviousOrders = await customerHasPreviousOrders(adminClient, {
+        establishmentId,
+        phone: couponPhone,
+      });
+      if (hasPreviousOrders) {
+        return NextResponse.json(
+          { error: "Cupom válido apenas para o primeiro pedido." },
+          { status: 400 }
+        );
+      }
+    }
+
     couponDiscount = computeCouponDiscount(
       {
         discount_type: coupon.discount_type,
@@ -672,8 +900,16 @@ export async function POST(request: Request) {
             ? null
             : toCouponNumber(coupon.min_order_value),
       },
-      subtotal
+      subtotal,
+      deliveryFee
     );
+
+    // Sem desconto efetivo (ex.: frete grátis em pedido com entrega grátis):
+    // ignora o cupom para não gravar código nem consumir uso.
+    if (couponDiscount <= 0) {
+      coupon = null;
+      couponDiscount = 0;
+    }
   }
 
   const total = Math.max(
@@ -732,6 +968,14 @@ export async function POST(request: Request) {
   const itemsData = orderItems ?? [];
   const notesValue = body.notes?.trim() || null;
 
+  // Bandeira do vale-refeição/alimentação (migração 20261111000004). Além da
+  // coluna estruturada `orders.meal_voucher`, o texto entra nas observações
+  // quando a coluna ainda não existe na base — assim o entregador nunca perde
+  // a informação de qual maquininha levar.
+  const mealVoucherNote = mealVoucherValue
+    ? mealVoucherPaymentLabel(mealVoucherValue)
+    : null;
+
   // Telefone salvo somente com dígitos (ex.: `17996129158`). A busca em
   // "Meus Pedidos" (/api/orders/customer) normaliza ambos os lados.
   const customerPhoneDigits =
@@ -771,6 +1015,10 @@ export async function POST(request: Request) {
         }
       : {}),
     change_for: changeForValue ?? null,
+    // Bandeira do vale na entrega (migração 20261111000004): só é enviada
+    // quando a modalidade foi escolhida, para não gravar colunas que podem não
+    // existir em bases legadas nas demais formas de pagamento.
+    ...(mealVoucherValue ? { meal_voucher: mealVoucherValue } : {}),
     notes: notesValue ?? null,
     estimated_delivery_time: estimatedDeliveryTime,
     estimated_delivery_at: estimatedDeliveryAt,
@@ -782,12 +1030,13 @@ export async function POST(request: Request) {
     delivery_distance_source: deliveryQuote.distance_source ?? null,
     // Colunas de cupom só são enviadas quando um cupom foi aplicado: assim
     // pedidos sem cupom continuam funcionando mesmo em bases que ainda não
-    // executaram a migração 20261110000011.
+    // executaram as migrações de cupons.
     ...(coupon
       ? {
           coupon_id: coupon.id,
           coupon_code: coupon.code,
           coupon_discount: couponDiscount,
+          discount_amount: couponDiscount,
         }
       : {}),
     status: "pendente",
@@ -842,6 +1091,43 @@ export async function POST(request: Request) {
       .single());
   }
 
+  // Base sem a migração 20261111000002: mantém o pedido com o total já
+  // descontado, apenas sem a coluna detalhada de desconto.
+  if (
+    insertError &&
+    /discount_amount/i.test(insertError.message ?? "") &&
+    /does not exist|could not find|schema cache/i.test(insertError.message ?? "")
+  ) {
+    const retryPayload = { ...orderPayload };
+    delete retryPayload.discount_amount;
+    ({ data: created, error: insertError } = await adminClient
+      .from("orders")
+      .insert(retryPayload)
+      .select("id")
+      .single());
+  }
+
+  // Base sem a migração 20261111000004: mantém o pedido e registra a bandeira
+  // nas observações (o entregador continua sabendo qual maquininha levar).
+  if (
+    insertError &&
+    /meal_voucher/i.test(insertError.message ?? "") &&
+    /does not exist|could not find|schema cache/i.test(insertError.message ?? "")
+  ) {
+    const retryPayload = { ...orderPayload };
+    delete retryPayload.meal_voucher;
+    if (mealVoucherNote) {
+      retryPayload.notes = [notesValue, mealVoucherNote]
+        .filter((part): part is string => Boolean(part))
+        .join(" · ");
+    }
+    ({ data: created, error: insertError } = await adminClient
+      .from("orders")
+      .insert(retryPayload)
+      .select("id")
+      .single());
+  }
+
   if (insertError || !created) {
     const detail =
       insertError && typeof insertError === "object"
@@ -872,8 +1158,8 @@ export async function POST(request: Request) {
 
   // Consome uma unidade do limite do cupom. Feito APÓS o insert para não
   // consumir uso quando o pedido falha. A função SQL é atômica (evita que
-  // pedidos concorrentes ultrapassem `usage_limit`); se a base ainda não tem a
-  // função, cai no incremento simples via update.
+  // pedidos concorrentes ultrapassem `max_uses`) e respeita a validade; se a
+  // base ainda não tem a função, cai no incremento simples via update.
   if (coupon) {
     const { data: consumed, error: consumeError } = await adminClient.rpc(
       "consume_coupon_usage",
@@ -925,6 +1211,7 @@ export async function POST(request: Request) {
       couponCode: coupon?.code ?? null,
       total,
       paymentMethod,
+      mealVoucher: mealVoucherValue,
       changeFor: changeForValue,
       notes: notesValue,
       estimatedDeliveryTime,
@@ -940,11 +1227,14 @@ export async function POST(request: Request) {
         delivery_fee: deliveryFee,
         coupon_code: coupon?.code ?? null,
         coupon_discount: couponDiscount,
+        discount_amount: couponDiscount,
         estimated_delivery_time: estimatedDeliveryTime,
         estimated_delivery_at: estimatedDeliveryAt,
         status: "pendente",
         /** Forma escolhida (inclui `pix_online` no Split de Pagamentos). */
         payment_method: paymentMethod,
+        /** Bandeira do vale na entrega (null nas demais formas). */
+        meal_voucher: mealVoucherValue,
         /** `pendente` no PIX Online até o webhook confirmar o pagamento. */
         payment_status:
           paymentMethod === "pix_online" ? "pendente" : undefined,

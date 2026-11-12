@@ -2,6 +2,7 @@
 
 import { useCart } from "@/context/CartContext";
 import { isCartItemPriceOnRequest } from "@/lib/catalogOrder";
+import { normalizeMinOrderValue } from "@/lib/minOrder";
 
 interface CartSummaryProps {
   /** Abre a sacola (drawer) onde o frete é calculado antes do checkout. */
@@ -12,6 +13,11 @@ interface CartSummaryProps {
   storeClosed?: boolean;
   /** Ex.: "hoje às 18:00" — exibido no aviso de loja fechada. */
   nextOpeningLabel?: string | null;
+  /**
+   * Pedido mínimo da loja (subtotal dos itens, sem frete) — migração
+   * 20261111000003. `0`/ausente = sem mínimo.
+   */
+  minOrderValue?: number;
 }
 
 const formatBRL = (value: number) =>
@@ -32,6 +38,7 @@ export function CartSummary({
   establishmentId,
   storeClosed = false,
   nextOpeningLabel,
+  minOrderValue,
 }: CartSummaryProps) {
   const { items } = useCart();
 
@@ -63,6 +70,11 @@ export function CartSummary({
     isCartItemPriceOnRequest(item)
   );
 
+  // Pedido mínimo (subtotal, sem frete). Abaixo do valor o texto fica âmbar
+  // para o cliente perceber antes de abrir a sacola — onde o avanço é bloqueado.
+  const minOrder = normalizeMinOrderValue(minOrderValue);
+  const minOrderMissing = minOrder > 0 && subtotal < minOrder;
+
   if (!hasItems) return null;
 
   return (
@@ -91,11 +103,23 @@ export function CartSummary({
               {formatBRL(subtotal)}
             </span>
           )}
-          <span className="text-[10px] font-medium text-gray-400">
-            {hasPriceOnRequest
-              ? "Valor verificado no WhatsApp"
-              : "Frete calculado na sacola"}
-          </span>
+          {minOrder > 0 && !hasPriceOnRequest ? (
+            <span
+              className={`text-[10px] font-medium ${
+                minOrderMissing
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-gray-400"
+              }`}
+            >
+              Pedido mínimo: {formatBRL(minOrder)}
+            </span>
+          ) : (
+            <span className="text-[10px] font-medium text-gray-400">
+              {hasPriceOnRequest
+                ? "Valor verificado no WhatsApp"
+                : "Frete calculado na sacola"}
+            </span>
+          )}
         </div>
 
         <button

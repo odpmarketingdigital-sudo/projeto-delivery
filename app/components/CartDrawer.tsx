@@ -15,6 +15,14 @@ import {
   isDirectWhatsAppCheckoutEnabled,
 } from "@/lib/catalogOrder";
 import type { StorefrontInfo } from "@/lib/types";
+import {
+  describeMinOrderShortfall,
+  normalizeMinOrderValue,
+} from "@/lib/minOrder";
+import {
+  halfHalfFlavorsLabel,
+  withHalfHalfLabel,
+} from "@/lib/halfHalf";
 import { AddressAutocomplete } from "@/app/components/AddressAutocomplete";
 import {
   isGooglePlacesEnabled,
@@ -293,12 +301,6 @@ export function CartDrawer({
   const quoteWarnings = quote?.warnings ?? [];
   const quoteReady =
     !needsCep || (quote != null && !quoteError && !isQuoting);
-  const canCheckout =
-    establishment != null &&
-    itemCount > 0 &&
-    !storeClosed &&
-    quoteReady &&
-    !deliveryOutOfRange;
 
   // Modo catálogo: a loja recebe o pedido/orçamento direto no WhatsApp e o
   // cliente não passa pelo checkout. Ausência do campo = fluxo tradicional.
@@ -307,9 +309,30 @@ export function CartDrawer({
   const hasPriceOnRequest = cartItems.some((item) =>
     isCartItemPriceOnRequest(item)
   );
-  // No envio direto o CEP/frete não bloqueia o pedido — só itens e loja aberta.
+
+  // Pedido mínimo da loja (subtotal dos itens, SEM a taxa de entrega). Itens
+  // "Sob Consulta" ficam de fora da regra: o valor é combinado com o atendente.
+  const minOrderValue = normalizeMinOrderValue(establishment?.min_order_value);
+  const minOrderMessage = hasPriceOnRequest
+    ? null
+    : describeMinOrderShortfall(minOrderValue, subtotal);
+  const minOrderBlocked = minOrderMessage != null;
+
+  const canCheckout =
+    establishment != null &&
+    itemCount > 0 &&
+    !storeClosed &&
+    quoteReady &&
+    !deliveryOutOfRange &&
+    !minOrderBlocked;
+
+  // No envio direto o CEP/frete não bloqueia o pedido — só itens, pedido mínimo
+  // (quando os valores são conhecidos) e loja aberta.
   const canSendDirect =
-    establishment != null && itemCount > 0 && !storeClosed;
+    establishment != null &&
+    itemCount > 0 &&
+    !storeClosed &&
+    !minOrderBlocked;
   const canSubmit = directWhatsAppCheckout ? canSendDirect : canCheckout;
 
   const feeLabel =
@@ -444,7 +467,7 @@ export function CartDrawer({
       items: cartItems.map((item) => {
         const priceOnRequest = isCartItemPriceOnRequest(item);
         return {
-          name: item.productName ?? "Item",
+          name: withHalfHalfLabel(item.productName, item.halfHalfFlavors),
           quantity: item.quantidade,
           unit_price: priceOnRequest ? null : item.unitPrice,
           line_total: priceOnRequest ? null : item.itemTotalPrice,
@@ -548,6 +571,11 @@ export function CartDrawer({
                         <p className="font-semibold leading-tight text-gray-900 dark:text-white">
                           {item.productName ?? "Item"}
                         </p>
+                        {item.halfHalfFlavors && item.halfHalfFlavors.length > 0 && (
+                          <p className="mt-0.5 text-xs font-semibold leading-relaxed text-amber-700 dark:text-amber-300">
+                            {halfHalfFlavorsLabel(item.halfHalfFlavors)}
+                          </p>
+                        )}
                         {(item.selectedOptions ?? []).length > 0 && (
                           <p className="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
                             {(item.selectedOptions ?? [])
@@ -824,6 +852,15 @@ export function CartDrawer({
               }`}
             >
               {checkoutHint}
+            </p>
+          )}
+
+          {minOrderMessage && (
+            <p
+              role="alert"
+              className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold leading-relaxed text-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+            >
+              {minOrderMessage}
             </p>
           )}
 

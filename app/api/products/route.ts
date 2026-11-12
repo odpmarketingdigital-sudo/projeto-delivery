@@ -182,6 +182,8 @@ export async function POST(request: Request) {
     is_active?: boolean;
     track_stock?: boolean;
     stock_quantity?: number | string;
+    /** true = produto vendido meio a meio (2 sabores da mesma categoria). */
+    allow_half_half?: boolean;
     sort_order?: number | string;
   };
   try {
@@ -289,6 +291,7 @@ export async function POST(request: Request) {
       is_active: body.is_active ?? true,
       track_stock: trackStock,
       stock_quantity: trackStock ? stockQuantity : 0,
+      allow_half_half: body.allow_half_half === true,
       sort_order,
     })
     .select("*, categories ( name )")
@@ -324,6 +327,8 @@ export async function PUT(request: Request) {
     is_active?: boolean;
     track_stock?: boolean;
     stock_quantity?: number | string;
+    /** true = produto vendido meio a meio (2 sabores da mesma categoria). */
+    allow_half_half?: boolean;
     sort_order?: number | string;
   };
   try {
@@ -450,6 +455,9 @@ export async function PUT(request: Request) {
       );
     }
     patch.stock_quantity = stockQuantity;
+  }
+  if (body.allow_half_half !== undefined) {
+    patch.allow_half_half = Boolean(body.allow_half_half);
   }
   // Desativar o controle de estoque zera a quantidade (estoque ilimitado).
   if (patch.track_stock === false) {

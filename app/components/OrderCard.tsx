@@ -10,6 +10,10 @@ import {
   formatEstimatedDeliveryWindowLabel,
   parseEstimatedDeliveryWindow,
 } from "@/lib/deliveryEstimate";
+import {
+  MEAL_VOUCHER_PAYMENT_METHOD,
+  mealVoucherPaymentLabel,
+} from "@/lib/mealVouchers";
 
 interface OrderCardProps {
   order: PanelOrder;
@@ -143,6 +147,11 @@ export function OrderCard({
               {order.payment_status === "pago"
                 ? "✓ PIX pago"
                 : "PIX aguardando pagamento"}
+            </p>
+          )}
+          {order.payment_method === MEAL_VOUCHER_PAYMENT_METHOD && (
+            <p className="mt-1 text-[11px] font-bold text-amber-700">
+              💳 {mealVoucherPaymentLabel(order.meal_voucher)}
             </p>
           )}
         </div>

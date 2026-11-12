@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/context/CartContext";
 import type { StorefrontMenu } from "@/lib/types";
+import { halfHalfFlavorsLabel, withHalfHalfLabel } from "@/lib/halfHalf";
 import { describeNextOpening, isStoreOpen } from "@/lib/openingHours";
 import { formatCep, formatTravelDuration, parseCep, type DeliveryQuote } from "@/lib/delivery";
 import {
@@ -19,9 +20,20 @@ import {
 } from "@/lib/deliveryEstimate";
 import {
   computeCouponDiscount,
+  couponDiscountLabel,
   normalizeCouponCode,
+  normalizeCouponPhone,
   type AppliedCoupon,
 } from "@/lib/coupons";
+import {
+  describeMinOrderShortfall,
+  minOrderShortfall,
+  normalizeMinOrderValue,
+} from "@/lib/minOrder";
+import {
+  MEAL_VOUCHER_PAYMENT_METHOD,
+  normalizeMealVouchers,
+} from "@/lib/mealVouchers";
 import {
   getCustomerProfile,
   saveCustomerProfile,
@@ -43,7 +55,12 @@ import {
   type GooglePlaceAddress,
 } from "@/lib/googleMapsPlaces";
 
-type PaymentMethod = "pix" | "cartao" | "dinheiro" | "pix_online";
+type PaymentMethod =
+  | "pix"
+  | "cartao"
+  | "dinheiro"
+  | "pix_online"
+  | "vale_refeicao";
 
 /** Estado da cobrança PIX Online exibida no checkout. */
 interface PixCheckoutState {
@@ -186,6 +203,23 @@ const PIX_ONLINE_OPTION: {
   hint: "Pague agora pelo app do banco",
 };
 
+/**
+ * Vale-Refeição / Alimentação NA ENTREGA (maquininha presencial).
+ *
+ * Só entra na lista quando a loja cadastrou ao menos uma bandeira em
+ * `establishments.accepted_meal_vouchers` (migração 20261111000004). Nada é
+ * cobrado online: o entregador leva a maquininha e passa o cartão do cliente.
+ */
+const MEAL_VOUCHER_OPTION: {
+  value: PaymentMethod;
+  label: string;
+  hint: string;
+} = {
+  value: MEAL_VOUCHER_PAYMENT_METHOD,
+  label: "Vale-Refeição / Alimentação",
+  hint: "Pague na entrega com o cartão de vale",
+};
+
 const formatBRL = (value: number) =>
   `R$ ${value.toFixed(2).replace(".", ",")}`;
 
@@ -278,6 +312,8 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   const [errors, setErrors] = useState<FormErrors>({});
   const [payment, setPayment] = useState<PaymentMethod | "">("");
   const [troco, setTroco] = useState("");
+  // Bandeira do vale-refeição/alimentação escolhida (só em `vale_refeicao`).
+  const [mealVoucher, setMealVoucher] = useState("");
   // PIX Online (Split Asaas): cobrança em exibição e ciclo de confirmação.
   const [pixPayment, setPixPayment] = useState<PixCheckoutState | null>(null);
   const [pixCopied, setPixCopied] = useState(false);
@@ -293,6 +329,8 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   );
   const [couponError, setCouponError] = useState<string | null>(null);
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
+  /** Telefone usado na última validação bem-sucedida (revalidação do 1º pedido). */
+  const [appliedCouponPhone, setAppliedCouponPhone] = useState("");
   // Resumo congelado no momento da confirmação (o carrinho é limpo em seguida).
   const [confirmedSummary, setConfirmedSummary] = useState<{
     total: number;
@@ -356,14 +394,39 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   // `accept_pix_online` já vem "efetivo" de /api/menu (loja conectada + chave
   // ligada); sem isso a opção nem aparece no checkout.
   const pixOnlineAvailable = establishment?.accept_pix_online === true;
-  const paymentOptions = useMemo(
-    () =>
-      pixOnlineAvailable ? [...PAYMENT_OPTIONS, PIX_ONLINE_OPTION] : PAYMENT_OPTIONS,
-    [pixOnlineAvailable]
+
+  // ---- Vale-Refeição / Alimentação na entrega -----------------------------
+  // `accepted_meal_vouchers` já chega normalizado de `/api/menu`. Sem nenhuma
+  // bandeira cadastrada a opção nem aparece no checkout.
+  const mealVoucherOptions = useMemo(
+    () => normalizeMealVouchers(establishment?.accepted_meal_vouchers),
+    [establishment?.accepted_meal_vouchers]
   );
+  const mealVoucherAvailable = mealVoucherOptions.length > 0;
+
+  const paymentOptions = useMemo(() => {
+    // Formas presenciais primeiro (PIX na hora, cartão e dinheiro na entrega,
+    // vale na entrega); o PIX Online fica por último.
+    const withMealVoucher = mealVoucherAvailable
+      ? [...PAYMENT_OPTIONS, MEAL_VOUCHER_OPTION]
+      : PAYMENT_OPTIONS;
+    return pixOnlineAvailable
+      ? [...withMealVoucher, PIX_ONLINE_OPTION]
+      : withMealVoucher;
+  }, [mealVoucherAvailable, pixOnlineAvailable]);
   // A loja desligou o PIX Online com o checkout aberto: limpa a seleção.
   if (payment === "pix_online" && establishment && !pixOnlineAvailable) {
     setPayment("");
+  }
+  // A loja parou de aceitar vale na entrega (ou a bandeira escolhida saiu da
+  // lista): limpa a seleção para não enviar um pagamento que a API recusaria.
+  if (payment === MEAL_VOUCHER_PAYMENT_METHOD && establishment) {
+    if (!mealVoucherAvailable) {
+      setPayment("");
+      if (mealVoucher) setMealVoucher("");
+    } else if (mealVoucher && !mealVoucherOptions.includes(mealVoucher)) {
+      setMealVoucher("");
+    }
   }
 
   /** Segundos restantes do QR Code (recalculado a cada segundo). */
@@ -789,15 +852,28 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   const effectiveCount = slug ? storeCount : itemCount;
   const subtotal = effectiveSubtotal;
 
-  // Desconto do cupom calculado sobre o subtotal (nunca sobre a taxa de entrega).
+  // Desconto do cupom: percentual/valor fixo incidem sobre o subtotal; frete
+  // grátis abate a taxa de entrega. Recalculado a cada render (se a cotação da
+  // entrega chegar depois, o frete grátis já usa o valor final).
   const couponDiscount =
     appliedCoupon && effectiveCount > 0
-      ? computeCouponDiscount(appliedCoupon, subtotal)
+      ? computeCouponDiscount(
+          appliedCoupon,
+          subtotal,
+          deliveryFeeKnown ? deliveryFee : 0
+        )
       : 0;
   const couponMinNotMet =
     appliedCoupon != null &&
     appliedCoupon.min_order_value != null &&
     subtotal < appliedCoupon.min_order_value;
+
+  // Pedido mínimo da loja (`establishments.min_order_value`): compara o
+  // subtotal dos itens, sem a taxa de entrega. Bloqueia o envio e mostra
+  // quanto falta — o servidor revalida em `POST /api/orders`.
+  const minOrderValue = normalizeMinOrderValue(establishment?.min_order_value);
+  const minOrderMessage = describeMinOrderShortfall(minOrderValue, subtotal);
+  const minOrderBlocked = minOrderMessage != null;
 
   const grandTotal =
     effectiveCount > 0
@@ -1088,7 +1164,17 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       }
     }
 
-    if (!payment) next.pagamento = "Selecione a forma de pagamento.";
+    if (!payment) {
+      next.pagamento = "Selecione a forma de pagamento.";
+    } else if (
+      payment === MEAL_VOUCHER_PAYMENT_METHOD &&
+      !mealVoucherOptions.includes(mealVoucher)
+    ) {
+      // Vale na entrega: a bandeira é obrigatória (o entregador precisa saber
+      // qual maquininha levar). A API revalida contra a lista da loja.
+      next.pagamento =
+        "Selecione a bandeira do vale-refeição que será usado na entrega.";
+    }
 
     return next;
   };
@@ -1113,21 +1199,27 @@ export function CheckoutForm({ slug }: { slug?: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          establishmentId,
           establishment_id: establishmentId,
           slug,
           code,
           subtotal: effectiveSubtotal,
+          deliveryFee: deliveryFeeKnown ? deliveryFee : 0,
+          customerPhone: normalizeCouponPhone(form.telefone),
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         error?: string;
         coupon?: {
           code: string;
-          discount_type: "percentage" | "fixed";
+          discount_type: AppliedCoupon["discount_type"];
           discount_value: number;
           min_order_value: number | null;
+          max_uses?: number | null;
           usage_limit?: number | null;
           used_count?: number;
+          first_order_only?: boolean;
+          expires_at?: string | null;
         };
       };
 
@@ -1140,9 +1232,13 @@ export function CheckoutForm({ slug }: { slug?: string }) {
         discount_type: data.coupon.discount_type,
         discount_value: data.coupon.discount_value,
         min_order_value: data.coupon.min_order_value,
+        max_uses: data.coupon.max_uses ?? null,
         usage_limit: data.coupon.usage_limit ?? null,
         used_count: data.coupon.used_count ?? 0,
+        first_order_only: data.coupon.first_order_only === true,
+        expires_at: data.coupon.expires_at ?? null,
       });
+      setAppliedCouponPhone(normalizeCouponPhone(form.telefone));
       setCouponCode(data.coupon.code);
     } catch (err) {
       setAppliedCoupon(null);
@@ -1156,10 +1252,102 @@ export function CheckoutForm({ slug }: { slug?: string }) {
 
   const removeCoupon = () => {
     setAppliedCoupon(null);
+    setAppliedCouponPhone("");
     setCouponError(null);
     setCouponCode("");
     setSubmitError(null);
   };
+
+  // Cupom de primeiro pedido: se o cliente alterar o telefone depois de
+  // aplicar, o cupom é revalidado. Sem isso, alguém poderia aplicar com um
+  // telefone sem histórico e finalizar o pedido com outro.
+  const couponRevalidateSeq = useRef(0);
+  useEffect(() => {
+    if (!appliedCoupon?.first_order_only) return;
+
+    const phone = normalizeCouponPhone(form.telefone);
+    if (phone.length < 10 || phone === appliedCouponPhone) return;
+    if (!establishmentId && !slug) return;
+
+    const seq = ++couponRevalidateSeq.current;
+    const timer = window.setTimeout(async () => {
+      setIsApplyingCoupon(true);
+      setCouponError(null);
+      try {
+        const res = await fetch("/api/coupons/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            establishmentId,
+            establishment_id: establishmentId,
+            slug,
+            code: appliedCoupon.code,
+            subtotal: effectiveSubtotal,
+            deliveryFee: deliveryFeeKnown ? deliveryFee : 0,
+            customerPhone: phone,
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          coupon?: {
+            code: string;
+            discount_type: AppliedCoupon["discount_type"];
+            discount_value: number;
+            min_order_value: number | null;
+            max_uses?: number | null;
+            usage_limit?: number | null;
+            used_count?: number;
+            first_order_only?: boolean;
+            expires_at?: string | null;
+          };
+        };
+        if (seq !== couponRevalidateSeq.current) return;
+
+        if (!res.ok || !data.coupon) {
+          // Deixou de ser elegível com o novo telefone: remove o desconto para
+          // o cliente não finalizar com um valor que a API recusaria.
+          setAppliedCoupon(null);
+          setAppliedCouponPhone("");
+          setCouponError(data.error ?? "Este cupom não está mais disponível.");
+          return;
+        }
+
+        setAppliedCoupon({
+          code: data.coupon.code,
+          discount_type: data.coupon.discount_type,
+          discount_value: data.coupon.discount_value,
+          min_order_value: data.coupon.min_order_value,
+          max_uses: data.coupon.max_uses ?? null,
+          usage_limit: data.coupon.usage_limit ?? null,
+          used_count: data.coupon.used_count ?? 0,
+          first_order_only: data.coupon.first_order_only === true,
+          expires_at: data.coupon.expires_at ?? null,
+        });
+        setAppliedCouponPhone(phone);
+      } catch {
+        if (seq === couponRevalidateSeq.current) {
+          setCouponError(
+            "Não foi possível revalidar o cupom com o novo telefone."
+          );
+        }
+      } finally {
+        if (seq === couponRevalidateSeq.current) setIsApplyingCoupon(false);
+      }
+    }, 600);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    appliedCoupon,
+    appliedCouponPhone,
+    establishmentId,
+    slug,
+    effectiveSubtotal,
+    deliveryFee,
+    deliveryFeeKnown,
+    form.telefone,
+  ]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1170,6 +1358,12 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       setSubmitError(
         "O estabelecimento encontra-se fechado no momento e não está recebendo pedidos."
       );
+      return;
+    }
+
+    // Pedido mínimo da loja abaixo do exigido (a API recusa com a mesma regra).
+    if (minOrderMessage) {
+      setSubmitError(minOrderMessage);
       return;
     }
 
@@ -1199,6 +1393,21 @@ export function CheckoutForm({ slug }: { slug?: string }) {
         `O cupom ${appliedCoupon.code} exige um pedido mínimo de ${formatBRL(
           appliedCoupon.min_order_value ?? 0
         )}.`
+      );
+      return;
+    }
+
+    // Cupom sem desconto efetivo (ex.: frete grátis com entrega já gratuita):
+    // bloqueia para não enviar um código que o servidor ignoraria.
+    if (
+      appliedCoupon &&
+      couponDiscount <= 0 &&
+      (appliedCoupon.discount_type !== "free_shipping" || deliveryFeeKnown)
+    ) {
+      setSubmitError(
+        appliedCoupon.discount_type === "free_shipping"
+          ? "O frete deste pedido já é grátis — remova o cupom para continuar."
+          : "Este cupom não gera desconto para este pedido."
       );
       return;
     }
@@ -1274,6 +1483,11 @@ export function CheckoutForm({ slug }: { slug?: string }) {
             place_id: activeDeliveryPoint?.placeId ?? undefined,
           },
           payment_method: payment,
+          // Bandeira do vale-refeição/alimentação (só nesta modalidade). A API
+          // revalida contra `establishments.accepted_meal_vouchers`.
+          ...(payment === MEAL_VOUCHER_PAYMENT_METHOD
+            ? { meal_voucher: mealVoucher }
+            : {}),
           // A API revalida o cupom e recalcula o desconto no servidor.
           coupon_code: appliedCoupon?.code,
           // Troco sanitizado: só envia número válido quando for dinheiro com
@@ -1290,6 +1504,11 @@ export function CheckoutForm({ slug }: { slug?: string }) {
             productId: item.productId,
             quantity: item.quantidade,
             addonIds: (item.selectedOptions ?? []).map((o) => o.id),
+            // Meio a meio: a API revalida os 2 sabores e recalcula o preço
+            // (sabor mais caro) no servidor — nunca confia no total do cliente.
+            ...(item.halfHalfFlavors && item.halfHalfFlavors.length === 2
+              ? { halfHalfFlavorIds: item.halfHalfFlavors.map((f) => f.id) }
+              : {}),
             notes: item.notes,
             unit_price: unit,
             line_total: lineTotal,
@@ -1384,9 +1603,11 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       // (inclusive quando o navegador restaura esta tela pelo histórico)
       // comece limpo, sem cupom/pagamento/troco herdados do pedido anterior.
       setAppliedCoupon(null);
+      setAppliedCouponPhone("");
       setCouponCode("");
       setCouponError(null);
       setTroco("");
+      setMealVoucher("");
       setPayment("");
       setErrors({});
       if (targetId) {
@@ -1637,7 +1858,7 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       items: checkoutItems.map((item) => {
         const priceOnRequest = isCartItemPriceOnRequest(item);
         return {
-          name: item.productName ?? "Item",
+          name: withHalfHalfLabel(item.productName, item.halfHalfFlavors),
           quantity: item.quantidade,
           unit_price: priceOnRequest ? null : item.unitPrice,
           line_total: priceOnRequest ? null : item.itemTotalPrice,
@@ -1905,6 +2126,11 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                         +
                       </button>
                     </div>
+                    {item.halfHalfFlavors && item.halfHalfFlavors.length > 0 && (
+                      <p className="mt-0.5 line-clamp-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                        {halfHalfFlavorsLabel(item.halfHalfFlavors)}
+                      </p>
+                    )}
                     {(item.selectedOptions?.length ?? 0) > 0 && (
                       <p className="mt-0.5 line-clamp-2 text-xs text-gray-500 dark:text-gray-400">
                         {item.selectedOptions.map((o) => o.name).join(" • ")}
@@ -2002,8 +2228,12 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                   </p>
                 ) : (
                   <p className="mt-2 text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                    Cupom {appliedCoupon.code} aplicado — você economiza{" "}
+                    Cupom {appliedCoupon.code} aplicado (
+                    {couponDiscountLabel(appliedCoupon)}) — você economiza{" "}
                     {formatBRL(couponDiscount)}.
+                    {appliedCoupon.first_order_only
+                      ? " Válido apenas no primeiro pedido."
+                      : ""}
                   </p>
                 ))}
             </div>
@@ -2044,7 +2274,12 @@ export function CheckoutForm({ slug }: { slug?: string }) {
               )}
               {couponDiscount > 0 && (
                 <div className="flex items-center justify-between font-semibold text-emerald-600 dark:text-emerald-400">
-                  <dt>Desconto{appliedCoupon ? ` (${appliedCoupon.code})` : ""}</dt>
+                  <dt>
+                    {appliedCoupon?.discount_type === "free_shipping"
+                      ? "Frete grátis"
+                      : "Desconto"}
+                    {appliedCoupon ? ` (${appliedCoupon.code})` : ""}
+                  </dt>
                   <dd className="tabular-nums">−{formatBRL(couponDiscount)}</dd>
                 </div>
               )}
@@ -2053,6 +2288,15 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                 <dd className="tabular-nums">{formatBRL(grandTotal)}</dd>
               </div>
             </dl>
+
+            {minOrderMessage && (
+              <p
+                role="alert"
+                className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs font-semibold leading-relaxed text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
+              >
+                {minOrderMessage}
+              </p>
+            )}
 
             {/*
               Previsão de entrega configurada pela loja (janela mínima/máxima em
@@ -2493,56 +2737,107 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                 </div>
               </div>
             )}
+
+            {payment === MEAL_VOUCHER_PAYMENT_METHOD && (
+              <div id="field-vale" className="mt-4">
+                <label
+                  htmlFor="meal-voucher"
+                  className="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                >
+                  Qual bandeira do vale você vai usar na entrega?
+                </label>
+                <select
+                  id="meal-voucher"
+                  name="meal_voucher"
+                  value={mealVoucher}
+                  onChange={(event) => {
+                    setMealVoucher(event.target.value);
+                    if (errors.pagamento) {
+                      setErrors((prev) => ({
+                        ...prev,
+                        pagamento: undefined,
+                      }));
+                    }
+                  }}
+                  aria-invalid={errors.pagamento ? true : undefined}
+                  className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-900 transition focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:border-gray-700 dark:bg-gray-900/60 dark:text-white dark:focus:border-yellow-400 dark:focus:ring-yellow-400/20"
+                >
+                  <option value="">Selecione a bandeira…</option>
+                  {mealVoucherOptions.map((voucher) => (
+                    <option key={voucher} value={voucher}>
+                      {voucher}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                  O pagamento é feito <strong>na entrega</strong>, na maquininha
+                  do entregador — nada é cobrado online pelo sistema. Tenha o
+                  cartão de vale em mãos no momento da entrega.
+                </p>
+              </div>
+            )}
           </section>
         </form>
       </main>
       {/* Barra de ação fixa */}
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200/70 bg-white/95 px-4 pb-6 pt-3 backdrop-blur-sm dark:border-gray-700/60 dark:bg-gray-900/95 sm:px-6">
-        <div className="mx-auto flex w-full max-w-2xl items-center gap-4">
-          <div className="flex flex-col">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-              Total
-            </span>
-            <span className="text-lg font-bold tabular-nums text-gray-900 dark:text-white">
-              {formatBRL(grandTotal)}
-            </span>
+        <div className="mx-auto w-full max-w-2xl">
+          {/* Lembrete curto do pedido mínimo junto do botão (o alerta completo
+              fica no resumo do pedido); o botão permanece desabilitado. */}
+          {minOrderBlocked && (
+            <p className="mb-2 text-[11px] font-semibold leading-snug text-amber-700 dark:text-amber-300">
+              Pedido mínimo de {formatBRL(minOrderValue)} — faltam{" "}
+              {formatBRL(minOrderShortfall(minOrderValue, subtotal))}.
+            </p>
+          )}
+          <div className="flex w-full items-center gap-4">
+            <div className="flex flex-col">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                Total
+              </span>
+              <span className="text-lg font-bold tabular-nums text-gray-900 dark:text-white">
+                {formatBRL(grandTotal)}
+              </span>
+            </div>
+            <button
+              type="submit"
+              form="checkout-form"
+              disabled={isSubmitting || storeClosed || minOrderBlocked}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-yellow-400 dark:text-gray-950 dark:hover:bg-yellow-300 dark:focus:ring-yellow-400 dark:focus:ring-offset-gray-900"
+            >
+              {isSubmitting ? (
+                <>
+                  <svg
+                    aria-hidden="true"
+                    className="h-4 w-4 animate-spin"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth={4}
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                    />
+                  </svg>
+                  Enviando...
+                </>
+              ) : storeClosed ? (
+                "Loja fechada"
+              ) : minOrderBlocked ? (
+                "Pedido mínimo não atingido"
+              ) : (
+                "Confirmar Pedido"
+              )}
+            </button>
           </div>
-          <button
-            type="submit"
-            form="checkout-form"
-            disabled={isSubmitting || storeClosed}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 dark:bg-yellow-400 dark:text-gray-950 dark:hover:bg-yellow-300 dark:focus:ring-yellow-400 dark:focus:ring-offset-gray-900"
-          >
-            {isSubmitting ? (
-              <>
-                <svg
-                  aria-hidden="true"
-                  className="h-4 w-4 animate-spin"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth={4}
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                  />
-                </svg>
-                Enviando...
-              </>
-            ) : storeClosed ? (
-              "Loja fechada"
-            ) : (
-              "Confirmar Pedido"
-            )}
-          </button>
         </div>
       </div>
     </div>

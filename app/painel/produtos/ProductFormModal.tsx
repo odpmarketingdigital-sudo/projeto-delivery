@@ -32,6 +32,8 @@ interface FormState {
   track_stock: boolean;
   /** Quantidade em estoque (apenas quando `track_stock` é true). */
   stock_quantity: string;
+  /** true = o produto pode ser vendido meio a meio (2 sabores). */
+  allow_half_half: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -43,6 +45,7 @@ const EMPTY_FORM: FormState = {
   is_active: true,
   track_stock: false,
   stock_quantity: "0",
+  allow_half_half: false,
 };
 
 /**
@@ -63,6 +66,7 @@ function toFormState(editing: MenuProduct | null): FormState {
     is_active: editing.is_active,
     track_stock: editing.track_stock === true,
     stock_quantity: String(editing.stock_quantity ?? 0),
+    allow_half_half: editing.allow_half_half === true,
   };
 }
 
@@ -277,6 +281,7 @@ export function ProductFormModal({
       is_active: form.is_active,
       track_stock: trackStock,
       stock_quantity: stockQuantity,
+      allow_half_half: form.allow_half_half,
     };
 
     setIsSubmitting(true);
@@ -491,6 +496,47 @@ export function ProductFormModal({
                 />
               </div>
             )}
+          </div>
+
+          {/* Meio a meio: libera a escolha de 2 sabores da mesma categoria. */}
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p
+                  id="p-allow-half-half-label"
+                  className="text-sm font-semibold text-slate-800"
+                >
+                  Aceita meio a meio
+                </p>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  O cliente pode pedir 1 sabor (inteira) ou 2 sabores (meio a
+                  meio). No meio a meio, o preço cobrado é o do sabor mais caro.
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Ative nos sabores de pizza que podem ser combinados. O outro
+                  sabor precisa estar ativo na mesma categoria e também com esta
+                  opção ativada.
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={form.allow_half_half}
+                aria-labelledby="p-allow-half-half-label"
+                onClick={() =>
+                  set({ allow_half_half: !form.allow_half_half })
+                }
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-amber-400/50 ${
+                  form.allow_half_half ? "bg-yellow-400" : "bg-slate-200"
+                }`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                    form.allow_half_half ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </button>
+            </div>
           </div>
 
           <div>

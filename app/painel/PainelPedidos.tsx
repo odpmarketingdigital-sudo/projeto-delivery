@@ -61,12 +61,18 @@ function toPanelOrder(raw: unknown): PanelOrder | null {
         line_total: num(o.line_total, unit * qty),
         addons: Array.isArray(o.addons) ? (o.addons as PanelOrder["items"][number]["addons"]) : [],
         notes: typeof o.notes === "string" ? o.notes : undefined,
+        ...(typeof o.half_half === "object" && o.half_half !== null
+          ? {
+              half_half: o.half_half as PanelOrder["items"][number]["half_half"],
+            }
+          : {}),
       };
     }),
     subtotal: num(r.subtotal, num(r.total)),
     delivery_fee: num(r.delivery_fee),
     total: num(r.total),
     payment_method: typeof r.payment_method === "string" ? r.payment_method : "—",
+    meal_voucher: typeof r.meal_voucher === "string" ? r.meal_voucher : null,
     change_for: typeof r.change_for === "number" ? r.change_for : null,
     notes: typeof r.notes === "string" ? r.notes : null,
     delivery_type:

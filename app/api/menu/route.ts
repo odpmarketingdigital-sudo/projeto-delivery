@@ -4,6 +4,7 @@ import { evaluateStoreEligibility } from "@/lib/storeEligibility";
 import { fetchWithOrderFallback } from "@/lib/menuOrder";
 import { normalizeOpeningHours } from "@/lib/openingHours";
 import { normalizeDeliverySettings } from "@/lib/delivery";
+import { normalizeMealVouchers } from "@/lib/mealVouchers";
 import type {
   Category,
   MenuAddon,
@@ -108,6 +109,17 @@ function mapEstablishment(row: EstablishmentRow): StorefrontInfo {
       typeof row.asaas_api_key === "string" &&
       row.asaas_api_key.trim() !== "",
     delivery_fee: delivery.delivery_fee,
+    /**
+     * Pedido mínimo (migração 20261111000003). Bases legadas sem a coluna
+     * devolvem `0` — a vitrine, a sacola e o checkout não bloqueiam nada.
+     */
+    min_order_value: toNumber(row.min_order_value),
+    /**
+     * Vale-Refeição / Alimentação na entrega (migração 20261111000004):
+     * lista de bandeiras aceitas pela loja. Base legada sem a coluna devolve
+     * `[]` — o checkout simplesmente não mostra a opção.
+     */
+    accepted_meal_vouchers: normalizeMealVouchers(row.accepted_meal_vouchers),
     delivery_type: delivery.delivery_type,
     distance_base_km: delivery.distance_base_km,
     distance_base_fee: delivery.distance_base_fee,

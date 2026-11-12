@@ -25,6 +25,7 @@ import {
   parseEstimatedDeliveryWindow,
   type EstimatedDeliveryWindow,
 } from "@/lib/deliveryEstimate";
+import { paymentMethodLabel } from "@/lib/paymentLabels";
 
 interface OrderDetailsModalProps {
   order: PanelOrder;
@@ -45,13 +46,6 @@ interface OrderDetailsModalProps {
     estimate?: EstimatedDeliveryWindow
   ) => Promise<void>;
 }
-
-const PAYMENT_LABEL: Record<string, string> = {
-  pix: "Pix",
-  cartao: "Cartão na entrega",
-  dinheiro: "Dinheiro",
-  pix_online: "PIX Online",
-};
 
 function formatBRL(value: number): string {
   return `R$ ${Number(value).toFixed(2).replace(".", ",")}`;
@@ -130,7 +124,8 @@ function ThermalReceipt({
 }) {
   const meta = ORDER_STATUS_META[order.status];
   const discount = orderDiscount(order);
-  const payment = PAYMENT_LABEL[order.payment_method] ?? order.payment_method;
+  const payment =
+    paymentMethodLabel(order.payment_method, order.meal_voucher) || "—";
   const address = addressText(order);
   const deliveryType = deliveryTypeLabel(order);
 
@@ -332,7 +327,8 @@ export function OrderDetailsModal({
   const discount = orderDiscount(order);
   const deliveryType = deliveryTypeLabel(order);
   const address = addressText(order);
-  const payment = PAYMENT_LABEL[order.payment_method] ?? order.payment_method;
+  const payment =
+    paymentMethodLabel(order.payment_method, order.meal_voucher) || "—";
   const phoneHref = whatsappHref(order.customer_phone);
   const estimateWindow = parseEstimatedDeliveryWindow(
     order.estimated_delivery_time

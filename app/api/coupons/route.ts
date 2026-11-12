@@ -21,7 +21,11 @@ type CouponPayload = {
   discount_type?: unknown;
   discount_value?: unknown;
   min_order_value?: unknown;
+  /** Nome canônico do limite de usos. `usage_limit` é aceito por compatibilidade. */
+  max_uses?: unknown;
   usage_limit?: unknown;
+  first_order_only?: unknown;
+  expires_at?: unknown;
   active?: unknown;
 };
 
@@ -29,8 +33,10 @@ type ValidatedFields = {
   code?: string;
   discount_type?: CouponDiscountType;
   discount_value?: number;
-  min_order_value?: number | null;
-  usage_limit?: number | null;
+  min_order_value?: number;
+  max_uses?: number | null;
+  first_order_only?: boolean;
+  expires_at?: string | null;
   active?: boolean;
 };
 
@@ -65,26 +71,48 @@ function validateCouponFields(
   if (body.discount_type !== undefined || requireAll) {
     const raw =
       typeof body.discount_type === "string" ? body.discount_type.trim() : "";
-    if (raw !== "percentage" && raw !== "fixed") {
+    if (
+      raw !== "percentage" &&
+      raw !== "fixed" &&
+      raw !== "free_shipping"
+    ) {
       return {
         fields,
-        error: "Tipo de desconto inválido. Use percentage ou fixed.",
+        error:
+          "Tipo de desconto inválido. Use percentage, fixed ou free_shipping.",
       };
     }
     fields.discount_type = raw;
   }
 
   if (body.discount_value !== undefined || requireAll) {
-    const value = Number(body.discount_value);
-    if (!Number.isFinite(value) || value <= 0) {
-      return { fields, error: "Informe um valor de desconto maior que zero." };
+    const raw = body.discount_value;
+    const value =
+      raw === undefined || raw === null || raw === "" ? 0 : Number(raw);
+    if (!Number.isFinite(value) || value < 0) {
+      return {
+        fields,
+        error: "Informe um valor de desconto válido (zero ou mais).",
+      };
     }
     fields.discount_value = roundCurrency(value);
   }
 
+  // Frete grátis não usa valor numérico; os demais tipos exigem valor > 0.
+  if (fields.discount_type === "free_shipping") {
+    fields.discount_value = 0;
+  } else if (
+    (fields.discount_type === "percentage" ||
+      fields.discount_type === "fixed") &&
+    fields.discount_value !== undefined &&
+    fields.discount_value <= 0
+  ) {
+    return { fields, error: "Informe um valor de desconto maior que zero." };
+  }
+
   if (body.min_order_value !== undefined) {
     if (body.min_order_value === null || body.min_order_value === "") {
-      fields.min_order_value = null;
+      fields.min_order_value = 0;
     } else {
       const value = Number(body.min_order_value);
       if (!Number.isFinite(value) || value < 0) {
@@ -96,24 +124,54 @@ function validateCouponFields(
       fields.min_order_value = roundCurrency(value);
     }
   } else if (requireAll) {
-    fields.min_order_value = null;
+    fields.min_order_value = 0;
   }
 
-  if (body.usage_limit !== undefined) {
-    if (body.usage_limit === null || body.usage_limit === "") {
-      fields.usage_limit = null;
+  const rawMaxUses =
+    body.max_uses !== undefined ? body.max_uses : body.usage_limit;
+  if (rawMaxUses !== undefined) {
+    if (rawMaxUses === null || rawMaxUses === "") {
+      fields.max_uses = null;
     } else {
-      const value = Number(body.usage_limit);
+      const value = Number(rawMaxUses);
       if (!Number.isInteger(value) || value < 1) {
         return {
           fields,
           error: "O limite de usos deve ser um número inteiro maior que zero.",
         };
       }
-      fields.usage_limit = value;
+      fields.max_uses = value;
     }
   } else if (requireAll) {
-    fields.usage_limit = null;
+    fields.max_uses = null;
+  }
+
+  if (body.first_order_only !== undefined) {
+    if (typeof body.first_order_only !== "boolean") {
+      return {
+        fields,
+        error: "O campo de primeiro pedido deve ser booleano.",
+      };
+    }
+    fields.first_order_only = body.first_order_only;
+  } else if (requireAll) {
+    fields.first_order_only = false;
+  }
+
+  if (body.expires_at !== undefined) {
+    if (body.expires_at === null || body.expires_at === "") {
+      fields.expires_at = null;
+    } else {
+      const expiresAt = new Date(
+        typeof body.expires_at === "string" ? body.expires_at : ""
+      );
+      if (Number.isNaN(expiresAt.getTime())) {
+        return { fields, error: "Informe uma data de validade válida." };
+      }
+      fields.expires_at = expiresAt.toISOString();
+    }
+  } else if (requireAll) {
+    fields.expires_at = null;
   }
 
   if (body.active !== undefined) {
@@ -142,7 +200,7 @@ function validateCouponFields(
 /** Mensagem amigável para erros de schema (migração ainda não aplicada). */
 function schemaErrorHint(message: string): string {
   if (/does not exist|schema cache|could not find/i.test(message)) {
-    return 'A tabela de cupons ainda não existe. Execute a migração 20261110000011_create_coupons.sql no SQL Editor do Supabase.';
+    return "A tabela de cupons ainda não está disponível. Execute as migrações 20261110000011_create_coupons.sql e 20261111000002_extend_coupons.sql no SQL Editor do Supabase.";
   }
   if (/duplicate key|unique constraint/i.test(message)) {
     return "Já existe um cupom com esse código nesta loja.";
@@ -206,7 +264,8 @@ export async function GET(request: Request) {
  * POST /api/coupons — cria um cupom.
  *
  * Body: { establishment_id? (super_admin), code, discount_type,
- *         discount_value, min_order_value?, usage_limit?, active? }
+ *         discount_value?, min_order_value?, max_uses?, first_order_only?,
+ *         expires_at?, active? }
  */
 export async function POST(request: Request) {
   const guard = await requireMenuAccess();
@@ -271,7 +330,7 @@ export async function POST(request: Request) {
  * PUT /api/coupons — atualiza um cupom (parcial ou completo).
  *
  * Body: { id, code?, discount_type?, discount_value?, min_order_value?,
- *         usage_limit?, active? }
+ *         max_uses?, first_order_only?, expires_at?, active? }
  */
 export async function PUT(request: Request) {
   const guard = await requireMenuAccess();
@@ -339,15 +398,32 @@ export async function PUT(request: Request) {
     );
   }
 
-  // Valida o percentual considerando os valores já gravados (update parcial).
+  // Valida tipo/valor considerando o que já está gravado (update parcial).
   const effectiveType = fields.discount_type ?? existing.discount_type;
   const effectiveValue =
     fields.discount_value ?? toCouponNumber(existing.discount_value);
-  if (effectiveType === "percentage" && effectiveValue > 100) {
+
+  if (effectiveType === "free_shipping") {
+    // Frete grátis não carrega valor numérico.
+    fields.discount_value = 0;
+  } else if (effectiveType === "fixed" && effectiveValue <= 0) {
     return NextResponse.json(
-      { error: "O desconto percentual não pode ultrapassar 100%." },
+      { error: "Informe um valor de desconto maior que zero." },
       { status: 400 }
     );
+  } else if (effectiveType === "percentage") {
+    if (effectiveValue <= 0) {
+      return NextResponse.json(
+        { error: "Informe um valor de desconto maior que zero." },
+        { status: 400 }
+      );
+    }
+    if (effectiveValue > 100) {
+      return NextResponse.json(
+        { error: "O desconto percentual não pode ultrapassar 100%." },
+        { status: 400 }
+      );
+    }
   }
 
   const { data: updated, error } = await adminClient

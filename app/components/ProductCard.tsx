@@ -73,6 +73,12 @@ export function ProductCard({
           {product.descricao}
         </p>
 
+        {product.allow_half_half === true && (
+          <span className="mt-1.5 inline-flex w-fit items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+            Meio a meio
+          </span>
+        )}
+
         <div className="mt-auto flex flex-col gap-2 pt-3">
           <div className="flex items-end justify-between gap-2">
             {priceOnRequest ? (

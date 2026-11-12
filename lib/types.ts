@@ -19,6 +19,26 @@ export interface ProductOptionGroup {
   options: ProductOption[];
 }
 
+/** Regra de preço aplicada a um item "meio a meio". */
+export type HalfHalfPriceRule = "highest";
+
+/**
+ * Sabor escolhido em um item "meio a meio" (ex.: pizza meio calabresa / meio
+ * frango). O snapshot (`name`/`price`) é gravado no carrinho para que a
+ * sacola e o checkout continuem corretos mesmo sem recarregar o cardápio.
+ */
+export interface HalfHalfFlavor {
+  id: string;
+  name: string;
+  price: number;
+}
+
+/** Estrutura gravada em `orders.items[].half_half` (jsonb). */
+export interface HalfHalfSelection {
+  flavors: HalfHalfFlavor[];
+  price_rule: HalfHalfPriceRule;
+}
+
 export interface Product {
   id: string;
   nome: string;
@@ -41,6 +61,13 @@ export interface Product {
    * Quando `track_stock = true` e este valor é 0, o item aparece "Esgotado".
    */
   stock_quantity?: number;
+  /**
+   * true = o produto é um sabor que pode ser vendido inteiro (1 sabor) ou
+   * meio a meio (2 sabores). No meio a meio, o próprio produto é o 1º sabor e
+   * o cliente escolhe mais 1 entre produtos ativos da mesma categoria que
+   * também tenham esta opção habilitada. O preço é o do sabor mais caro.
+   */
+  allow_half_half?: boolean;
 }
 
 export interface CartItem {
@@ -64,6 +91,12 @@ export interface CartItem {
   imageUrl?: string;
   establishmentId?: string;
   categoryName?: string;
+  /**
+   * Sabores do item "meio a meio" (exatamente 2, sendo o 1º o próprio produto
+   * deste item). Quando presente, `basePrice` já é o preço combinado (sabor
+   * mais caro) + adicionais são somados por fora.
+   */
+  halfHalfFlavors?: HalfHalfFlavor[];
 }
 
 export type OrderStatus =
@@ -82,6 +115,8 @@ export interface PanelOrderItem {
   line_total: number;
   addons?: Array<{ id: string; name: string; price: number }>;
   notes?: string;
+  /** Detalhes do item "meio a meio" (quando aplicável). */
+  half_half?: HalfHalfSelection;
 }
 
 /** Endereço de entrega (jsonb `customer_address`). */
@@ -117,6 +152,12 @@ export interface PanelOrder {
   delivery_fee: number;
   total: number;
   payment_method: string;
+  /**
+   * Bandeira do vale-refeição/alimentação escolhida para pagamento na entrega
+   * (coluna `orders.meal_voucher`, migração 20261111000004). `null`/ausente em
+   * todas as demais formas de pagamento.
+   */
+  meal_voucher?: string | null;
   change_for: number | null;
   notes: string | null;
   /**
@@ -138,6 +179,8 @@ export interface PanelOrder {
   coupon_code?: string | null;
   /** Desconto concedido pelo cupom (coluna `coupon_discount`). */
   coupon_discount?: number | null;
+  /** Desconto total do pedido (coluna `discount_amount`, migração 20261111000002). */
+  discount_amount?: number | null;
   /** Previsão normalizada exibida ao cliente (ex.: "30-45 min"). */
   estimated_delivery_time?: string | null;
   /** Instante previsto da entrega (coluna `estimated_delivery_at`). */
@@ -279,9 +322,10 @@ export interface Establishment {
   direct_whatsapp_checkout?: boolean | null;
   /**
    * Liberação do Modo catálogo pelo Super Admin (coluna
-   * `catalog_mode_allowed`, migração 20261110000025). Enquanto for `false`, a
-   * chave fica bloqueada no painel da loja e o cardápio público ignora
-   * `direct_whatsapp_checkout`. Ausente em bases legadas → tratado como `false`.
+   * `catalog_mode_allowed`, migração 20261110000025). Enquanto for `false`, o
+   * cardápio público ignora `direct_whatsapp_checkout` e `PUT /api/establishment`
+   * recusa ligá-lo. A chave não é exibida no painel da loja — a liberação é
+   * gerenciada em `/painel/admin`. Ausente em bases legadas → `false`.
    */
   catalog_mode_allowed?: boolean | null;
   status: "ativo" | "inativo";
@@ -324,6 +368,19 @@ export interface Establishment {
   estimated_delivery_time_min?: number | string | null;
   /** Tempo máximo estimado de entrega (minutos) — migração 20261110000015. */
   estimated_delivery_time_max?: number | string | null;
+  /**
+   * Pedido mínimo do estabelecimento (coluna `min_order_value`, migração
+   * 20261111000003): valor mínimo do subtotal dos itens (sem frete) para
+   * aceitar o pedido. `0`/ausente = sem mínimo.
+   */
+  min_order_value?: number | string | null;
+  /**
+   * Bandeiras de vale-refeição/alimentação aceitas NA ENTREGA (maquininha) —
+   * coluna `accepted_meal_vouchers` (jsonb), migração 20261111000004.
+   * Lista vazia/ausente = loja não aceita vale na entrega.
+   * Normalize com `normalizeMealVouchers` (`lib/mealVouchers.ts`).
+   */
+  accepted_meal_vouchers?: unknown;
   /**
    * Fim do período de teste grátis (coluna `trial_ends_at`).
    * Ver `lib/subscriptions.ts` para a regra dos 30 dias.
@@ -482,6 +539,13 @@ export interface MenuProduct {
   track_stock?: boolean;
   /** Quantidade em estoque (relevante apenas quando `track_stock = true`). */
   stock_quantity?: number;
+  /**
+   * true = o produto pode ser vendido inteiro (1 sabor) ou meio a meio
+   * (2 sabores), combinado com outro sabor habilitado da mesma categoria
+   * (migração 20261111000001_add_half_half_to_products.sql). No meio a meio o
+   * preço é o do sabor mais caro.
+   */
+  allow_half_half?: boolean;
   /** Ordem de exibição (tolerante a nulo; ver `lib/menuOrder.ts`). */
   position: number | null;
   /** Alias alternativo de ordenação, quando a base usa `sort_order`. */
@@ -572,6 +636,20 @@ export interface StorefrontInfo {
   phone: string | null;
   /** Taxa de entrega padrão cobrada no checkout. */
   delivery_fee: number;
+  /**
+   * Pedido mínimo (subtotal dos itens, sem a taxa de entrega) — coluna
+   * `establishments.min_order_value`, migração 20261111000003.
+   * `0`/ausente = loja sem pedido mínimo. Normalize com
+   * `normalizeMinOrderValue` (`lib/minOrder.ts`) antes de comparar.
+   */
+  min_order_value?: number;
+  /**
+   * Bandeiras de vale-refeição/alimentação que a loja aceita cobrar NA ENTREGA
+   * (maquininha) — coluna `establishments.accepted_meal_vouchers`, migração
+   * 20261111000004. Já normalizada por `/api/menu` (array de strings).
+   * Lista vazia/ausente = a opção não aparece no checkout.
+   */
+  accepted_meal_vouchers?: string[];
   /** Modelo de frete configurado pela loja. */
   delivery_type: DeliveryType;
   /** Distância inclusa na taxa base (km) — modelo por distância. */
@@ -674,6 +752,8 @@ export interface CustomerOrderHistory {
   items: PanelOrderItem[];
   coupon_code?: string | null;
   coupon_discount?: number | null;
+  /** Desconto total (cupom fixo/percentual ou frete grátis). */
+  discount_amount?: number | null;
 }
 
 /** Cliente + histórico completo (GET /api/customers/history?key=...). */

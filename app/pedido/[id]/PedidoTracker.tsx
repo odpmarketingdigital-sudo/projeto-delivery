@@ -24,6 +24,7 @@ import {
   clearPendingOrderWhatsAppUrl,
   readPendingOrderWhatsAppUrl,
 } from "@/lib/whatsappOrder";
+import { paymentMethodLabel } from "@/lib/paymentLabels";
 
 interface TrackerItem {
   name: string;
@@ -47,6 +48,11 @@ interface TrackerOrder {
   delivery_fee: number;
   total: number;
   payment_method: string;
+  /**
+   * Bandeira do vale-refeição/alimentação escolhida para pagamento na entrega
+   * (coluna `orders.meal_voucher`, migração 20261111000004).
+   */
+  meal_voucher: string | null;
   /** PIX Online: `pendente` | `pago` | `expirado` | `cancelado` (migração 28). */
   payment_status: string | null;
   /** Pix Copia e Cola salvo no pedido (reexibido enquanto pendente). */
@@ -89,13 +95,6 @@ const STATUS_META: Record<OrderStatus, { emoji: string; title: string; text: str
     text: "O pedido foi cancelado.",
     ring: "border-red-500/40 bg-red-500/10",
   },
-};
-
-const PAYMENT_LABEL: Record<string, string> = {
-  pix: "Pix",
-  cartao: "Cartão na entrega",
-  dinheiro: "Dinheiro",
-  pix_online: "PIX Online",
 };
 
 /** Chaves onde o telefone do cliente pode estar salvo (perfil + legado). */
@@ -184,6 +183,7 @@ function normalizeTracker(raw: unknown): TrackerOrder | null {
     delivery_fee: num(r.delivery_fee),
     total: num(r.total),
     payment_method: typeof r.payment_method === "string" ? r.payment_method : "—",
+    meal_voucher: typeof r.meal_voucher === "string" ? r.meal_voucher : null,
     payment_status:
       typeof r.payment_status === "string" ? r.payment_status : null,
     pix_payload: typeof r.pix_payload === "string" ? r.pix_payload : null,
@@ -657,7 +657,8 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
           </ul>
           {addrText && <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">Entrega: {addrText}</p>}
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            Pagto: {PAYMENT_LABEL[order.payment_method] ?? order.payment_method}
+            Pagto:{" "}
+            {paymentMethodLabel(order.payment_method, order.meal_voucher) || "—"}
           </p>
           <div className="mt-3 flex flex-col gap-1.5 border-t border-gray-200 pt-3 text-sm dark:border-gray-700">
             <div className="flex items-center justify-between gap-2">

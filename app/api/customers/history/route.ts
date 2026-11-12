@@ -222,6 +222,12 @@ export async function GET(request: Request) {
             typeof row.coupon_code === "string" ? row.coupon_code : null,
           coupon_discount:
             row.coupon_discount == null ? null : money(row.coupon_discount),
+          discount_amount:
+            row.discount_amount == null
+              ? row.coupon_discount == null
+                ? null
+                : money(row.coupon_discount)
+              : money(row.discount_amount),
         });
       }
     }

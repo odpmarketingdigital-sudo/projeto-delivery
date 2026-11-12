@@ -7,8 +7,13 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import type { CartItem, Product, ProductOption } from "@/lib/types";
+import type { CartItem, HalfHalfFlavor, Product, ProductOption } from "@/lib/types";
 import { parseCep } from "@/lib/delivery";
+import {
+  normalizeHalfHalfFlavors,
+  resolveHalfHalfBasePrice,
+  sameHalfHalfFlavors,
+} from "@/lib/halfHalf";
 import { products } from "@/lib/mockData";
 
 const STORAGE_KEY = "@delivery:cart";
@@ -152,6 +157,8 @@ interface ItemSnapshot {
   imageUrl?: string;
   establishmentId?: string;
   categoryName?: string;
+  /** Sabores do item meio a meio (exatamente 2; o 1º é o próprio produto). */
+  halfHalfFlavors?: HalfHalfFlavor[];
 }
 
 function withTotals(
@@ -162,7 +169,24 @@ function withTotals(
   id?: string,
   snapshot?: ItemSnapshot
 ): CartItem {
-  const base = resolveBasePrice(productId, snapshot?.basePrice);
+  const normalizedHalfHalf = normalizeHalfHalfFlavors(
+    snapshot?.halfHalfFlavors
+  );
+  // O modelo atual exige que o próprio produto seja um dos sabores (ele é
+  // sempre o 1º). Snapshots antigos, em que o produto era apenas o item
+  // "pai", deixam de ser meio a meio e voltam a ser um item inteiro.
+  const halfHalfFlavors =
+    normalizedHalfHalf?.some((flavor) => flavor.id === productId)
+      ? normalizedHalfHalf
+      : undefined;
+  // Meio a meio: o preço base é derivado dos sabores (sabor mais caro). O
+  // snapshot persistido tem prioridade para manter o valor visto pelo cliente.
+  const base =
+    typeof snapshot?.basePrice === "number" && Number.isFinite(snapshot.basePrice)
+      ? snapshot.basePrice
+      : halfHalfFlavors
+        ? (resolveHalfHalfBasePrice(halfHalfFlavors) ?? 0)
+        : resolveBasePrice(productId);
   const unitPrice = calcUnitPrice(base, selectedOptions);
   const cleanNotes = notes?.trim() ? notes.trim() : undefined;
   const fallback = productById.get(productId);
@@ -181,6 +205,7 @@ function withTotals(
     imageUrl: snapshot?.imageUrl ?? fallback?.image_url,
     establishmentId: snapshot?.establishmentId,
     categoryName: snapshot?.categoryName ?? fallback?.categoria,
+    ...(halfHalfFlavors ? { halfHalfFlavors } : {}),
   };
 }
 
@@ -224,6 +249,9 @@ function migrateItem(raw: unknown): CartItem | null {
       typeof item.categoryName === "string" && item.categoryName
         ? item.categoryName
         : undefined,
+    // Itens meio a meio persistidos: normaliza para exatamente 2 sabores
+    // válidos (itens antigos/corrompidos viram um item comum).
+    halfHalfFlavors: normalizeHalfHalfFlavors(item.halfHalfFlavors),
   };
   return withTotals(
     item.productId,
@@ -314,9 +342,16 @@ export interface AddCustomItemInput {
   imageUrl?: string;
   establishmentId?: string;
   categoryName?: string;
+  /**
+   * Sabores do item "meio a meio" (exatamente 2, sendo o 1º o próprio produto
+   * deste item). Quando informado, `basePrice` deve ser o preço do sabor mais
+   * caro (ou 0 quando "Sob Consulta").
+   */
+  halfHalfFlavors?: HalfHalfFlavor[];
 }
 
 const addCustomItem = (input: AddCustomItemInput) => {
+  const halfHalfFlavors = normalizeHalfHalfFlavors(input.halfHalfFlavors);
   const snapshot: ItemSnapshot = {
     productName: input.productName?.trim() || undefined,
     basePrice:
@@ -326,11 +361,13 @@ const addCustomItem = (input: AddCustomItemInput) => {
     imageUrl: input.imageUrl?.trim() || undefined,
     establishmentId: input.establishmentId?.trim() || undefined,
     categoryName: input.categoryName?.trim() || undefined,
+    halfHalfFlavors,
   };
 
   // Validação: produto conhecido se tiver snapshot OU existir no catálogo mock.
   const known =
-    (snapshot.productName !== undefined && snapshot.basePrice !== undefined) ||
+    (snapshot.productName !== undefined &&
+      (snapshot.basePrice !== undefined || halfHalfFlavors !== undefined)) ||
     productById.has(input.productId);
   if (!known) return;
 
@@ -338,11 +375,14 @@ const addCustomItem = (input: AddCustomItemInput) => {
   const opts = normalizeOptions(input.selectedOptions);
   const notes = input.notes?.trim() ? input.notes.trim() : undefined;
   commit((current) => {
+    // Linhas só se agrupam quando produto, opcionais, observação E sabores
+    // (meio a meio) são iguais — duas metades diferentes viram linhas distintas.
     const existing = current.find(
       (item) =>
         item.productId === input.productId &&
         sameOptions(item.selectedOptions ?? [], opts) &&
-        sameNotes(item.notes, notes)
+        sameNotes(item.notes, notes) &&
+        sameHalfHalfFlavors(item.halfHalfFlavors, halfHalfFlavors)
     );
     if (existing) {
       return current.map((item) =>
@@ -359,6 +399,7 @@ const addCustomItem = (input: AddCustomItemInput) => {
                 imageUrl: item.imageUrl,
                 establishmentId: item.establishmentId,
                 categoryName: item.categoryName,
+                halfHalfFlavors: item.halfHalfFlavors,
               }
             )
           : item
@@ -403,6 +444,7 @@ const removeItem = (productId: string) => {
                 imageUrl: item.imageUrl,
                 establishmentId: item.establishmentId,
                 categoryName: item.categoryName,
+                halfHalfFlavors: item.halfHalfFlavors,
               }
             )
           : item
@@ -448,6 +490,7 @@ const setLineQuantity = (lineId: string, quantity: number) => {
             imageUrl: item.imageUrl,
             establishmentId: item.establishmentId,
             categoryName: item.categoryName,
+            halfHalfFlavors: item.halfHalfFlavors,
           }
         );
       })
@@ -545,7 +588,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
       const base =
         typeof item.basePrice === "number"
           ? item.basePrice
-          : productById.get(item.productId)?.preco ?? 0;
+          : item.halfHalfFlavors
+            ? (resolveHalfHalfBasePrice(item.halfHalfFlavors) ?? 0)
+            : productById.get(item.productId)?.preco ?? 0;
       const unit = calcUnitPrice(base, item.selectedOptions ?? []);
       return acc + unit * item.quantidade;
     }, 0);

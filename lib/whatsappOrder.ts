@@ -15,6 +15,8 @@
  * `sessionStorage` checam `typeof window`.
  */
 
+import { paymentMethodLabel } from "@/lib/paymentLabels";
+
 /** Chave do `sessionStorage` que carrega o link até a tela do pedido. */
 export const WHATSAPP_ORDER_STORAGE_KEY = "ipepper:whatsapp_order_url";
 
@@ -64,18 +66,15 @@ export interface WhatsAppOrderSummaryInput {
   couponCode?: string | null;
   total: number;
   paymentMethod: string;
+  /**
+   * Bandeira do vale-refeição/alimentação escolhida para pagamento NA ENTREGA
+   * (`orders.meal_voucher`, migração 20261111000004). `null` nas demais formas.
+   */
+  mealVoucher?: string | null;
   changeFor?: number | null;
   notes?: string | null;
   estimatedDeliveryTime?: string | null;
 }
-
-/** Rótulos das formas de pagamento aceitas no checkout. */
-const PAYMENT_LABELS: Record<string, string> = {
-  pix: "Pix",
-  cartao: "Cartão na entrega",
-  dinheiro: "Dinheiro",
-  pix_online: "PIX Online",
-};
 
 /** Valor monetário no padrão brasileiro (`R$ 29,90`). */
 export function formatWhatsAppCurrency(value: number): string {
@@ -254,8 +253,11 @@ export function buildOrderWhatsAppMessage(
   }
 
   lines.push("*Pagamento*");
+  // `paymentMethodLabel` já inclui a bandeira do vale na entrega
+  // ("Vale-Refeição (Alelo) - na entrega").
   lines.push(
-    PAYMENT_LABELS[input.paymentMethod] ?? input.paymentMethod ?? "Não informado"
+    paymentMethodLabel(input.paymentMethod, input.mealVoucher) ||
+      "Não informado"
   );
   if (
     input.paymentMethod === "dinheiro" &&

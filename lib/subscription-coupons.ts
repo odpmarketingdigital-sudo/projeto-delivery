@@ -19,11 +19,10 @@ import {
   normalizeCouponCode,
   roundCurrency,
   toCouponNumber,
-  type CouponDiscountType,
 } from "./coupons";
 import { formatBRL, type BillingCycleId, type BillingCyclePrice } from "./subscriptions";
 
-export type SubscriptionCouponDiscountType = CouponDiscountType;
+export type SubscriptionCouponDiscountType = "percentage" | "fixed";
 
 /** Tipos de desconto aceitos no cadastro (percentual ou valor fixo). */
 export const SUBSCRIPTION_COUPON_DISCOUNT_TYPES = [

@@ -14,6 +14,7 @@ import {
   formatEstimatedDeliveryWindowLabel,
   parseEstimatedDeliveryWindow,
 } from "@/lib/deliveryEstimate";
+import { paymentMethodLabel } from "@/lib/paymentLabels";
 
 type OrderStatus = "pendente" | "preparando" | "entrega" | "finalizado" | "cancelado";
 
@@ -32,6 +33,11 @@ interface OrderCard {
   subtotal: number;
   delivery_fee: number;
   payment_method: string;
+  /**
+   * Bandeira do vale-refeição/alimentação usada na entrega (coluna
+   * `orders.meal_voucher`, migração 20261111000004).
+   */
+  meal_voucher?: string | null;
   customer_name: string;
   customer_phone: string | null;
   customer_address: { street?: string; number?: string; neighborhood?: string; complement?: string; reference?: string } | null;
@@ -64,13 +70,6 @@ const STATUS_DOT: Record<OrderStatus, string> = {
   entrega: "bg-violet-500",
   finalizado: "bg-emerald-500",
   cancelado: "bg-red-500",
-};
-
-const PAYMENT_LABEL: Record<string, string> = {
-  pix: "Pix",
-  cartao: "Cartão na entrega",
-  dinheiro: "Dinheiro",
-  pix_online: "PIX Online",
 };
 
 /** Chave usada no localStorage para o telefone do cliente. */
@@ -469,7 +468,10 @@ function OrdersHistoryPage() {
                   </div>
                   {order.payment_method && (
                     <p className="text-xs text-gray-400 dark:text-gray-500">
-                      {PAYMENT_LABEL[order.payment_method] ?? order.payment_method}
+                      {paymentMethodLabel(
+                        order.payment_method,
+                        order.meal_voucher
+                      ) || order.payment_method}
                     </p>
                   )}
                 </div>

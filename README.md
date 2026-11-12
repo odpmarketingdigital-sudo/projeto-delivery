@@ -119,6 +119,55 @@ colunas de pagamento em `orders`). Passo a passo e variáveis de ambiente:
   a `canceled_at`/`overdue_suspended_at`) — lojas desligadas manualmente pelo
   Super Admin continuam offline.
 
+### Horário de fechamento no selo e pedido mínimo
+
+- O selo verde da vitrine mostra o fechamento do **turno atual** quando a loja
+  está aberta e existe horário configurado: `ABERTO AGORA • Fecha às 23:00`
+  ([`getCurrentClosingTime`](lib/openingHours.ts)). Loja sem horários (abertura
+  manual) ou dia marcado como 24h mantêm apenas `ABERTO AGORA`; o cálculo só
+  roda depois da montagem, pela mesma regra de hidratação do `storeStatus`;
+- `establishments.min_order_value` (migração
+  `20261111000003_add_min_order_value_to_establishments.sql`) define o pedido
+  mínimo da loja, comparado com o **subtotal dos itens** (sem a taxa de entrega).
+  O valor é editado em `/painel/configuracoes` (seção "Pedido mínimo", `0,00` =
+  sem mínimo) e usado em três pontos:
+  - vitrine e barra da sacola: texto discreto `Pedido mínimo: R$ 25,00`;
+  - [`CartDrawer`](app/components/CartDrawer.tsx) e
+    [`CheckoutForm`](app/components/CheckoutForm.tsx): a mensagem
+    [`describeMinOrderShortfall`](lib/minOrder.ts) informa o mínimo e quanto
+    falta, e o botão de avançar/confirmar fica desabilitado;
+  - `POST /api/orders`: revalidação no servidor (400 com a mesma mensagem).
+  Itens "Sob Consulta" (modo catálogo) ficam fora da regra — o valor é
+  combinado com o atendente.
+
+### Vale-Refeição / Alimentação na entrega
+
+- `establishments.accepted_meal_vouchers` (jsonb, migração
+  `20261111000004_add_meal_vouchers.sql`) guarda as bandeiras que a loja aceita
+  cobrar **presencialmente na entrega** (maquininha): `Alelo`,
+  `Sodexo / Pluxee`, `Ticket`, `VR Benefícios`, `Ben Visa Vale`, `Greencard`,
+  `Verocard` e bandeiras customizadas. O cadastro fica em
+  `/painel/configuracoes` (seção "Vale-Refeição / Alimentação (Pagamento na
+  entrega)") e é salvo por `PUT /api/establishment` com fallback seguro quando a
+  coluna ainda não existe (resposta com `warning`, sem derrubar o restante);
+- `/api/menu` devolve a lista normalizada em
+  `StorefrontInfo.accepted_meal_vouchers`; o checkout
+  ([`CheckoutForm`](app/components/CheckoutForm.tsx)) só mostra a opção
+  "Vale-Refeição / Alimentação" quando há pelo menos uma bandeira e exige a
+  escolha da bandeira antes de confirmar;
+- A modalidade é **100% presencial**: não aciona gateway online/PIX Asaas. O
+  pedido é gravado com `payment_method = 'vale_refeicao'` e
+  `orders.meal_voucher` (migração 20261111000004); `POST /api/orders` revalida a
+  bandeira contra a lista da loja (400 quando não aceita);
+- O resumo do WhatsApp ([`lib/whatsappOrder.ts`](lib/whatsappOrder.ts)), o card
+  do `/painel` ([`OrderCard`](app/components/OrderCard.tsx)), o modal de detalhes,
+  o acompanhamento (`/pedido/[id]`) e "Meus Pedidos" (`/[slug]/pedidos`) exibem
+  `Vale-Refeição (Alelo) - na entrega` (rótulo único em
+  [`lib/paymentLabels.ts`](lib/paymentLabels.ts)), para o entregador levar a
+  maquininha correta;
+- Base sem a coluna `orders.meal_voucher`: o pedido continua sendo gravado e a
+  bandeira é anexada às observações, sem perder a informação.
+
 ### Marca e navegação inferior (visão do cliente)
 
 - A vitrine é **white-label**: o topo do cardápio não exibe o logotipo/marca
@@ -201,12 +250,12 @@ Admin**:
   service role. O SQL da migração também cria a policy de `update` para
   `public.is_super_admin()` e concede ao `authenticated` privilégio de `update`
   apenas nessa coluna (as demais colunas seguem exclusivas das rotas de API);
-- Com a loja liberada, o lojista liga/desliga a chave
-  `direct_whatsapp_checkout` em `/painel/configuracoes` (migração
-  `20261110000017_add_direct_whatsapp_checkout.sql`). Sem a liberação a chave
-  aparece **desativada** com o aviso "Modo Catálogo exclusivo para planos
-  liberados" e `PUT /api/establishment` recusa `direct_whatsapp_checkout: true`
-  com 403;
+- A coluna `establishments.direct_whatsapp_checkout` (migração
+  `20261110000017_add_direct_whatsapp_checkout.sql`) guarda a preferência da
+  loja, mas **não é exibida no painel do lojista** (`/painel/configuracoes`).
+  Ela continua sendo lida/gravada pela API e honorada pela sacola/checkout; sem
+  a liberação acima, `PUT /api/establishment` recusa
+  `direct_whatsapp_checkout: true` com 403;
 - `GET /api/menu` só devolve `direct_whatsapp_checkout: true` quando as duas
   colunas estão `true`, então revogar a liberação devolve a loja ao checkout
   tradicional na hora (a rota também zera a preferência da loja e chama
