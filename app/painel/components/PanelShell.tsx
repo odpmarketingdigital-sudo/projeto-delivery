@@ -31,10 +31,11 @@ import { LogoutButton } from "@/app/components/LogoutButton";
  * sempre expandido.
  *
  * A navegação por papel é a mesma do <AdminHeader> anterior:
- *  - admin de loja → Pedidos, Dashboard, Clientes, Cupons, Produtos,
- *    Configurações e Assinatura;
- *  - super_admin → Dashboard SaaS, Assinantes, Cupons de Assinatura e Preço do
- *    Plano (o super admin não opera loja).
+ *  - admin de loja → Pedidos, Dashboard, Clientes, Cupons, Atendente IA,
+ *    Produtos, Configurações e Assinatura;
+ *  - super_admin → Dashboard SaaS, Assinantes, Cupons de Assinatura,
+ *    Atendente IA (configuração global) e Preço do Plano (o super admin não
+ *    opera loja).
  */
 
 /* -------------------------------------------------------------------------- */
@@ -112,12 +113,14 @@ export type PanelPage =
   | "financeiro"
   | "clientes"
   | "cupons"
+  | "whatsapp-ia"
   | "produtos"
   | "configuracoes"
   | "assinatura"
   | "admin"
   | "admin-assinantes"
   | "admin-cupons"
+  | "admin-ia"
   | "admin-configuracoes";
 
 /** Ícones desenhados em linha (sem dependência externa). */
@@ -127,6 +130,7 @@ type IconName =
   | "wallet"
   | "customers"
   | "coupons"
+  | "whatsapp"
   | "products"
   | "settings"
   | "subscription";
@@ -160,6 +164,12 @@ const STORE_NAV_ITEMS: NavItem[] = [
     icon: "customers",
   },
   { page: "cupons", href: "/painel/cupons", label: "Cupons", icon: "coupons" },
+  {
+    page: "whatsapp-ia",
+    href: "/painel/whatsapp-ia",
+    label: "WhatsApp",
+    icon: "whatsapp",
+  },
   {
     page: "produtos",
     href: "/painel/produtos",
@@ -201,6 +211,12 @@ const SAAS_NAV_ITEMS: NavItem[] = [
     icon: "coupons",
   },
   {
+    page: "admin-ia",
+    href: "/painel/admin/ia",
+    label: "Atendente IA",
+    icon: "whatsapp",
+  },
+  {
     page: "admin-configuracoes",
     href: "/painel/admin/configuracoes",
     label: "Preço do Plano",
@@ -219,9 +235,11 @@ export function resolvePanelPage(pathname: string): PanelPage | null {
   if (pathname.startsWith("/painel/produtos")) return "produtos";
   if (pathname.startsWith("/painel/admin/assinantes")) return "admin-assinantes";
   if (pathname.startsWith("/painel/admin/cupons")) return "admin-cupons";
+  if (pathname.startsWith("/painel/admin/ia")) return "admin-ia";
   if (pathname.startsWith("/painel/admin/configuracoes"))
     return "admin-configuracoes";
   if (pathname.startsWith("/painel/admin")) return "admin";
+  if (pathname.startsWith("/painel/whatsapp-ia")) return "whatsapp-ia";
   if (pathname.startsWith("/painel")) return "pedidos";
   return null;
 }
@@ -279,6 +297,12 @@ function NavIcon({ name }: { name: IconName }) {
       <>
         <path d="M3 9V6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v3a3 3 0 0 0 0 6v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-3a3 3 0 0 0 0-6Z" />
         <path d="M13 5v14" />
+      </>
+    ),
+    whatsapp: (
+      <>
+        <path d="M20.5 11.6a8.4 8.4 0 0 1-12.3 7.5L3.5 20.5l1.4-4.6a8.4 8.4 0 1 1 15.6-4.3Z" />
+        <path d="M8.8 9.2c0 3.1 2.9 5.9 6 6 .8 0 1.3-.6 1.3-1.3l-2-1-1 .9a6.5 6.5 0 0 1-2.9-2.9l.9-1-1-2c-.7 0-1.3.5-1.3 1.3Z" />
       </>
     ),
     products: (

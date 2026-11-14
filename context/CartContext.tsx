@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { CartItem, HalfHalfFlavor, Product, ProductOption } from "@/lib/types";
+import type { OrderDeliveryType } from "@/lib/orderStatus";
 import { parseCep } from "@/lib/delivery";
 import {
   normalizeHalfHalfFlavors,
@@ -19,89 +20,214 @@ import { products } from "@/lib/mockData";
 const STORAGE_KEY = "@delivery:cart";
 
 /**
- * CEP de entrega escolhido na sacola. Fica no contexto (e no localStorage)
- * para chegar já preenchido ao checkout, sem o cliente precisar digitá-lo
- * novamente. Guardamos apenas os 8 dígitos normalizados.
+ * Endereço usado pelo cliente no cálculo do frete (sacola e checkout). Fica no
+ * contexto (e no localStorage) para chegar **pré-preenchido** ao checkout — o
+ * cliente só revisa/ajusta o que quiser.
+ *
+ * O CEP continua sendo guardado à parte (`deliveryCep`, somente dígitos) por
+ * compatibilidade com o link do modo catálogo. Ele não é mais digitado pelo
+ * cliente: vem da busca automática de endereço (Google Places) ou do perfil.
  */
 const DELIVERY_CEP_STORAGE_KEY = "@delivery:delivery-cep";
+const DELIVERY_ADDRESS_STORAGE_KEY = "@delivery:delivery-address";
+/**
+ * Modalidade de atendimento escolhida pelo cliente (sacola → checkout).
+ * Persistida para o cliente não precisar escolher de novo no próximo pedido.
+ */
+const ORDER_TYPE_STORAGE_KEY = "@delivery:order-type";
 
 const EMPTY_ITEMS: CartItem[] = [];
 
-const deliveryCepListeners = new Set<() => void>();
-let deliveryCepSnapshot = "";
-let deliveryCepLoaded = false;
-/** Quantos componentes assinam o CEP (um único listener de `storage` serve todos). */
-let deliveryCepSubscribers = 0;
-
-function loadDeliveryCep(): string {
-  if (typeof window === "undefined") return "";
-  if (deliveryCepLoaded) return deliveryCepSnapshot;
-
-  deliveryCepLoaded = true;
-  try {
-    deliveryCepSnapshot =
-      parseCep(window.localStorage.getItem(DELIVERY_CEP_STORAGE_KEY)) ?? "";
-  } catch {
-    // Storage indisponível (modo privado, quota etc.): mantém vazio.
-    deliveryCepSnapshot = "";
-  }
-  return deliveryCepSnapshot;
+/** Endereço de entrega salvo na sacola e reaproveitado no checkout. */
+export interface CartDeliveryAddress {
+  street: string;
+  number: string;
+  neighborhood: string;
+  city?: string;
+  complement?: string;
+  /** CEP (somente dígitos) devolvido pela busca automática de endereço. */
+  cep?: string;
+  latitude?: number;
+  longitude?: number;
+  placeId?: string;
+  /**
+   * Endereço formatado devolvido pelo Google Places na seleção.
+   * Usado apenas como feedback visual no checkout (não entra no pedido).
+   */
+  formattedAddress?: string;
 }
 
-function notifyDeliveryCep() {
-  for (const listener of deliveryCepListeners) listener();
+/** Valor vazio estável (mesma referência em todos os renders/SSR). */
+const EMPTY_DELIVERY_ADDRESS: CartDeliveryAddress | null = null;
+
+/**
+ * Store de um valor único no localStorage com `useSyncExternalStore`.
+ *
+ * O listener de `storage` é registrado UMA vez por store (e não um por
+ * componente), evitando re-renders multiplicados a cada evento entre abas.
+ */
+function createStoredValue<T>({
+  key,
+  empty,
+  parse,
+  serialize,
+}: {
+  key: string;
+  empty: T;
+  parse: (raw: string | null) => T;
+  serialize: (value: T) => string | null;
+}) {
+  const listeners = new Set<() => void>();
+  let snapshot: T = empty;
+  let loaded = false;
+  let subscribers = 0;
+
+  const load = (): T => {
+    if (typeof window === "undefined") return empty;
+    if (loaded) return snapshot;
+    loaded = true;
+    try {
+      snapshot = parse(window.localStorage.getItem(key));
+    } catch {
+      // Storage indisponível (modo privado, quota etc.): mantém vazio.
+      snapshot = empty;
+    }
+    return snapshot;
+  };
+
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key !== key) return;
+    loaded = false;
+    snapshot = empty;
+    load();
+    notify();
+  };
+
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener);
+    subscribers += 1;
+    if (subscribers === 1) {
+      window.addEventListener("storage", handleStorage);
+    }
+    return () => {
+      listeners.delete(listener);
+      subscribers = Math.max(0, subscribers - 1);
+      if (subscribers === 0) {
+        window.removeEventListener("storage", handleStorage);
+      }
+    };
+  };
+
+  const getSnapshot = (): T =>
+    typeof window === "undefined" ? empty : load();
+
+  const getServerSnapshot = (): T => empty;
+
+  const set = (value: T) => {
+    loaded = true;
+    snapshot = value;
+    try {
+      const serialized = serialize(value);
+      if (serialized === null) {
+        window.localStorage.removeItem(key);
+      } else {
+        window.localStorage.setItem(key, serialized);
+      }
+    } catch {
+      // Falha de storage não deve interromper a sacola.
+    }
+    notify();
+  };
+
+  return { subscribe, getSnapshot, getServerSnapshot, set };
+}
+
+/** CEP da sacola (somente dígitos; vazio limpa). */
+const deliveryCepStore = createStoredValue<string>({
+  key: DELIVERY_CEP_STORAGE_KEY,
+  empty: "",
+  parse: (raw) => parseCep(raw) ?? "",
+  serialize: (value) => (value ? value : null),
+});
+
+/** Persiste o CEP já normalizado (aceita qualquer formato de entrada). */
+function setDeliveryCepValue(value: string) {
+  deliveryCepStore.set(parseCep(value) ?? "");
 }
 
 /**
- * Sincroniza o CEP entre abas. É registrado UMA vez para todo o store — antes
- * cada componente adicionava o próprio `storage` listener (e a própria
- * notificação), multiplicando re-renders a cada evento.
+ * Lê/normaliza o endereço salvo, descartando JSON corrompido ou campos
+ * inválidos (mesma tolerância do perfil do cliente em `lib/storage.ts`).
  */
-function handleDeliveryCepStorage(event: StorageEvent) {
-  if (event.key !== DELIVERY_CEP_STORAGE_KEY) return;
-  deliveryCepLoaded = false;
-  deliveryCepSnapshot = "";
-  loadDeliveryCep();
-  notifyDeliveryCep();
-}
-
-function subscribeDeliveryCep(listener: () => void) {
-  deliveryCepListeners.add(listener);
-  deliveryCepSubscribers += 1;
-  if (deliveryCepSubscribers === 1) {
-    window.addEventListener("storage", handleDeliveryCepStorage);
-  }
-  return () => {
-    deliveryCepListeners.delete(listener);
-    deliveryCepSubscribers = Math.max(0, deliveryCepSubscribers - 1);
-    if (deliveryCepSubscribers === 0) {
-      window.removeEventListener("storage", handleDeliveryCepStorage);
-    }
-  };
-}
-
-const getDeliveryCepSnapshot = (): string =>
-  typeof window === "undefined" ? "" : loadDeliveryCep();
-
-const getDeliveryCepServerSnapshot = (): string => "";
-
-/** Persiste o CEP informado na sacola (somente 8 dígitos; vazio limpa). */
-function setDeliveryCepValue(value: string) {
-  const normalized = parseCep(value) ?? "";
-  deliveryCepLoaded = true;
-  deliveryCepSnapshot = normalized;
+function parseDeliveryAddress(raw: string | null): CartDeliveryAddress | null {
+  if (!raw) return null;
 
   try {
-    if (normalized) {
-      window.localStorage.setItem(DELIVERY_CEP_STORAGE_KEY, normalized);
-    } else {
-      window.localStorage.removeItem(DELIVERY_CEP_STORAGE_KEY);
-    }
+    const parsed = JSON.parse(raw) as Partial<CartDeliveryAddress> | null;
+    if (!parsed || typeof parsed !== "object") return null;
+
+    const text = (value: unknown): string =>
+      typeof value === "string" ? value.trim() : "";
+    const street = text(parsed.street);
+    const number = text(parsed.number);
+    const neighborhood = text(parsed.neighborhood);
+    if (!street && !number && !neighborhood) return null;
+
+    const latitude =
+      typeof parsed.latitude === "number" && Number.isFinite(parsed.latitude)
+        ? parsed.latitude
+        : undefined;
+    const longitude =
+      typeof parsed.longitude === "number" && Number.isFinite(parsed.longitude)
+        ? parsed.longitude
+        : undefined;
+    const city = text(parsed.city);
+    const complement = text(parsed.complement);
+    const cep = parseCep(parsed.cep ?? "") ?? "";
+    const placeId = text(parsed.placeId);
+    const formattedAddress = text(parsed.formattedAddress);
+
+    return {
+      street,
+      number,
+      neighborhood,
+      ...(city ? { city } : {}),
+      ...(complement ? { complement } : {}),
+      ...(cep ? { cep } : {}),
+      ...(latitude != null && longitude != null ? { latitude, longitude } : {}),
+      ...(placeId ? { placeId } : {}),
+      ...(formattedAddress ? { formattedAddress } : {}),
+    };
   } catch {
-    // Falha de storage não deve interromper a sacola.
+    return null;
   }
-  notifyDeliveryCep();
 }
+
+const deliveryAddressStore = createStoredValue<CartDeliveryAddress | null>({
+  key: DELIVERY_ADDRESS_STORAGE_KEY,
+  empty: EMPTY_DELIVERY_ADDRESS,
+  parse: parseDeliveryAddress,
+  serialize: (value) => (value ? JSON.stringify(value) : null),
+});
+
+/**
+ * Modalidade de atendimento (`entrega` ou `retirada`).
+ *
+ * Qualquer valor desconhecido/ausente cai em `entrega` (comportamento padrão do
+ * cardápio). Só o checkout usa o valor para decidir se cobra a taxa e exige o
+ * endereço — a sacola usa para esconder a seção de frete na retirada.
+ */
+const orderTypeStore = createStoredValue<OrderDeliveryType>({
+  key: ORDER_TYPE_STORAGE_KEY,
+  empty: "entrega",
+  parse: (raw) => (raw === "retirada" ? "retirada" : "entrega"),
+  serialize: (value) => value,
+});
+
 
 // Catálogo mock — usado APENAS como fallback retrocompatível para itens já
 // persistidos no localStorage antes da vitrine dinâmica. Produtos reais
@@ -551,6 +677,18 @@ interface CartContextValue {
   /** CEP (somente dígitos) informado na sacola; chega pré-preenchido ao checkout. */
   deliveryCep: string;
   setDeliveryCep: (cep: string) => void;
+  /**
+   * Endereço salvo na sacola (usado no cálculo do frete) — o checkout abre com
+   * esses dados já preenchidos para o cliente só revisar.
+   */
+  deliveryAddress: CartDeliveryAddress | null;
+  setDeliveryAddress: (address: CartDeliveryAddress | null) => void;
+  /**
+   * Modalidade escolhida (entrega em casa ou retirada no balcão). A sacola e o
+   * checkout compartilham o mesmo valor — trocar em um reflete no outro.
+   */
+  orderType: OrderDeliveryType;
+  setOrderType: (type: OrderDeliveryType) => void;
   addItem: (product: Product, quantity?: number) => void;
   addCustomItem: (input: AddCustomItemInput) => void;
   removeItem: (productId: string) => void;
@@ -574,9 +712,19 @@ export function CartProvider({ children }: { children: ReactNode }) {
     getHydratedServerSnapshot
   );
   const deliveryCep = useSyncExternalStore(
-    subscribeDeliveryCep,
-    getDeliveryCepSnapshot,
-    getDeliveryCepServerSnapshot
+    deliveryCepStore.subscribe,
+    deliveryCepStore.getSnapshot,
+    deliveryCepStore.getServerSnapshot
+  );
+  const deliveryAddress = useSyncExternalStore(
+    deliveryAddressStore.subscribe,
+    deliveryAddressStore.getSnapshot,
+    deliveryAddressStore.getServerSnapshot
+  );
+  const orderType = useSyncExternalStore(
+    orderTypeStore.subscribe,
+    orderTypeStore.getSnapshot,
+    orderTypeStore.getServerSnapshot
   );
 
   const value = useMemo<CartContextValue>(() => {
@@ -602,6 +750,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
       isHydrated,
       deliveryCep,
       setDeliveryCep: setDeliveryCepValue,
+      deliveryAddress,
+      setDeliveryAddress: deliveryAddressStore.set,
+      orderType,
+      setOrderType: orderTypeStore.set,
       addItem,
       addCustomItem,
       removeItem,
@@ -613,7 +765,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           .filter((item) => item.productId === productId)
           .reduce((acc, item) => acc + item.quantidade, 0),
     };
-  }, [items, isHydrated, deliveryCep]);
+  }, [items, isHydrated, deliveryCep, deliveryAddress, orderType]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

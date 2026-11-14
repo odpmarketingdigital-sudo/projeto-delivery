@@ -218,6 +218,8 @@ export async function GET(request: Request) {
           status,
           created_at: createdAt,
           items: mapItems(row.items),
+          delivery_type:
+            typeof row.delivery_type === "string" ? row.delivery_type : null,
           coupon_code:
             typeof row.coupon_code === "string" ? row.coupon_code : null,
           coupon_discount:

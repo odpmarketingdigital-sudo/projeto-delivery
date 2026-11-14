@@ -12,6 +12,31 @@
 /** Chave usada no localStorage para guardar o perfil do cliente. */
 export const CUSTOMER_PROFILE_KEY = "fuego_customer_profile";
 
+/** Chaves onde a tela de acompanhamento (`/[slug]/pedidos`) guarda o telefone. */
+const CUSTOMER_PHONE_KEY = "customer_phone";
+const LEGACY_CUSTOMER_PHONE_KEY = "delivery_last_phone";
+
+/**
+ * Telefone salvo pela tela de acompanhamento de pedidos.
+ *
+ * Serve de fallback para pré-preencher o checkout de quem já consultou um
+ * pedido neste navegador, mas ainda não tem perfil completo salvo.
+ */
+export function readSavedCustomerPhone(): string {
+  if (typeof window === "undefined") return "";
+
+  try {
+    const raw =
+      window.localStorage.getItem(CUSTOMER_PHONE_KEY) ??
+      window.localStorage.getItem(LEGACY_CUSTOMER_PHONE_KEY) ??
+      "";
+    return raw.trim();
+  } catch {
+    // Storage indisponível (modo privado, quota etc.).
+    return "";
+  }
+}
+
 /** Dados do cliente salvos para pré-preenchimento do checkout. */
 export interface CustomerProfile {
   name: string;

@@ -4,11 +4,16 @@
  * Regras do recurso "enviar pedido no WhatsApp no checkout":
  * - O pedido SEMPRE é gravado em `public.orders` (aparece no painel). O envio
  *   por WhatsApp é apenas um canal adicional de comunicação com a loja.
- * - A loja controla o recurso em `establishments.whatsapp_checkout_enabled`
- *   (migração 20261110000016). Ausência da coluna/valor = recurso ativo
- *   (`!== false`), mantendo o comportamento em bases legadas.
+ * - O botão é ligado/desligado por `establishments.whatsapp_checkout_enabled`
+ *   (migração 20261110000016). O painel do lojista não edita mais essa
+ *   preferência — o número de atendimento e os disparos do sistema são geridos
+ *   pela conexão da Evolution API em `/painel/whatsapp-ia`; ausência da
+ *   coluna/valor = recurso ativo (`!== false`).
  * - Sem número de WhatsApp/telefone válido a URL não é gerada: o checkout
  *   segue funcionando normalmente.
+ * - A MESMA mensagem é reaproveitada pelas notificações automáticas de novo
+ *   pedido enviadas pela Evolution API (`lib/whatsapp/orderNotifications.ts`),
+ *   para loja e cliente verem exatamente o mesmo formato.
  *
  * Importado pelo cliente (checkout/tracker) e pelo servidor (`POST /api/orders`),
  * por isso não depende de APIs exclusivas do navegador — os helpers de
@@ -74,6 +79,11 @@ export interface WhatsAppOrderSummaryInput {
   changeFor?: number | null;
   notes?: string | null;
   estimatedDeliveryTime?: string | null;
+  /**
+   * Modalidade do pedido (`entrega` | `retirada`). Quando ausente, a mensagem
+   * infere pelo endereço (sem endereço = retirada).
+   */
+  deliveryType?: string | null;
 }
 
 /** Valor monetário no padrão brasileiro (`R$ 29,90`). */
@@ -157,7 +167,7 @@ export function resolveStoreWhatsAppNumber(
 }
 
 /** Endereço em uma linha (sem complemento/referência/CEP). */
-function formatAddressLine(
+export function formatWhatsAppAddressLine(
   address: WhatsAppOrderAddress | null | undefined
 ): string {
   if (!address) return "";
@@ -234,9 +244,15 @@ export function buildOrderWhatsAppMessage(
   }
   lines.push("");
 
-  // O checkout atual sempre entrega no endereço informado; quando o endereço
-  // não vier (ex.: retirada em fluxos futuros), o bloco é omitido.
-  const addressLine = formatAddressLine(input.address);
+  // Endereço informado = entrega; sem endereço = retirada no balcão (mesma
+  // regra do painel, ver `orderDeliveryType`). O campo explícito
+  // `deliveryType` tem prioridade: um pedido de retirada nunca deve exibir um
+  // endereço antigo do perfil do cliente.
+  const isPickup =
+    input.deliveryType === "retirada" ||
+    input.deliveryType === "pickup" ||
+    !formatWhatsAppAddressLine(input.address);
+  const addressLine = isPickup ? "" : formatWhatsAppAddressLine(input.address);
   if (addressLine) {
     lines.push("*Endereço de entrega*");
     lines.push(addressLine);
@@ -249,6 +265,10 @@ export function buildOrderWhatsAppMessage(
     if (input.address?.cep?.trim()) {
       lines.push(`CEP: ${formatCepForDisplay(input.address.cep)}`);
     }
+    lines.push("");
+  } else {
+    lines.push("*Retirada*");
+    lines.push("Retirada no balcão do estabelecimento.");
     lines.push("");
   }
 
@@ -284,12 +304,20 @@ export function buildOrderWhatsAppMessage(
       `Desconto${couponLabel}: -${formatWhatsAppCurrency(couponDiscount)}`
     );
   }
-  lines.push(`Taxa de entrega: ${formatWhatsAppCurrency(input.deliveryFee)}`);
+  lines.push(
+    `${isPickup ? "Retirada no balcão" : "Taxa de entrega"}: ${
+      isPickup ? "sem taxa" : formatWhatsAppCurrency(input.deliveryFee)
+    }`
+  );
   lines.push(`*Total: ${formatWhatsAppCurrency(input.total)}*`);
 
   if (input.estimatedDeliveryTime?.trim()) {
     lines.push("");
-    lines.push(`Previsão de entrega: ${input.estimatedDeliveryTime.trim()}`);
+    lines.push(
+      `Previsão de ${isPickup ? "retirada" : "entrega"}: ${
+        input.estimatedDeliveryTime.trim()
+      }`
+    );
   }
   if (input.notes?.trim()) {
     lines.push("");

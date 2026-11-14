@@ -203,13 +203,15 @@ export interface PanelOrder {
 
 /**
  * Aliases de status aceitos na borda (UI/params) e normalizados para o
- * status canônico do banco: `em_preparo` → `preparando`,
- * `saiu_para_entrega` → `entrega`, `concluido` → `finalizado`.
+ * status canônico do banco: `em_preparo`/`confirmado` → `preparando`,
+ * `saiu_para_entrega` → `entrega`, `concluido`/`entregue` → `finalizado`.
  */
 export const ORDER_STATUS_ALIASES: Record<string, OrderStatus> = {
   em_preparo: "preparando",
+  confirmado: "preparando",
   saiu_para_entrega: "entrega",
   concluido: "finalizado",
+  entregue: "finalizado",
 };
 
 /** Normaliza qualquer string de status para o valor canônico (ou null). */
@@ -362,6 +364,11 @@ export interface Establishment {
   max_delivery_radius_km?: number | string | null;
   /** CEP da loja usado como origem do cálculo (somente dígitos). */
   store_cep?: string | null;
+  /**
+   * Endereço da loja por extenso (origem do cálculo do frete) — coluna
+   * `store_address`, migração 20261113000003.
+   */
+  store_address?: string | null;
   store_latitude?: number | string | null;
   store_longitude?: number | string | null;
   /** Tempo mínimo estimado de entrega (minutos) — migração 20261110000015. */
@@ -427,9 +434,37 @@ export interface Establishment {
   pix_key?: string | null;
   /** Liga/desliga o PIX online no cardápio (Split de Pagamentos). */
   accept_pix_online?: boolean | null;
+  /**
+   * Atendente virtual de IA no WhatsApp (migração
+   * 20261111000005_add_ai_whatsapp_assistant).
+   * `false`/ausente = a IA não responde nenhuma mensagem.
+   */
+  ai_enabled?: boolean | null;
+  /** Nome com que a IA se apresenta ao cliente (`ai_assistant_name`). */
+  ai_assistant_name?: string | null;
+  /**
+   * Tom de voz do atendente (`ai_personality`): `simpatico` | `direto` |
+   * `formal`. Ausente/inválido → `simpatico` (ver `lib/whatsappAssistant.ts`).
+   */
+  ai_personality?: AiPersonality | string | null;
+  /** Instruções livres da loja acrescentadas ao prompt (`ai_custom_instructions`). */
+  ai_custom_instructions?: string | null;
+  /**
+   * Nome da instância da Evolution API vinculada à loja
+   * (`whatsapp_instance_name`). Único no banco: o webhook resolve a loja por ele.
+   */
+  whatsapp_instance_name?: string | null;
+  /** Último estado de conexão conhecido do WhatsApp da loja (`whatsapp_connected`). */
+  whatsapp_connected?: boolean | null;
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * Tom de voz do atendente virtual de WhatsApp
+ * (coluna `establishments.ai_personality`).
+ */
+export type AiPersonality = "simpatico" | "direto" | "formal";
 
 /**
  * Categoria do cardápio de um estabelecimento (ex: "Lanches", "Bebidas").
@@ -748,6 +783,8 @@ export interface CustomerOrderHistory {
   id: string;
   total: number;
   status: OrderStatus;
+  /** Modalidade escolhida no checkout (`entrega` | `retirada`). */
+  delivery_type?: string | null;
   created_at: string;
   items: PanelOrderItem[];
   coupon_code?: string | null;

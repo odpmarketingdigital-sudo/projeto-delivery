@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCart } from "@/context/CartContext";
 import {
-  formatCep,
   formatTravelDuration,
   parseCep,
   type DeliveryQuote,
@@ -48,7 +47,7 @@ interface DeliveryQuoteResponse {
   quote?: DeliveryQuotePreview;
 }
 
-/** Cotação vinculada à chave loja+CEP que a originou. */
+/** Cotação vinculada à chave loja+endereço que a originou. */
 interface DeliveryQuoteState {
   key: string;
   quote: DeliveryQuotePreview | null;
@@ -59,8 +58,8 @@ interface DeliveryQuoteState {
 /**
  * Endereço escolhido no autocomplete da sacola.
  *
- * `cep` amarra o ponto ao CEP atual: se o cliente digitar/informar outro CEP, o
- * ponto deixa de ser usado (evita cotar a rota de um endereço diferente).
+ * O `cep` vem do Google e é usado apenas como dado do endereço (link do modo
+ * catálogo e conferência da cotação) — o cliente não digita CEP.
  */
 interface SelectedDeliveryPlace {
   /** CEP devolvido pelo Google (somente dígitos) ou `""`. */
@@ -91,10 +90,10 @@ const formatKm = (value: number) => value.toFixed(1).replace(".", ",");
  *
  * Calcula/valida o frete ANTES do checkout:
  *  - loja com taxa fixa: exibe a taxa da loja no resumo;
- *  - loja por distância (ou com raio máximo): permite buscar o endereço pelo
- *    autocomplete do Google (coordenadas exatas) **ou** digitar o CEP, consulta
- *    `/api/delivery-quote`, mostra distância/tempo/valor e guarda o CEP no
- *    contexto do carrinho;
+ *  - loja por distância (ou com raio máximo): busca o endereço pelo
+ *    autocomplete do Google (coordenadas exatas), consulta
+ *    `/api/delivery-quote`, mostra distância/tempo/valor e guarda o endereço no
+ *    contexto do carrinho (o checkout abre pré-preenchido);
  *  - fora do raio: mostra o aviso em vermelho e bloqueia o avanço.
  */
 export function CartDrawer({
@@ -110,12 +109,20 @@ export function CartDrawer({
     items,
     removeLine,
     setLineQuantity,
-    deliveryCep,
     setDeliveryCep,
+    deliveryAddress,
+    setDeliveryAddress,
+    orderType,
+    setOrderType,
   } = useCart();
 
-  const [cepInput, setCepInput] = useState(() => formatCep(deliveryCep));
-  const [lastSyncedCep, setLastSyncedCep] = useState(deliveryCep);
+  /**
+   * Retirada no balcão: o cliente não paga taxa de entrega e não precisa
+   * informar endereço. A escolha fica no contexto (persistida) e chega ao
+   * checkout já marcada.
+   */
+  const isPickup = orderType === "retirada";
+
   // Texto do campo de endereço (o widget do Google escreve aqui; o valor só é
   // usado para exibição — quem manda na cotação são as coordenadas).
   const [addressInput, setAddressInput] = useState("");
@@ -124,12 +131,33 @@ export function CartDrawer({
     useState<SelectedDeliveryPlace | null>(null);
   // Falha ao montar o link do WhatsApp (ex.: loja sem telefone cadastrado).
   const [directError, setDirectError] = useState<string | null>(null);
+  // Último endereço sincronizado do contexto (guarda contra loop de render).
+  const [lastSyncedAddress, setLastSyncedAddress] = useState(deliveryAddress);
 
-  // O contexto pode hidratar depois da primeira renderização (localStorage).
-  // Nesse caso, preenche o campo sem sobrescrever um valor já digitado.
-  if (deliveryCep && deliveryCep !== lastSyncedCep) {
-    setLastSyncedCep(deliveryCep);
-    setCepInput(formatCep(deliveryCep));
+  /**
+   * O contexto pode hidratar depois da primeira renderização (localStorage):
+   * o último endereço usado no frete volta para o campo e para a cotação — sem
+   * sobrescrever um valor que o cliente já tenha digitado nesta sacola.
+   */
+  if (deliveryAddress && deliveryAddress !== lastSyncedAddress) {
+    setLastSyncedAddress(deliveryAddress);
+    const label = [deliveryAddress.street, deliveryAddress.number]
+      .filter(Boolean)
+      .join(", ");
+    setAddressInput((current) => current.trim() || label);
+    if (
+      !selectedPlace &&
+      deliveryAddress.latitude != null &&
+      deliveryAddress.longitude != null
+    ) {
+      setSelectedPlace({
+        cep: deliveryAddress.cep ?? "",
+        latitude: deliveryAddress.latitude,
+        longitude: deliveryAddress.longitude,
+        placeId: deliveryAddress.placeId ?? null,
+        label: label || "endereço salvo",
+      });
+    }
   }
 
   const establishmentId = establishment?.id ?? null;
@@ -140,18 +168,17 @@ export function CartDrawer({
       (deliveryType === "distance" || maxRadius != null)
   );
   /**
-   * Sem a chave pública do Google o autocomplete não funciona: a sacola fica
-   * apenas com o campo de CEP (fluxo anterior), sem UI enganosa.
+   * A busca automática de endereço (Google Places) é o único caminho para
+   * cotar na sacola — o cliente não digita mais CEP. Sem a chave pública o
+   * widget não existe, então a seção fica oculta e a taxa é calculada no
+   * checkout a partir do endereço digitado lá.
    */
   const placesEnabled = isGooglePlacesEnabled();
-  // Texto de apoio da seção de entrega da sacola (muda com a chave do Google).
-  const deliveryIntro = placesEnabled
-    ? deliveryType === "distance"
-      ? "Busque pelo endereço para cotar taxa e tempo pela rota, ou informe o CEP."
-      : "Busque pelo endereço ou informe o CEP para confirmar a entrega nesta região."
-    : deliveryType === "distance"
-      ? "Informe o CEP para calcular taxa e tempo de entrega."
-      : "Informe o CEP para validar a área de entrega.";
+  // Texto de apoio da seção de entrega da sacola.
+  const deliveryIntro =
+    deliveryType === "distance"
+      ? "Busque seu endereço para cotar a taxa e o tempo pela rota real."
+      : "Busque seu endereço para confirmar a entrega nesta região.";
   const fixedFee = Number(establishment?.delivery_fee ?? 0) || 0;
 
   const cartItems = useMemo(
@@ -180,26 +207,19 @@ export function CartDrawer({
     return acc + unit * item.quantidade;
   }, 0);
 
-  const cepDigits = parseCep(cepInput);
-  /**
-   * Ponto válido para o endereço atual: se o cliente mudou o CEP depois de
-   * escolher uma sugestão, as coordenadas antigas deixam de valer.
-   */
-  const placePoint =
-    selectedPlace && (!cepDigits || selectedPlace.cep === cepDigits)
-      ? selectedPlace
-      : null;
-  // Há destino suficiente para cotar (coordenadas do autocomplete ou CEP).
-  const hasDestination = Boolean(cepDigits || placePoint);
+  // CEP devolvido pela busca automática (usado no link do modo catálogo).
+  const cepDigits = parseCep(selectedPlace?.cep ?? "");
+  // Destino da cotação: coordenadas do endereço escolhido no autocomplete.
+  const placePoint = selectedPlace;
+  const hasDestination = Boolean(placePoint);
   // A chave inclui as coordenadas: trocar o endereço sugerido invalida a
-  // cotação anterior mesmo quando o CEP é o mesmo (ex.: número na outra ponta
-  // da rua), forçando um novo cálculo de rota no Google Routes.
+  // cotação anterior e força um novo cálculo de rota no Google Routes.
   const pointKey = placePoint
     ? `${placePoint.latitude.toFixed(5)},${placePoint.longitude.toFixed(5)}`
     : "";
   const quoteKey =
     establishmentId && needsCep && hasDestination
-      ? `${establishmentId}:${cepDigits ?? ""}:${pointKey}`
+      ? `${establishmentId}:${pointKey}`
       : null;
 
   const [quoteState, setQuoteState] = useState<DeliveryQuoteState | null>(null);
@@ -286,7 +306,9 @@ export function CartDrawer({
   const deliveryDurationLabel = formatTravelDuration(
     quote?.duration_minutes ?? null
   );
-  const deliveryOutOfRange = quote?.within_radius === false;
+  // Na retirada não existe entrega: ignora a cotação (que pode ter sido feita
+  // antes de o cliente trocar a modalidade) e cobra apenas o subtotal.
+  const deliveryOutOfRange = !isPickup && quote?.within_radius === false;
   const deliveryOutOfRangeMessage = deliveryOutOfRange
     ? deliveryDistanceKm != null
       ? `Não entregamos nesta localização. Endereço a ${formatKm(
@@ -299,8 +321,17 @@ export function CartDrawer({
     : null;
 
   const quoteWarnings = quote?.warnings ?? [];
+  /**
+   * A cotação na sacola só é obrigatória quando a busca automática de endereço
+   * está disponível (é o único jeito de cotar ali). Sem a chave do Google, o
+   * frete é calculado no checkout a partir do endereço digitado, que o
+   * servidor geocodifica.
+   */
   const quoteReady =
-    !needsCep || (quote != null && !quoteError && !isQuoting);
+    isPickup ||
+    !needsCep ||
+    !placesEnabled ||
+    (quote != null && !quoteError && !isQuoting);
 
   // Modo catálogo: a loja recebe o pedido/orçamento direto no WhatsApp e o
   // cliente não passa pelo checkout. Ausência do campo = fluxo tradicional.
@@ -326,8 +357,8 @@ export function CartDrawer({
     !deliveryOutOfRange &&
     !minOrderBlocked;
 
-  // No envio direto o CEP/frete não bloqueia o pedido — só itens, pedido mínimo
-  // (quando os valores são conhecidos) e loja aberta.
+  // No envio direto o endereço/frete não bloqueia o pedido — só itens, pedido
+  // mínimo (quando os valores são conhecidos) e loja aberta.
   const canSendDirect =
     establishment != null &&
     itemCount > 0 &&
@@ -335,39 +366,44 @@ export function CartDrawer({
     !minOrderBlocked;
   const canSubmit = directWhatsAppCheckout ? canSendDirect : canCheckout;
 
-  const feeLabel =
-    deliveryDistanceKm != null
+  const feeLabel = isPickup
+    ? "Retirada no balcão"
+    : deliveryDistanceKm != null
       ? `Entrega (${formatKm(deliveryDistanceKm)} km)`
       : "Entrega";
 
-  const feeDisplay =
-    deliveryFee != null
+  const feeDisplay = isPickup
+    ? "Sem taxa"
+    : deliveryFee != null
       ? formatBRL(deliveryFee)
       : isQuoting
         ? "Calculando..."
         : "A calcular";
 
-  const totalDisplay =
-    deliveryFee != null
+  const totalDisplay = isPickup
+    ? formatBRL(subtotal)
+    : deliveryFee != null
       ? formatBRL(subtotal + deliveryFee)
       : "A calcular";
 
   let checkoutHint: string | null = null;
   if (!establishment) {
     checkoutHint = "Carregando informações da loja...";
+  } else if (isPickup) {
+    checkoutHint = null;
   } else if (deliveryOutOfRange) {
     checkoutHint =
       "Altere o endereço ou, se preferir, combine a retirada no local com a loja.";
-  } else if (needsCep && !hasDestination) {
+  } else if (needsCep && placesEnabled && !hasDestination) {
     checkoutHint =
       deliveryType === "distance"
-        ? "Busque seu endereço ou informe o CEP para calcular a entrega."
-        : "Busque seu endereço ou informe o CEP para validar a área de entrega.";
+        ? "Busque seu endereço para calcular a entrega."
+        : "Busque seu endereço para validar a área de entrega.";
   } else if (isQuoting) {
     checkoutHint = "Calculando o frete...";
   } else if (quoteError) {
     checkoutHint = quoteError;
-  } else if (needsCep && !quote) {
+  } else if (needsCep && placesEnabled && !quote) {
     checkoutHint = "Calcule o frete para continuar.";
   }
 
@@ -393,43 +429,24 @@ export function CartDrawer({
     };
   }, [open, onClose]);
 
-  const handleCepChange = (value: string) => {
-    const formatted = formatCep(value);
-    setCepInput(formatted);
-    setDeliveryCep(parseCep(formatted) ?? "");
-    // CEP digitado manualmente invalida as coordenadas do autocomplete (evita
-    // cotar a rota do endereço anterior).
-    if (selectedPlace && (parseCep(formatted) ?? "") !== selectedPlace.cep) {
-      setSelectedPlace(null);
-    }
-  };
-
   /**
    * Endereço escolhido no autocomplete da sacola.
    *
    * As coordenadas (e o `place_id`) são enviadas para `/api/delivery-quote`,
-   * que calcula a rota/tempo na Google Routes API; o CEP devolvido pelo Google
-   * é salvo na sacola para já vir preenchido no checkout.
+   * que calcula a rota/tempo na Google Routes API. O endereço completo é salvo
+   * no contexto (`deliveryAddress`) para o checkout já abrir preenchido.
    */
   const handleAddressSelected = (address: GooglePlaceAddress) => {
     const cep = parseCep(address.cep ?? "") ?? "";
+    const street = address.street?.trim() ?? "";
+    const number = address.number?.trim() ?? "";
+    const neighborhood = address.neighborhood?.trim() ?? "";
+    const city = address.city?.trim() ?? "";
     const label =
       address.formattedAddress?.trim() ||
-      [address.street, address.number].filter(Boolean).join(", ").trim();
+      [street, number].filter(Boolean).join(", ").trim();
 
-    if (cep) {
-      setCepInput(formatCep(cep));
-      setLastSyncedCep(cep);
-      setDeliveryCep(cep);
-    } else {
-      // Sugestão sem CEP: limpa o valor antigo para não cotar um endereço
-      // diferente das coordenadas escolhidas.
-      setCepInput("");
-      setLastSyncedCep("");
-      setDeliveryCep("");
-    }
-
-    setAddressInput(address.street?.trim() || label);
+    setAddressInput(street || label);
     setSelectedPlace(
       address.latitude != null && address.longitude != null
         ? {
@@ -441,11 +458,34 @@ export function CartDrawer({
           }
         : null
     );
+
+    // Mantém a sacola e o link do modo catálogo em sincronia com o endereço.
+    setDeliveryCep(cep);
+    setDeliveryAddress({
+      street,
+      number,
+      neighborhood,
+      ...(city ? { city } : {}),
+      ...(cep ? { cep } : {}),
+      ...(address.latitude != null && address.longitude != null
+        ? { latitude: address.latitude, longitude: address.longitude }
+        : {}),
+      ...(address.placeId ? { placeId: address.placeId } : {}),
+      // Feedback visual no checkout (o pedido usa rua/número + coordenadas).
+      ...(address.formattedAddress?.trim()
+        ? { formattedAddress: address.formattedAddress.trim() }
+        : {}),
+    });
+  };
+
+  /** Digitação/colagem no campo: invalida as coordenadas da sugestão anterior. */
+  const handleAddressChange = (value: string) => {
+    setAddressInput(value);
+    if (selectedPlace) setSelectedPlace(null);
   };
 
   const handleCalculate = () => {
     if (!quoteKey) return;
-    if (cepDigits) setDeliveryCep(cepDigits);
     setQuoteState({ key: quoteKey, quote: null, error: null, loading: true });
     setQuoteAttempt((attempt) => attempt + 1);
   };
@@ -479,7 +519,9 @@ export function CartDrawer({
           notes: item.notes ?? null,
         };
       }),
-      deliveryCep: cepDigits ?? null,
+      deliveryCep: isPickup ? null : cepDigits ?? null,
+      // Retirada: a mensagem avisa que o cliente busca no balcão (sem CEP).
+      deliveryType: orderType,
     });
 
     if (!url) {
@@ -649,7 +691,62 @@ export function CartDrawer({
             </ul>
           )}
 
-          {needsCep && (
+          {/*
+            Modalidade de atendimento: entrega em casa (cobra taxa e exige
+            endereço) ou retirada no balcão (sem taxa, sem endereço). A escolha
+            é persistida no contexto e chega marcada no checkout.
+          */}
+          {cartItems.length > 0 && (
+          <fieldset className="mt-5">
+            <legend className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              Como você quer receber?
+            </legend>
+            <div
+              role="radiogroup"
+              aria-label="Modalidade de atendimento"
+              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!isPickup}
+                onClick={() => setOrderType("entrega")}
+                className={`rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-yellow-400 ${
+                  !isPickup
+                    ? "border-gray-900 bg-gray-50 shadow-sm dark:border-yellow-400 dark:bg-gray-900/60"
+                    : "border-gray-200 bg-white hover:border-gray-300 dark:border-gray-700 dark:bg-gray-900/40 dark:hover:border-gray-600"
+                }`}
+              >
+                <span className="block text-sm font-semibold text-gray-900 dark:text-white">
+                  Receber em casa
+                </span>
+                <span className="block text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                  Delivery no endereço informado
+                </span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={isPickup}
+                onClick={() => setOrderType("retirada")}
+                className={`rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-yellow-400 ${
+                  isPickup
+                    ? "border-gray-900 bg-gray-50 shadow-sm dark:border-yellow-400 dark:bg-gray-900/60"
+                    : "border-gray-200 bg-white hover:border-gray-300 dark:border-gray-700 dark:bg-gray-900/40 dark:hover:border-gray-600"
+                }`}
+              >
+                <span className="block text-sm font-semibold text-gray-900 dark:text-white">
+                  Retirar no estabelecimento
+                </span>
+                <span className="block text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                  Sem taxa de entrega — você busca no balcão
+                </span>
+              </button>
+            </div>
+          </fieldset>
+          )}
+
+          {!isPickup && needsCep && placesEnabled && (
             <section
               aria-labelledby="cart-delivery-title"
               className="mt-5 rounded-2xl border border-gray-200 bg-gray-50/70 p-4 dark:border-gray-700 dark:bg-gray-800/40"
@@ -681,55 +778,33 @@ export function CartDrawer({
                     autoComplete="address-line1"
                     ariaLabel="Endereço de entrega"
                     value={addressInput}
-                    onChange={setAddressInput}
+                    onChange={handleAddressChange}
                     onPlaceSelected={handleAddressSelected}
                     className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/20 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
                   />
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                    Escolha uma sugestão para preencher o endereço completo.
+                  </p>
                 </div>
               )}
 
-              <div className="mt-3 flex items-end gap-2">
-                <div className="min-w-0 flex-1">
-                  <label
-                    htmlFor="cart-delivery-cep"
-                    className="mb-1.5 block text-xs font-semibold text-gray-700 dark:text-gray-300"
-                  >
-                    {placesEnabled ? "ou informe o CEP" : "Informe o CEP"}
-                  </label>
-                  <input
-                    id="cart-delivery-cep"
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="postal-code"
-                    placeholder="00000-000"
-                    maxLength={9}
-                    value={cepInput}
-                    onChange={(event) => handleCepChange(event.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm tabular-nums text-gray-900 focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/20 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCalculate}
-                  disabled={!hasDestination || isQuoting}
-                  className="shrink-0 rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-400 dark:bg-yellow-400 dark:text-gray-950 dark:hover:bg-yellow-300 dark:disabled:bg-gray-700 dark:disabled:text-gray-400"
-                >
-                  {isQuoting ? "Calculando..." : "Calcular"}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleCalculate}
+                disabled={!hasDestination || isQuoting}
+                className="mt-3 inline-flex w-full items-center justify-center rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-400 dark:bg-yellow-400 dark:text-gray-950 dark:hover:bg-yellow-300 dark:disabled:bg-gray-700 dark:disabled:text-gray-400"
+              >
+                {isQuoting ? "Calculando..." : "Calcular entrega"}
+              </button>
               <p className="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
-                O endereço/CEP é salvo na sacola e já virá preenchido no
-                checkout.
+                O endereço é salvo na sacola e já virá preenchido no checkout.
               </p>
 
               {placePoint && !isQuoting && (
                 <p className="mt-2 break-words rounded-lg bg-white px-3 py-2 text-[11px] font-medium leading-relaxed text-gray-600 dark:bg-gray-900/60 dark:text-gray-300">
                   Entrega para:{" "}
                   <span className="font-semibold text-gray-900 dark:text-white">
-                    {placePoint.label ||
-                      (placePoint.cep
-                        ? formatCep(placePoint.cep)
-                        : "endereço selecionado")}
+                    {placePoint.label || addressInput || "endereço selecionado"}
                   </span>
                 </p>
               )}

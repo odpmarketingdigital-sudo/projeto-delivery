@@ -73,6 +73,12 @@ export function AddressAutocomplete({
   const onChangeRef = useRef(onChange);
   const onPlaceSelectedRef = useRef(onPlaceSelected);
   const valueRef = useRef(value);
+  /**
+   * Janela (timestamp) em que eventos `input` do widget são ecos da sugestão
+   * recém-aplicada e devem ser ignorados. Sem isso, o texto completo que o
+   * Google escreve no campo voltaria pelo `onChange` e invalidaria a seleção.
+   */
+  const ignoreInputUntilRef = useRef(0);
   const [isAutocompleteReady, setIsAutocompleteReady] = useState(false);
 
   useEffect(() => {
@@ -149,6 +155,10 @@ export function AddressAutocomplete({
           // Google permaneceria visível até o próximo render.
           const current = widgetRef.current;
           if (current && nextValue) current.value = nextValue;
+          // Depois de aplicar a sugestão o widget pode emitir `input` com o
+          // texto dele. Ignoramos esses ecos por um instante para não
+          // sobrescrever o formulário (e as coordenadas) logo após a seleção.
+          ignoreInputUntilRef.current = Date.now() + 600;
           onPlaceSelectedRef.current(address);
         })();
       };
@@ -156,6 +166,7 @@ export function AddressAutocomplete({
       // Digitação/colagem: mantém o estado do formulário em sincronia com o
       // valor interno do widget (necessário para a validação do checkout).
       const handleValueChange = () => {
+        if (Date.now() < ignoreInputUntilRef.current) return;
         const current = widgetRef.current;
         if (!current) return;
         const nextValue =

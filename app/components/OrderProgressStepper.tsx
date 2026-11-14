@@ -1,5 +1,8 @@
 import type { OrderStatus } from "@/lib/types";
-import { ORDER_STATUS_FLOW } from "@/lib/orderStatus";
+import {
+  ORDER_STATUS_FLOW,
+  type OrderDeliveryType,
+} from "@/lib/orderStatus";
 
 /**
  * Rótulos das 4 etapas exibidas ao cliente no acompanhamento do pedido.
@@ -14,9 +17,21 @@ const STEP_LABELS: Record<OrderStatus, string> = {
   cancelado: "Cancelado",
 };
 
+/**
+ * Rótulos das etapas quando o pedido é retirado no balcão: a etapa final é
+ * "Pronto para buscar" e a conclusão é a retirada (não a entrega).
+ */
+const PICKUP_STEP_LABELS: Record<OrderStatus, string> = {
+  ...STEP_LABELS,
+  entrega: "Pronto para buscar",
+  finalizado: "Retirado",
+};
+
 interface OrderProgressStepperProps {
   /** Status atual do pedido (fonte da verdade: `GET /api/order-status`). */
   status: OrderStatus;
+  /** Modalidade do pedido — muda o texto das etapas finais na retirada. */
+  deliveryType?: OrderDeliveryType;
 }
 
 /**
@@ -29,9 +44,14 @@ interface OrderProgressStepperProps {
  *
  * Componente sem estado/hooks: pode ser usado em Server ou Client Components.
  */
-export function OrderProgressStepper({ status }: OrderProgressStepperProps) {
+export function OrderProgressStepper({
+  status,
+  deliveryType = "entrega",
+}: OrderProgressStepperProps) {
   const currentIndex = ORDER_STATUS_FLOW.indexOf(status);
   const isCancelled = status === "cancelado";
+  const labels =
+    deliveryType === "retirada" ? PICKUP_STEP_LABELS : STEP_LABELS;
 
   return (
     <div className="mt-5 border-t border-black/5 pt-4 dark:border-white/10">
@@ -94,7 +114,7 @@ export function OrderProgressStepper({ status }: OrderProgressStepperProps) {
                     : "text-slate-400 dark:text-slate-500"
                 }`}
               >
-                {STEP_LABELS[step]}
+                {labels[step]}
               </span>
             </li>
           );

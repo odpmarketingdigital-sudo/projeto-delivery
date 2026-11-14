@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ORDER_STATUS_META } from "@/lib/orderStatus";
+import { ORDER_STATUS_META, orderDeliveryType, orderStatusLabel } from "@/lib/orderStatus";
 import { STORE_TIME_ZONE } from "@/lib/openingHours";
 import type { CustomerHistory, CustomerSummary } from "@/lib/types";
 
@@ -237,6 +237,11 @@ export function CustomerHistoryModal({
             <ul className="mt-3 flex flex-col gap-3">
               {history.orders.map((order) => {
                 const meta = ORDER_STATUS_META[order.status];
+                // Pedido de retirada usa "Pronto para buscar" na etapa final.
+                const statusLabel = orderStatusLabel(
+                  order.status,
+                  orderDeliveryType(order)
+                );
                 return (
                   <li
                     key={order.id}
@@ -258,7 +263,7 @@ export function CustomerHistoryModal({
                           <span
                             className={`h-1.5 w-1.5 rounded-full ${meta.dotClass}`}
                           />
-                          {meta.label}
+                          {statusLabel}
                         </span>
                         <span className="font-bold tabular-nums text-amber-600">
                           {formatBRL(order.total)}

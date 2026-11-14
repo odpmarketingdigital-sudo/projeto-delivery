@@ -10,6 +10,11 @@ export const ORDER_DRAG_MIME = "text/plain";
 
 interface KanbanColumnProps {
   title: string;
+  /**
+   * Texto de apoio exibido abaixo do título (ex.: na coluna final, avisar que
+   * pedidos de retirada aparecem como "Pronto para buscar").
+   */
+  note?: string;
   status: OrderStatus;
   orders: PanelOrder[];
   shortNumbers: Map<string, string>;
@@ -17,6 +22,11 @@ interface KanbanColumnProps {
   onOpenOrder: (order: PanelOrder) => void;
   /** Avança o pedido para a próxima etapa (ação rápida do card). */
   onAdvanceOrder: (order: PanelOrder, nextStatus: OrderStatus) => void;
+  /**
+   * Botão **Aceitar pedido** dos cards pendentes: confirma o pedido
+   * (`preparando`) e dispara a mensagem de confirmação no WhatsApp do cliente.
+   */
+  onAcceptOrder: (order: PanelOrder) => void;
   /** Pedidos com atualização de status em andamento. */
   busyIds: Set<string>;
   /**
@@ -35,11 +45,13 @@ interface KanbanColumnProps {
 
 export function KanbanColumn({
   title,
+  note,
   status,
   orders,
   shortNumbers,
   onOpenOrder,
   onAdvanceOrder,
+  onAcceptOrder,
   busyIds,
   onDropOrder,
   onDragStartOrder,
@@ -111,6 +123,11 @@ export function KanbanColumn({
           {orders.length}
         </span>
       </h2>
+      {note && (
+        <p className="border-b border-slate-200 bg-white/60 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+          {note}
+        </p>
+      )}
 
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
         {orders.length === 0 ? (
@@ -131,6 +148,7 @@ export function KanbanColumn({
               shortNumber={shortNumbers.get(order.id) ?? `#${order.id.slice(0, 8)}`}
               onOpen={onOpenOrder}
               onAdvance={onAdvanceOrder}
+              onAccept={onAcceptOrder}
               isBusy={busyIds.has(order.id)}
               onDragStart={onDragStartOrder}
               onDragEnd={onDragEndOrder}

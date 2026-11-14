@@ -1,7 +1,11 @@
 "use client";
 
 import type { PanelOrder } from "@/lib/types";
-import { ORDER_STATUS_META } from "@/lib/orderStatus";
+import {
+  ORDER_STATUS_META,
+  orderDeliveryType,
+  orderStatusLabel,
+} from "@/lib/orderStatus";
 import { STORE_TIME_ZONE } from "@/lib/openingHours";
 
 interface OrdersTableProps {
@@ -10,6 +14,13 @@ interface OrdersTableProps {
   shortNumbers: Map<string, string>;
   /** Abre o modal com os detalhes completos do pedido. */
   onOpenOrder: (order: PanelOrder) => void;
+  /** Pedidos com atualização de status em andamento. */
+  busyIds?: Set<string>;
+  /**
+   * Botão **Aceitar pedido** para as linhas pendentes: confirma o pedido e
+   * dispara a mensagem de confirmação no WhatsApp do cliente.
+   */
+  onAcceptOrder?: (order: PanelOrder) => void;
 }
 
 function formatBRL(value: number): string {
@@ -43,6 +54,8 @@ export function OrdersTable({
   orders,
   shortNumbers,
   onOpenOrder,
+  busyIds,
+  onAcceptOrder,
 }: OrdersTableProps) {
   if (orders.length === 0) {
     return (
@@ -86,6 +99,11 @@ export function OrdersTable({
         <tbody className="divide-y divide-slate-200">
           {orders.map((order) => {
             const meta = ORDER_STATUS_META[order.status];
+            // Pedidos de retirada exibem "Pronto para buscar" na etapa final.
+            const statusLabel = orderStatusLabel(
+              order.status,
+              orderDeliveryType(order)
+            );
             const shortNumber =
               shortNumbers.get(order.id) ?? `#${order.id.slice(0, 8)}`;
 
@@ -122,7 +140,7 @@ export function OrdersTable({
                     className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ring-1 ${meta.badgeClass}`}
                   >
                     <span className={`h-1.5 w-1.5 rounded-full ${meta.dotClass}`} />
-                    {meta.label}
+                    {statusLabel}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-slate-700">
@@ -132,14 +150,26 @@ export function OrdersTable({
                   {formatTime(order.created_at)}
                 </td>
                 <td className="whitespace-nowrap px-4 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={() => onOpenOrder(order)}
-                    aria-label={`Abrir detalhes do pedido ${shortNumber}`}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 transition hover:border-amber-300 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
-                  >
-                    Detalhes
-                  </button>
+                  <div className="inline-flex items-center gap-2">
+                    {order.status === "pendente" && onAcceptOrder && (
+                      <button
+                        type="button"
+                        onClick={() => onAcceptOrder(order)}
+                        disabled={busyIds?.has(order.id)}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {busyIds?.has(order.id) ? "Aceitando…" : "Aceitar"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onOpenOrder(order)}
+                      aria-label={`Abrir detalhes do pedido ${shortNumber}`}
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-bold text-slate-800 transition hover:border-amber-300 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                    >
+                      Detalhes
+                    </button>
+                  </div>
                 </td>
               </tr>
             );

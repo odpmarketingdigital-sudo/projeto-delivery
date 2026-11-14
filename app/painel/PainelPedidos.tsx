@@ -8,7 +8,10 @@ import { OrdersTable } from "@/app/components/OrdersTable";
 import { useEstablishment } from "@/app/painel/produtos/useEstablishment";
 import type { OrderStatus, PanelOrder } from "@/lib/types";
 import { normalizeOrderStatus } from "@/lib/types";
-import { ORDER_STATUS_META } from "@/lib/orderStatus";
+import {
+  orderDeliveryType,
+  orderStatusLabel,
+} from "@/lib/orderStatus";
 import {
   estimatedDeliveryAtFromNow,
   formatEstimatedDeliveryWindow,
@@ -20,10 +23,20 @@ import { AdminHeader } from "./components/AdminHeader";
 import { OrderSoundControl } from "./components/OrderSoundControl";
 import { useOrderSoundContext } from "./components/OrderSoundProvider";
 
-const COLUMNS: { status: OrderStatus; title: string; highlight?: boolean }[] = [
+const COLUMNS: {
+  status: OrderStatus;
+  title: string;
+  note?: string;
+  highlight?: boolean;
+}[] = [
   { status: "pendente", title: "Pendentes / Recebidos", highlight: true },
   { status: "preparando", title: "Em Preparo" },
-  { status: "entrega", title: "Saiu para Entrega" },
+  {
+    status: "entrega",
+    title: "Saiu para Entrega",
+    // Retirada no balcão usa a mesma etapa, mas com outro nome para o cliente.
+    note: "Retirada: pronto para buscar",
+  },
   { status: "finalizado", title: "Concluídos / Entregues" },
   { status: "cancelado", title: "Cancelados" },
 ];
@@ -341,14 +354,26 @@ export function PainelPedidos() {
           setOrders((cur) => cur.map((o) => (o.id === orderId ? saved : o)));
         }
 
-        let feedbackMessage = `Pedido atualizado para ${ORDER_STATUS_META[status].label}.`;
+        // Rótulo adaptado à modalidade (retirada = "Pronto para buscar").
+        const deliveryKind = previous
+          ? orderDeliveryType(previous)
+          : "entrega";
+        let feedbackMessage = `Pedido atualizado para ${orderStatusLabel(
+          status,
+          deliveryKind
+        )}.`;
         if (estimate) {
-          feedbackMessage = `Previsão de entrega atualizada para ${formatEstimatedDeliveryWindowLabel(estimate)}.`;
+          feedbackMessage = `Previsão de ${
+            deliveryKind === "retirada" ? "retirada" : "entrega"
+          } atualizada para ${formatEstimatedDeliveryWindowLabel(estimate)}.`;
         }
         if (status === "cancelado") {
           feedbackMessage = "Pedido cancelado e motivo registrado.";
         } else if (previous?.status === "cancelado") {
-          feedbackMessage = `Pedido reativado como ${ORDER_STATUS_META[status].label}.`;
+          feedbackMessage = `Pedido reativado como ${orderStatusLabel(
+            status,
+            deliveryKind
+          )}.`;
         }
         setFeedback(feedbackMessage);
       } catch (err) {
@@ -372,17 +397,99 @@ export function PainelPedidos() {
   );
 
   /**
+   * Botão **Aceitar pedido** (cards e modal).
+   *
+   * Envia `action: "accept"` para `PUT /api/orders`: o servidor confirma que o
+   * pedido ainda está `pendente`, muda para `preparando` e dispara a mensagem
+   * de confirmação no WhatsApp do cliente (Evolution API). É o único ponto do
+   * fluxo que avisa o cliente sobre a confirmação — a criação do pedido
+   * notifica apenas a loja.
+   *
+   * Faz atualização otimista e reverte em caso de erro, como `updateStatus`.
+   */
+  const acceptOrder = useCallback(
+    async (orderId: string) => {
+      const previous = orders.find((o) => o.id === orderId);
+      if (previous && previous.status !== "pendente") return;
+
+      setBusyIds((prev) => new Set(prev).add(orderId));
+      setFeedback(null);
+      setError(null);
+      setOrders((cur) =>
+        cur.map((o) =>
+          o.id === orderId
+            ? { ...o, status: "preparando" as OrderStatus, cancellation_reason: null }
+            : o
+        )
+      );
+
+      try {
+        const res = await fetch("/api/orders", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: orderId, action: "accept" }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error ?? "Falha ao aceitar o pedido.");
+
+        const saved = toPanelOrder(data.order);
+        if (saved) {
+          setOrders((cur) => cur.map((o) => (o.id === orderId ? saved : o)));
+        }
+        setFeedback(
+          "Pedido aceito! O cliente recebeu a confirmação no WhatsApp."
+        );
+      } catch (err) {
+        if (previous) {
+          setOrders((cur) =>
+            cur.map((o) => (o.id === orderId ? previous : o))
+          );
+        }
+        const message =
+          err instanceof Error ? err.message : "Erro inesperado ao aceitar.";
+        setError(message);
+        throw err;
+      } finally {
+        setBusyIds((cur) => {
+          const next = new Set(cur);
+          next.delete(orderId);
+          return next;
+        });
+      }
+    },
+    [orders]
+  );
+
+  /** Callback dos cards: aceita o pedido sem sair do Kanban. */
+  const handleAcceptOrder = useCallback(
+    (order: PanelOrder) => {
+      void acceptOrder(order.id).catch(() => {
+        // Erro já tratado e exibido por acceptOrder.
+      });
+    },
+    [acceptOrder]
+  );
+
+  /**
    * Ação rápida do card: avança o pedido para a próxima etapa usando a mesma
    * rota `PUT /api/orders` do modal. `updateStatus` já reverte o estado
    * otimista e publica a mensagem de erro no topo do painel.
+   *
+   * `pendente → preparando` é o aceite do pedido: passa por `acceptOrder`
+   * (`action: "accept"`), garantindo a validação no servidor e uma única
+   * mensagem de confirmação ao cliente.
    */
   const advanceOrderStatus = useCallback(
     (order: PanelOrder, nextStatus: OrderStatus) => {
+      if (order.status === "pendente" && nextStatus === "preparando") {
+        handleAcceptOrder(order);
+        return;
+      }
       void updateStatus(order.id, nextStatus).catch(() => {
         // Erro já tratado e exibido por updateStatus.
       });
     },
-    [updateStatus]
+    [updateStatus, handleAcceptOrder]
   );
 
   /**
@@ -412,11 +519,21 @@ export function PainelPedidos() {
         return;
       }
 
+      // Pendente → Em Preparo é o aceite do pedido: usa a ação dedicada
+      // (`action: "accept"`) para o servidor validar e o cliente ser avisado
+      // uma única vez.
+      if (order.status === "pendente" && targetStatus === "preparando") {
+        void acceptOrder(orderId).catch(() => {
+          // Erro já tratado e exibido por acceptOrder.
+        });
+        return;
+      }
+
       void updateStatus(orderId, targetStatus).catch(() => {
         // Erro já tratado e exibido por updateStatus.
       });
     },
-    [orders, busyIds, updateStatus]
+    [orders, busyIds, updateStatus, acceptOrder]
   );
 
   const grouped = useMemo(() => {
@@ -579,6 +696,7 @@ export function PainelPedidos() {
               <KanbanColumn
                 key={col.status}
                 title={col.title}
+                note={col.note}
                 status={col.status}
                 orders={grouped[col.status]}
                 shortNumbers={shortNumbers}
@@ -587,6 +705,7 @@ export function PainelPedidos() {
                   setSelectedOrderId(order.id);
                 }}
                 onAdvanceOrder={advanceOrderStatus}
+                onAcceptOrder={handleAcceptOrder}
                 busyIds={busyIds}
                 onDropOrder={moveOrderToStatus}
                 onDragStartOrder={(order) => setDraggingId(order.id)}
@@ -600,6 +719,8 @@ export function PainelPedidos() {
               <OrdersTable
                 orders={orders}
                 shortNumbers={shortNumbers}
+                busyIds={busyIds}
+                onAcceptOrder={handleAcceptOrder}
                 onOpenOrder={(order) => setSelectedOrderId(order.id)}
               />
             </div>
@@ -620,6 +741,7 @@ export function PainelPedidos() {
             setCancelOnOpen(false);
           }}
           onUpdateStatus={updateStatus}
+          onAcceptOrder={acceptOrder}
         />
       )}
     </div>

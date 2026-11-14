@@ -12,6 +12,10 @@ import {
   parseEstimatedDeliveryWindow,
 } from "@/lib/deliveryEstimate";
 import { getCustomerProfile } from "@/lib/storage";
+import {
+  orderDeliveryType,
+  type OrderDeliveryType,
+} from "@/lib/orderStatus";
 import { OrderProgressStepper } from "@/app/components/OrderProgressStepper";
 import {
   BOTTOM_NAV_CONTENT_PADDING,
@@ -59,6 +63,8 @@ interface TrackerOrder {
   pix_payload: string | null;
   notes: string | null;
   cancellation_reason: string | null;
+  /** Modalidade escolhida no checkout (`entrega` | `retirada`). */
+  delivery_type: string | null;
   estimated_delivery_time: string | null;
   estimated_delivery_at: string | null;
   created_at: string;
@@ -96,6 +102,37 @@ const STATUS_META: Record<OrderStatus, { emoji: string; title: string; text: str
     ring: "border-red-500/40 bg-red-500/10",
   },
 };
+
+/**
+ * Metadados do status adaptados à modalidade do pedido.
+ *
+ * Na retirada no balcão a etapa final é **"Pronto para buscar"** (em vez de
+ * "Saiu para entrega") e a conclusão é a retirada — não a entrega.
+ */
+function statusMetaFor(order: {
+  status: OrderStatus;
+  delivery_type?: string | null;
+  customer_address?: TrackerOrder["customer_address"];
+}): (typeof STATUS_META)[OrderStatus] {
+  if (orderDeliveryType(order) !== "retirada") return STATUS_META[order.status];
+
+  if (order.status === "entrega") {
+    return {
+      ...STATUS_META.entrega,
+      emoji: "🛍️",
+      title: "Pronto para buscar",
+      text: "Seu pedido está pronto para retirada no balcão!",
+    };
+  }
+  if (order.status === "finalizado") {
+    return {
+      ...STATUS_META.finalizado,
+      title: "Pedido retirado",
+      text: "Pedido retirado. Bom apetite!",
+    };
+  }
+  return STATUS_META[order.status];
+}
 
 /** Chaves onde o telefone do cliente pode estar salvo (perfil + legado). */
 const CUSTOMER_PHONE_KEYS = ["customer_phone", "delivery_last_phone"];
@@ -190,6 +227,7 @@ function normalizeTracker(raw: unknown): TrackerOrder | null {
     notes: typeof r.notes === "string" ? r.notes : null,
     cancellation_reason:
       typeof r.cancellation_reason === "string" ? r.cancellation_reason : null,
+    delivery_type: typeof r.delivery_type === "string" ? r.delivery_type : null,
     estimated_delivery_time:
       typeof r.estimated_delivery_time === "string"
         ? r.estimated_delivery_time
@@ -245,6 +283,11 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
   const [cancelPhone, setCancelPhone] = useState("");
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  // Confirmação de recebimento pelo cliente ("Recebi o pedido").
+  const [isReceiptDialogOpen, setIsReceiptDialogOpen] = useState(false);
+  const [receiptPhone, setReceiptPhone] = useState("");
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+  const [isConfirmingReceipt, setIsConfirmingReceipt] = useState(false);
   // Cópia do Pix Copia e Cola reexibido enquanto o pagamento está pendente.
   const [pixCopied, setPixCopied] = useState(false);
   const supabase = useRef(createClient());
@@ -460,6 +503,79 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
     }
   };
 
+  /**
+   * Confirma o recebimento ("Recebi o pedido").
+   *
+   * O servidor exige o pedido em `entrega` (saiu para entrega ou pronto para
+   * buscar) e valida a posse pelo telefone do pedido — por isso o número é
+   * enviado junto (pré-preenchido do navegador quando possível).
+   */
+  const confirmReceipt = async (phone: string) => {
+    if (!order || isConfirmingReceipt) return;
+
+    const phoneDigits = phone.replace(/\D/g, "");
+    if (phoneDigits.length < 10) {
+      setReceiptError("Informe o WhatsApp usado no pedido, com DDD.");
+      setIsReceiptDialogOpen(true);
+      return;
+    }
+
+    setIsConfirmingReceipt(true);
+    setReceiptError(null);
+    try {
+      const res = await fetch("/api/orders/received", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: order.id,
+          customer_phone: phoneDigits,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        order?: { status?: string };
+      };
+      if (!res.ok) {
+        // 409 = o status mudou enquanto o cliente confirmava; recarrega para a
+        // tela refletir o estado real.
+        if (res.status === 409) void fetchStatus();
+        throw new Error(data.error ?? "Não foi possível confirmar o recebimento.");
+      }
+
+      setOrder((prev) => (prev ? { ...prev, status: "finalizado" } : prev));
+      prevStatus.current = "finalizado";
+      setJustUpdated(true);
+      window.setTimeout(() => setJustUpdated(false), 4000);
+      setIsReceiptDialogOpen(false);
+      setReceiptPhone("");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Erro inesperado ao confirmar.";
+      setReceiptError(message);
+      // Mantém o telefone usado para o cliente corrigir e tentar novamente.
+      setReceiptPhone((current) => current || phone);
+      setIsReceiptDialogOpen(true);
+    } finally {
+      setIsConfirmingReceipt(false);
+    }
+  };
+
+  /**
+   * Clique no botão "Recebi o pedido": com o telefone já salvo no navegador a
+   * confirmação é imediata (1 clique); sem ele, abre o diálogo para o cliente
+   * digitar o WhatsApp usado no pedido.
+   */
+  const handleConfirmReceipt = () => {
+    const savedPhone = readSavedCustomerPhone();
+    if (savedPhone) {
+      void confirmReceipt(savedPhone);
+      return;
+    }
+    setReceiptPhone("");
+    setReceiptError(null);
+    setIsReceiptDialogOpen(true);
+  };
+
   if (isLoading) {
     return (
       <div className="flex min-h-screen flex-col bg-gray-50 dark:bg-gray-950">
@@ -492,7 +608,14 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
     );
   }
 
-  const meta = STATUS_META[order.status];
+  const deliveryType: OrderDeliveryType = orderDeliveryType(order);
+  const isPickup = deliveryType === "retirada";
+  const meta = statusMetaFor(order);
+  /**
+   * Confirmação de recebimento só faz sentido na etapa final (`entrega`):
+   * "Saiu para entrega" no delivery e "Pronto para buscar" na retirada.
+   */
+  const canConfirmReceipt = order.status === "entrega";
   const estimateWindow = parseEstimatedDeliveryWindow(
     order.estimated_delivery_time
   );
@@ -537,20 +660,22 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
           {showEstimate && (
             <div className="mt-4 rounded-xl border border-yellow-400/60 bg-yellow-50/90 p-3 text-left dark:border-yellow-400/40 dark:bg-yellow-400/10">
               <p className="text-[11px] font-bold uppercase tracking-wider text-yellow-700 dark:text-yellow-300">
-                Previsão de entrega
+                {isPickup ? "Previsão de retirada" : "Previsão de entrega"}
               </p>
               <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
                 {order.status === "entrega"
-                  ? estimatedAtLabel
-                    ? `Seu pedido está a caminho — chega ${estimatedAtLabel}.`
-                    : "Seu pedido está a caminho!"
+                  ? isPickup
+                    ? "Seu pedido está pronto para retirada no balcão."
+                    : estimatedAtLabel
+                      ? `Seu pedido está a caminho — chega ${estimatedAtLabel}.`
+                      : "Seu pedido está a caminho!"
                   : estimateLabel
                     ? `Chega em ${estimateLabel}.`
                     : "Previsão sendo atualizada pela loja."}
               </p>
               {estimatedAtLabel && order.status !== "entrega" && (
                 <p className="mt-0.5 text-xs text-gray-600 dark:text-gray-300">
-                  Horário previsto: {estimatedAtLabel}
+                  {isPickup ? "Horário previsto para retirada" : "Horário previsto"}: {estimatedAtLabel}
                 </p>
               )}
             </div>
@@ -571,7 +696,35 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
            * Acompanha o status ao vivo do tracker (polling de 10s e, quando a
            * tabela `orders` está publicada no Realtime, eventos em tempo real).
            */}
-          <OrderProgressStepper status={order.status} />
+          <OrderProgressStepper
+            status={order.status}
+            deliveryType={deliveryType}
+          />
+          {/*
+           * Confirmação de recebimento pelo cliente: encerra o ciclo do pedido
+           * (status → `finalizado`) sem depender do painel da loja.
+           */}
+          {canConfirmReceipt && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={handleConfirmReceipt}
+                disabled={isConfirmingReceipt}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isConfirmingReceipt
+                  ? "Confirmando..."
+                  : isPickup
+                    ? "Já retirei o pedido"
+                    : "Recebi o pedido"}
+              </button>
+              <p className="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-300">
+                {isPickup
+                  ? "Avisa a loja que você já retirou o pedido e encerra o acompanhamento."
+                  : "Avisa a loja que o pedido chegou e encerra o acompanhamento."}
+              </p>
+            </div>
+          )}
         </section>
         {/*
          * PIX Online (Split Asaas): confirmação automática via webhook.
@@ -655,7 +808,15 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
               </li>
             ))}
           </ul>
-          {addrText && <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">Entrega: {addrText}</p>}
+          {addrText ? (
+            <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+              Entrega: {addrText}
+            </p>
+          ) : isPickup ? (
+            <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+              Retirada no balcão do estabelecimento.
+            </p>
+          ) : null}
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Pagto:{" "}
             {paymentMethodLabel(order.payment_method, order.meal_voucher) || "—"}
@@ -669,16 +830,20 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
             </div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-gray-500 dark:text-gray-400">
-                Taxa de entrega
+                {isPickup ? "Retirada no balcão" : "Taxa de entrega"}
               </span>
               <span
                 className={
-                  order.delivery_fee > 0
+                  order.delivery_fee > 0 || isPickup
                     ? "tabular-nums text-gray-700 dark:text-gray-200"
                     : "font-semibold text-emerald-600 dark:text-emerald-400"
                 }
               >
-                {order.delivery_fee > 0 ? formatBRL(order.delivery_fee) : "Grátis"}
+                {isPickup
+                  ? "Sem taxa"
+                  : order.delivery_fee > 0
+                    ? formatBRL(order.delivery_fee)
+                    : "Grátis"}
               </span>
             </div>
           </div>
@@ -824,6 +989,93 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
                 type="button"
                 onClick={closeCancelDialog}
                 disabled={isCancelling}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400/40 disabled:opacity-60 dark:border-gray-700 dark:bg-transparent dark:text-gray-200 dark:hover:bg-gray-700/60"
+              >
+                Voltar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmação de recebimento: pede o telefone quando não está salvo. */}
+      {isReceiptDialogOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="receipt-order-title"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
+          onClick={(event) => {
+            if (event.target === event.currentTarget && !isConfirmingReceipt) {
+              setIsReceiptDialogOpen(false);
+              setReceiptError(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl dark:bg-gray-800">
+            <h2
+              id="receipt-order-title"
+              className="text-base font-bold text-gray-900 dark:text-white"
+            >
+              {isPickup ? "Confirmar retirada?" : "Confirmar recebimento?"}
+            </h2>
+            <p className="mt-1 text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+              {isPickup
+                ? "Vamos avisar a loja que você já retirou o pedido e encerrar o acompanhamento."
+                : "Vamos avisar a loja que o pedido chegou e encerrar o acompanhamento."}
+            </p>
+
+            <label
+              htmlFor="receipt-order-phone"
+              className="mt-4 block text-xs font-semibold text-gray-700 dark:text-gray-300"
+            >
+              WhatsApp usado no pedido
+            </label>
+            <input
+              id="receipt-order-phone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              placeholder="(11) 99999-9999"
+              value={receiptPhone}
+              onChange={(event) => {
+                setReceiptPhone(event.target.value);
+                if (receiptError) setReceiptError(null);
+              }}
+              disabled={isConfirmingReceipt}
+              className="mt-1.5 w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+            />
+
+            {receiptError && (
+              <p
+                role="alert"
+                className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-600 dark:bg-red-950/40 dark:text-red-300"
+              >
+                {receiptError}
+              </p>
+            )}
+
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => void confirmReceipt(receiptPhone)}
+                disabled={isConfirmingReceipt}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isConfirmingReceipt
+                  ? "Confirmando..."
+                  : isPickup
+                    ? "Sim, já retirei"
+                    : "Sim, recebi o pedido"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isConfirmingReceipt) return;
+                  setIsReceiptDialogOpen(false);
+                  setReceiptError(null);
+                }}
+                disabled={isConfirmingReceipt}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400/40 disabled:opacity-60 dark:border-gray-700 dark:bg-transparent dark:text-gray-200 dark:hover:bg-gray-700/60"
               >
                 Voltar

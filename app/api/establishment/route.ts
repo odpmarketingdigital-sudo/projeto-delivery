@@ -8,7 +8,12 @@ import {
 } from "@/lib/supabase/menuGuard";
 import { deleteProductImageFromStorage } from "@/lib/supabase/storage";
 import { normalizeOpeningHours, parseOpeningHours } from "@/lib/openingHours";
-import { parseCep, toFiniteNumber } from "@/lib/delivery";
+import {
+  parseCep,
+  toFiniteNumber,
+  STORE_ADDRESS_MAX_LENGTH,
+  STORE_ADDRESS_MIN_LENGTH,
+} from "@/lib/delivery";
 import {
   MAX_ESTIMATED_DELIVERY_MINUTES,
   MIN_ESTIMATED_DELIVERY_MINUTES,
@@ -48,6 +53,11 @@ export interface IdentityUpdate {
   max_delivery_radius_km?: number | null;
   /** CEP da loja (origem do cálculo). `null`/vazio limpa. */
   store_cep?: string | null;
+  /**
+   * Endereço da loja por extenso (origem do cálculo do frete) — coluna
+   * `store_address`. `null`/vazio limpa.
+   */
+  store_address?: string | null;
   store_latitude?: number | null;
   store_longitude?: number | null;
   /** Tempo mínimo estimado de entrega (minutos) — migração 20261110000015. */
@@ -95,12 +105,13 @@ const DELIVERY_FIELDS = [
   "distance_extra_km_fee",
   "max_delivery_radius_km",
   "store_cep",
+  "store_address",
   "store_latitude",
   "store_longitude",
 ] as const;
 
 const DELIVERY_SQL =
-  "alter table public.establishments add column if not exists delivery_type text not null default 'fixed', add column if not exists distance_base_km numeric(6,2) not null default 3, add column if not exists distance_base_fee numeric(10,2) not null default 0, add column if not exists distance_extra_km_fee numeric(10,2) not null default 0, add column if not exists max_delivery_radius_km numeric(6,2), add column if not exists store_cep text, add column if not exists store_latitude double precision, add column if not exists store_longitude double precision;";
+  "alter table public.establishments add column if not exists delivery_type text not null default 'fixed', add column if not exists distance_base_km numeric(6,2) not null default 3, add column if not exists distance_base_fee numeric(10,2) not null default 0, add column if not exists distance_extra_km_fee numeric(10,2) not null default 0, add column if not exists max_delivery_radius_km numeric(6,2), add column if not exists store_cep text, add column if not exists store_address text, add column if not exists store_latitude double precision, add column if not exists store_longitude double precision;";
 
 /** Colunas da migração 20261110000015 (previsão de entrega). */
 const ESTIMATE_FIELDS = [
@@ -557,6 +568,36 @@ export async function PUT(request: Request) {
       }
       updateFields.store_cep = cep;
     }
+  }
+
+  if (body.store_address !== undefined) {
+    if (body.store_address !== null && typeof body.store_address !== "string") {
+      return NextResponse.json(
+        { error: "O endereço da loja deve ser um texto." },
+        { status: 400 }
+      );
+    }
+    const rawAddress =
+      typeof body.store_address === "string"
+        ? body.store_address.replace(/\s+/g, " ").trim()
+        : "";
+    if (rawAddress.length > STORE_ADDRESS_MAX_LENGTH) {
+      return NextResponse.json(
+        {
+          error: `O endereço da loja deve ter até ${STORE_ADDRESS_MAX_LENGTH} caracteres.`,
+        },
+        { status: 400 }
+      );
+    }
+    if (rawAddress !== "" && rawAddress.length < STORE_ADDRESS_MIN_LENGTH) {
+      return NextResponse.json(
+        {
+          error: `Informe o endereço da loja com rua e número (mínimo ${STORE_ADDRESS_MIN_LENGTH} caracteres).`,
+        },
+        { status: 400 }
+      );
+    }
+    updateFields.store_address = rawAddress === "" ? null : rawAddress;
   }
 
   const latitudeProvided = body.store_latitude !== undefined;

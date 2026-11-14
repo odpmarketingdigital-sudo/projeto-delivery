@@ -75,6 +75,9 @@ export async function GET(request: Request) {
         delivery_fee: Number(order.delivery_fee ?? 0) || 0,
         total: Number(order.total ?? 0) || 0,
         payment_method: order.payment_method ?? "—",
+        /** Modalidade escolhida no checkout (`entrega` | `retirada`). */
+        delivery_type:
+          typeof order.delivery_type === "string" ? order.delivery_type : null,
         /** PIX online (migração 20261110000028): status + copia e cola. */
         payment_status:
           typeof order.payment_status === "string" ? order.payment_status : null,

@@ -6,7 +6,7 @@ import type {
 } from "@/lib/types";
 
 /** Modelo multimodal padrão usado na extração (sobrescrevível por env). */
-export const DEFAULT_MENU_IMPORT_MODEL = "gemini-2.5-flash";
+export const DEFAULT_MENU_IMPORT_MODEL = "gemini-3.8-flash";
 
 /** Tamanho máximo aceito no upload (10 MB). */
 export const MENU_IMPORT_MAX_BYTES = 10 * 1024 * 1024;

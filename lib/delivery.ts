@@ -32,8 +32,10 @@ export interface DeliverySettings {
   distance_extra_km_fee: number;
   /** Raio máximo de entrega (km). `null` = sem limite. */
   max_delivery_radius_km: number | null;
-  /** CEP da loja (somente dígitos). */
+  /** CEP da loja (somente dígitos) — mantido para o cadastro/pagamento. */
   store_cep: string | null;
+  /** Endereço da loja por extenso (origem do cálculo do frete). */
+  store_address: string | null;
   store_latitude: number | null;
   store_longitude: number | null;
   /** Tempo mínimo estimado de entrega, em minutos. */
@@ -135,6 +137,26 @@ export function formatCep(value: string): string {
   return digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
 }
 
+/**
+ * Limites do endereço da loja (origem do frete) — usados no painel, na API de
+ * establishment e no geocode para manter o mesmo critério em todos os pontos.
+ */
+export const STORE_ADDRESS_MIN_LENGTH = 8;
+export const STORE_ADDRESS_MAX_LENGTH = 200;
+
+/**
+ * Normaliza o endereço da loja digitado pelo lojista.
+ *
+ * Apara as pontas e colapsa espaços repetidos (o texto é livre: "Av. Bady
+ * Bassitt,  1500 - Centro" vira "Av. Bady Bassitt, 1500 - Centro"). Texto
+ * vazio vira `null` para limpar a coluna.
+ */
+export function normalizeStoreAddress(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const address = value.replace(/\s+/g, " ").trim();
+  return address === "" ? null : address.slice(0, STORE_ADDRESS_MAX_LENGTH);
+}
+
 export function isValidCep(value: unknown): boolean {
   return parseCep(value) != null;
 }
@@ -197,6 +219,7 @@ export function normalizeDeliverySettings(row: unknown): DeliverySettings {
     max_delivery_radius_km:
       radius != null && radius > 0 ? roundKm(radius) : null,
     store_cep: parseCep(source.store_cep),
+    store_address: normalizeStoreAddress(source.store_address),
     store_latitude:
       latitude != null && latitude >= -90 && latitude <= 90
         ? latitude

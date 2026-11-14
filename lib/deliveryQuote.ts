@@ -1,4 +1,10 @@
-import { lookupCep, type CepAddress } from "@/lib/cep";
+import {
+  geocodeAddressNumberExact,
+  geocodeStoreAddress,
+  lookupCep,
+  type AddressParts,
+  type CepAddress,
+} from "@/lib/cep";
 import {
   buildDeliveryQuote,
   haversineDistanceKm,
@@ -11,6 +17,7 @@ import {
   type GeoPoint,
 } from "@/lib/delivery";
 import { computeRouteEstimate } from "@/lib/googleRoutes";
+import { geocodeAddressExactWithGoogle } from "@/lib/googleGeocoding";
 
 /**
  * Cotação de entrega no servidor (fonte da verdade).
@@ -21,9 +28,22 @@ import { computeRouteEstimate } from "@/lib/googleRoutes";
  * A distância vem da **Google Routes API** (rota real de carro, com trânsito);
  * sem chave configurada ou em caso de falha, cai para a distância em linha
  * reta (Haversine) e a cotação sinaliza `distance_source = "haversine"`.
+ *
+ * A posição do cliente tem de ser **exata** (nível de número): coordenadas do
+ * autocomplete do Google ou um geocode que comprove o número. Centroides de
+ * rua/cidade são recusados — eles produzem distâncias irreais (ex.: 1,4 km para
+ * um endereço a 13,4 km) e, por consequência, frete errado.
  */
 
-/** Destino informado pelo cliente (coordenadas do Places ou CEP). */
+/**
+ * Precisão da posição do cliente usada no cálculo.
+ *  - `places`: coordenadas do autocomplete (Google Places) — nível de porta;
+ *  - `geocoded_number`: geocode por endereço com número comprovado;
+ *  - `cep`: coordenadas do CEP (nível de rua, apenas legado).
+ */
+export type DestinationPrecision = "places" | "geocoded_number" | "cep";
+
+/** Destino informado pelo cliente (coordenadas do Places, CEP ou endereço). */
 export interface DeliveryDestination {
   cep?: string | null;
   /** Latitude vinda do autocomplete (pode chegar como string do JSON). */
@@ -32,6 +52,12 @@ export interface DeliveryDestination {
   longitude?: unknown;
   /** `place_id` do Google — gravado no pedido para auditoria. */
   place_id?: string | null;
+  /**
+   * Endereço digitado no checkout (rua/número/bairro/cidade). O cliente não
+   * digita mais o CEP: sem coordenadas do Places nem CEP, o servidor
+   * geocodifica estas partes para calcular a rota.
+   */
+  address?: AddressParts | null;
 }
 
 export interface DeliveryQuotePayload extends DeliveryQuote {
@@ -42,6 +68,8 @@ export interface DeliveryQuotePayload extends DeliveryQuote {
     latitude: number | null;
     longitude: number | null;
     place_id: string | null;
+    /** Como a posição foi obtida (`null` quando não houve cálculo). */
+    precision: DestinationPrecision | null;
   };
   address: {
     street: string | null;
@@ -66,6 +94,31 @@ function normalizeDestination(
   return raw;
 }
 
+/**
+ * Lê as partes do endereço enviadas pelo checkout.
+ *
+ * Retorna `null` quando não há rua — abaixo disso não há endereço utilizável
+ * para geocodificar.
+ */
+function normalizeAddressParts(raw: unknown): AddressParts | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  const record = raw as Record<string, unknown>;
+  const read = (value: unknown): string | null =>
+    typeof value === "string" && value.trim() ? value.trim() : null;
+
+  const parts: AddressParts = {
+    street: read(record.street),
+    number: read(record.number),
+    neighborhood: read(record.neighborhood),
+    city: read(record.city),
+    state: read(record.state),
+    cep: read(record.cep),
+  };
+
+  return parts.street ? parts : null;
+}
+
 
 export async function quoteDelivery(
   establishmentRow: unknown,
@@ -86,6 +139,12 @@ export async function quoteDelivery(
   const needsGeo =
     settings.delivery_type === "distance" ||
     settings.max_delivery_radius_km != null;
+  // Endereço digitado no checkout — usado quando não há coordenadas do Places
+  // nem CEP (o cliente final não digita mais o CEP).
+  const requestedAddress = normalizeAddressParts(destination.address);
+  // Precisão da posição do cliente. As coordenadas do autocomplete já chegam
+  // no nível da porta (`places`); um geocode só entra se comprovar o número.
+  let precision: DestinationPrecision | null = clientPoint ? "places" : null;
 
   if (rawCepValue && !cep && !clientPoint) {
     return {
@@ -95,7 +154,7 @@ export async function quoteDelivery(
     };
   }
 
-  if (!cep && !clientPoint && needsGeo) {
+  if (!cep && !clientPoint && needsGeo && !requestedAddress) {
     return {
       ok: false,
       status: 400,
@@ -106,15 +165,33 @@ export async function quoteDelivery(
     };
   }
 
+  // Sem coordenadas do Places: geocodifica o endereço digitado exigindo o
+  // número exato (Google Geocoding → Nominatim estruturado). Centroides de
+  // rua/cidade **nunca** são aceitos — são a origem das distâncias irreais.
+  let geocodedPoint: GeoPoint | null = null;
+  if (!clientPoint && needsGeo && requestedAddress) {
+    geocodedPoint =
+      (await geocodeAddressExactWithGoogle({
+        street: requestedAddress.street ?? null,
+        number: requestedAddress.number ?? null,
+        neighborhood: requestedAddress.neighborhood ?? null,
+        city: requestedAddress.city ?? null,
+        state: requestedAddress.state ?? null,
+        cep: requestedAddress.cep ?? null,
+      })) ?? (await geocodeAddressNumberExact(requestedAddress));
+    if (geocodedPoint) precision = "geocoded_number";
+  }
+
   // Endereço/coordenadas só são necessários quando há cálculo por distância ou
   // validação de raio. No modelo fixo sem raio, evitamos chamadas externas:
   // a taxa já é conhecida e o pedido não depende da geocodificação.
   let address: CepAddress | null = null;
   if (cep && needsGeo) {
     address = await lookupCep(cep);
-    // Com coordenadas do navegador a cotação segue mesmo se o CEP falhar: a
-    // distância não depende dele.
-    if (!address && !clientPoint) {
+    // Com coordenadas do navegador — ou com o endereço já geocodificado com
+    // número — a cotação segue mesmo se o CEP falhar: a distância não depende
+    // dele.
+    if (!address && !clientPoint && !geocodedPoint) {
       return {
         ok: false,
         status: 400,
@@ -124,7 +201,15 @@ export async function quoteDelivery(
     }
   }
 
-  const storedStorePoint =
+  // Origem do frete: as coordenadas confirmadas pela API de endereços no painel
+  // (`/api/geocode` → `PUT /api/establishment` grava `store_latitude` e
+  // `store_longitude`). Elas são a fonte da verdade e **não** são recalculadas
+  // aqui: uma nova consulta poderia devolver outro ponto (ex.: centroide do
+  // município) e deslocar a origem que o lojista validou.
+  // Para lojas sem coordenadas salvas (bases anteriores à origem configurável),
+  // geocodificamos o endereço por extenso — ou, na falta dele, o CEP — apenas
+  // para manter o cálculo operante.
+  let storePoint: GeoPoint | null =
     settings.store_latitude != null && settings.store_longitude != null
       ? {
           latitude: settings.store_latitude,
@@ -132,28 +217,48 @@ export async function quoteDelivery(
         }
       : null;
 
-  // A origem do cálculo é o endereço/CEP configurado no painel. Recalculamos a
-  // partir do `store_cep` porque as coordenadas salvas podem ter vindo de um
-  // serviço que devolve o centroide da cidade (comum na BrasilAPI v2). Se a
-  // consulta falhar, mantemos as coordenadas já persistidas como fallback.
-  let storeAddress: CepAddress | null = null;
-  if (settings.store_cep && needsGeo) {
-    storeAddress = await lookupCep(settings.store_cep);
+  if (!storePoint && needsGeo) {
+    if (settings.store_address) {
+      const geocodedStore = await geocodeStoreAddress(settings.store_address);
+      if (geocodedStore) {
+        storePoint = {
+          latitude: geocodedStore.latitude,
+          longitude: geocodedStore.longitude,
+        };
+      }
+    }
+    if (!storePoint && settings.store_cep) {
+      const cepAddress = await lookupCep(settings.store_cep);
+      if (cepAddress?.latitude != null && cepAddress.longitude != null) {
+        storePoint = {
+          latitude: cepAddress.latitude,
+          longitude: cepAddress.longitude,
+        };
+      }
+    }
   }
 
-  const storePoint: GeoPoint | null =
-    storeAddress?.latitude != null && storeAddress.longitude != null
-      ? {
-          latitude: storeAddress.latitude,
-          longitude: storeAddress.longitude,
-        }
-      : storedStorePoint;
-
-  const destinationPoint: GeoPoint | null =
-    clientPoint ??
-    (address?.latitude != null && address.longitude != null
+  const cepPoint: GeoPoint | null =
+    address?.latitude != null && address.longitude != null
       ? { latitude: address.latitude, longitude: address.longitude }
-      : null);
+      : null;
+
+  // Ordem de precedência: Places (porta) → geocode com número → CEP (rua).
+  const destinationPoint: GeoPoint | null =
+    clientPoint ?? geocodedPoint ?? cepPoint;
+
+  if (destinationPoint && precision == null) precision = "cep";
+
+  // Modelo por distância sem posição exata: recusa a cotação em vez de cobrar
+  // um valor calculado a partir de um ponto aproximado (centroide de rua).
+  if (!destinationPoint && settings.delivery_type === "distance") {
+    return {
+      ok: false,
+      status: 422,
+      error:
+        "Não conseguimos confirmar a localização exata deste endereço. Selecione o endereço na lista de sugestões do autocomplete para calcularmos o frete pela rota real.",
+    };
+  }
 
   // Distância: rota real do Google quando há chave e os dois pontos são
   // conhecidos; senão, linha reta (Haversine) como fallback determinístico.
@@ -209,6 +314,17 @@ export async function quoteDelivery(
     );
   }
 
+  // CEP é nível de rua: avisamos quando a distância não veio da porta.
+  if (
+    settings.delivery_type === "distance" &&
+    precision === "cep" &&
+    quote.distance_km != null
+  ) {
+    warnings.push(
+      "Distância calculada a partir do CEP (pode variar até o número do endereço)."
+    );
+  }
+
   return {
     ok: true,
     quote: {
@@ -218,6 +334,7 @@ export async function quoteDelivery(
         latitude: destinationPoint?.latitude ?? null,
         longitude: destinationPoint?.longitude ?? null,
         place_id: placeId,
+        precision,
       },
       address: address
         ? {
@@ -226,7 +343,14 @@ export async function quoteDelivery(
             city: address.city,
             state: address.state,
           }
-        : null,
+        : requestedAddress
+          ? {
+              street: requestedAddress.street ?? null,
+              neighborhood: requestedAddress.neighborhood ?? null,
+              city: requestedAddress.city ?? null,
+              state: requestedAddress.state ?? null,
+            }
+          : null,
       warnings,
     },
   };

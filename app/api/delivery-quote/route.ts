@@ -13,12 +13,19 @@ import { quoteDelivery } from "@/lib/deliveryQuote";
  * chave `GOOGLE_MAPS_API_KEY` está configurada; sem ela, a cotação responde
  * com a distância em linha reta e `distance_source = "haversine"`.
  *
+ * **Precisão obrigatória:** para o modelo por km, o destino precisa estar no
+ * nível do número — coordenadas do autocomplete (`latitude`/`longitude`) ou um
+ * geocode que comprove o número. Sem isso a rota devolve `422` em vez de cobrar
+ * um valor calculado a partir do centroide da rua (distâncias irreais, como
+ * 1,4 km para um endereço a 13,4 km).
+ *
  * Body: {
  *   establishment_id: string;
- *   cep?: string;
- *   latitude?: number;   // coordenadas do Places Autocomplete
+ *   latitude?: number;   // coordenadas do Places Autocomplete (preferido)
  *   longitude?: number;
  *   place_id?: string;
+ *   cep?: string;        // legado: clientes antigos que ainda enviam o CEP
+ *   address?: { street, number, neighborhood, city, state, cep };
  * }
  */
 export async function POST(request: Request) {
@@ -28,6 +35,8 @@ export async function POST(request: Request) {
     latitude?: unknown;
     longitude?: unknown;
     place_id?: unknown;
+    /** Endereço digitado (rua/número/bairro/cidade) quando não há Places/CEP. */
+    address?: unknown;
   };
   let body: QuoteBody;
   try {
@@ -81,6 +90,10 @@ export async function POST(request: Request) {
     latitude: body.latitude,
     longitude: body.longitude,
     place_id: placeId,
+    address:
+      body.address && typeof body.address === "object"
+        ? (body.address as Record<string, unknown>)
+        : null,
   });
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status });

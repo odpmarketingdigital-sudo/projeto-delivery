@@ -716,8 +716,8 @@ export default function Storefront({ slug }: { slug?: string } = {}) {
           acompanhamento do pedido anterior fica na barra inferior
           ("Acompanhar pedido" → `/pedido/[id]`) — as duas telas nunca se
           misturam. */}
-      {/* Sacola lateral: exibe itens, calcula o frete (fixo ou por CEP/km) e
-          só então libera o avanço para o checkout. */}
+      {/* Sacola lateral: exibe itens, calcula o frete (fixo ou por endereço/km)
+          e leva o endereço escolhido para o checkout pré-preenchido. */}
       <CartDrawer
         open={isCartOpen}
         onClose={() => setIsCartOpen(false)}

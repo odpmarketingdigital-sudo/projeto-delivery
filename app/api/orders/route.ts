@@ -6,8 +6,9 @@ import {
   canManageEstablishment,
 } from "@/lib/supabase/menuGuard";
 import { isStoreOpen } from "@/lib/openingHours";
-import { quoteDelivery } from "@/lib/deliveryQuote";
+import { quoteDelivery, type DeliveryQuotePayload } from "@/lib/deliveryQuote";
 import { normalizeDeliverySettings } from "@/lib/delivery";
+import type { DeliveryDistanceSource } from "@/lib/delivery";
 import {
   estimatedDeliveryAtFromNow,
   formatEstimatedDeliveryWindow,
@@ -40,6 +41,11 @@ import {
   normalizeMealVouchers,
 } from "@/lib/mealVouchers";
 import { buildStoreOrderWhatsAppUrl } from "@/lib/whatsappOrder";
+import {
+  fetchOrderNotificationStore,
+  notifyOrderStatusChange,
+  notifyStoreNewOrder,
+} from "@/lib/whatsapp/orderNotifications";
 import { isValidCpfCnpj, onlyDigits } from "@/lib/billing";
 import {
   resolveHalfHalfBasePrice,
@@ -47,6 +53,10 @@ import {
   withHalfHalfLabel,
 } from "@/lib/halfHalf";
 import type { HalfHalfFlavor, HalfHalfSelection } from "@/lib/types";
+import {
+  normalizeOrderDeliveryType,
+  type OrderDeliveryType,
+} from "@/lib/orderStatus";
 
 /** Linha de `products` usada no recálculo dos itens do pedido. */
 type OrderProductRow = {
@@ -73,13 +83,16 @@ const ORDER_STATUSES = [
 type OrderStatusValue = (typeof ORDER_STATUSES)[number];
 
 /**
- * Aliases aceitos na borda (query/body): `em_preparo` → `preparando`,
- * `saiu_para_entrega` → `entrega`, `concluido` → `finalizado`.
+ * Aliases aceitos na borda (query/body): `em_preparo`/`confirmado` →
+ * `preparando`, `saiu_para_entrega` → `entrega`, `concluido`/`entregue` →
+ * `finalizado`.
  */
 const STATUS_ALIASES: Record<string, OrderStatusValue> = {
   em_preparo: "preparando",
+  confirmado: "preparando",
   saiu_para_entrega: "entrega",
   concluido: "finalizado",
+  entregue: "finalizado",
 };
 
 function normalizeOrderStatusValue(value: unknown): OrderStatusValue | null {
@@ -186,6 +199,7 @@ export async function GET(request: Request) {
  *
  * Body: {
  *   establishment_id: string,
+ *   order_type?: "entrega" | "retirada", // retirada = sem taxa e sem endereço
  *   customer: { name, phone, street, number, neighborhood, complement?, reference? },
  *   payment_method: "pix" | "cartao" | "dinheiro" | "pix_online" | "vale_refeicao",
  *   meal_voucher?: string,      // bandeira do vale (obrigatória em vale_refeicao)
@@ -214,7 +228,7 @@ export async function POST(request: Request) {
       city?: string;
       complement?: string;
       reference?: string;
-      /** CEP do endereço (obrigatório no modelo por distância/raio). */
+      /** CEP devolvido pela busca automática de endereço (opcional). */
       cep?: string;
       /** Coordenadas do Places Autocomplete (preferidas para a rota). */
       latitude?: number | string;
@@ -225,6 +239,13 @@ export async function POST(request: Request) {
       document?: string;
     };
     payment_method?: string;
+    /**
+     * Modalidade de atendimento escolhida no checkout:
+     * `entrega` (padrão) ou `retirada` (balcão, sem taxa e sem endereço).
+     * `delivery_type` é aceito como alias para integrações externas.
+     */
+    order_type?: string;
+    delivery_type?: string;
     /** Bandeira do vale-refeição/alimentação (somente `vale_refeicao`). */
     meal_voucher?: string;
     change_for?: number | null;
@@ -397,13 +418,22 @@ export async function POST(request: Request) {
   const number = customer.number?.trim() ?? "";
   const neighborhood = customer.neighborhood?.trim() ?? "";
 
+  // Modalidade do pedido: retirada no balcão dispensa endereço e taxa de
+  // entrega. `order_type` é o campo do checkout; `delivery_type` é mantido
+  // como alias para integrações externas (ambos aceitam `pickup`/`retirada`).
+  const orderType: OrderDeliveryType =
+    normalizeOrderDeliveryType(body.order_type) ??
+    normalizeOrderDeliveryType(body.delivery_type) ??
+    "entrega";
+  const isPickup = orderType === "retirada";
+
   if (customerName.length < 3) {
     return NextResponse.json(
       { error: "Informe seu nome completo." },
       { status: 400 }
     );
   }
-  if (!street || !number || !neighborhood) {
+  if (!isPickup && (!street || !number || !neighborhood)) {
     return NextResponse.json(
       { error: "Informe o endereço de entrega (rua, número e bairro)." },
       { status: 400 }
@@ -518,35 +548,62 @@ export async function POST(request: Request) {
   }
 
   // Taxa de entrega recalculada no servidor (nunca confia no navegador).
-  // `quoteDelivery` resolve o endereço (coordenadas do Places ou CEP),
-  // calcula a distância por rota (Google Routes API, com fallback em linha
-  // reta) e aplica o modelo configurado pela loja (fixo ou por km).
-  const deliveryResult = await quoteDelivery(establishment, {
-    cep: typeof customer.cep === "string" ? customer.cep : null,
-    latitude: customer.latitude,
-    longitude: customer.longitude,
-    place_id: typeof customer.place_id === "string" ? customer.place_id : null,
-  });
-  if (!deliveryResult.ok) {
-    return NextResponse.json(
-      { error: deliveryResult.error },
-      { status: deliveryResult.status }
-    );
-  }
-  const deliveryQuote = deliveryResult.quote;
+  // `quoteDelivery` usa as coordenadas do Places escolhidas no checkout (ou um
+  // geocode que comprove o número), calcula a distância por rota (Google Routes
+  // API, com fallback em linha reta) e aplica o modelo da loja (fixo ou por km).
+  // Modelo por km sem posição exata: a cotação falha com 422 — nunca cobramos a
+  // partir do centroide da rua.
+  //
+  // Retirada no balcão: não existe entrega, então nenhuma cotação é feita —
+  // a taxa é zero e não há validação de raio/endereço.
+  let deliveryFee = 0;
+  let deliveryQuote: DeliveryQuotePayload | null = null;
+  let deliveryDistanceKm: number | null = null;
+  let deliveryDurationMinutes: number | null = null;
+  let deliveryDistanceSource: DeliveryDistanceSource | null = null;
 
-  if (!deliveryQuote.within_radius) {
-    const distanceKm = deliveryQuote.distance_km;
-    return NextResponse.json(
-      {
-        error:
-          `Endereço fora do raio de entrega da loja` +
-          (distanceKm != null
-            ? ` (${distanceKm} km de distância, limite de ${deliveryQuote.max_delivery_radius_km} km).`
-            : "."),
+  if (!isPickup) {
+    const deliveryResult = await quoteDelivery(establishment, {
+      cep: typeof customer.cep === "string" ? customer.cep : null,
+      latitude: customer.latitude,
+      longitude: customer.longitude,
+      place_id: typeof customer.place_id === "string" ? customer.place_id : null,
+      // Sem coordenadas do Places nem CEP, o servidor tenta um geocode exato
+      // (número comprovado). Sem isso, a cotação por km falha — não há fallback
+      // para centroide de rua.
+      address: {
+        street,
+        number,
+        neighborhood,
+        city: typeof customer.city === "string" ? customer.city : null,
+        cep: typeof customer.cep === "string" ? customer.cep : null,
       },
-      { status: 400 }
-    );
+    });
+    if (!deliveryResult.ok) {
+      return NextResponse.json(
+        { error: deliveryResult.error },
+        { status: deliveryResult.status }
+      );
+    }
+    deliveryQuote = deliveryResult.quote;
+    deliveryFee = deliveryQuote.fee;
+    deliveryDistanceKm = deliveryQuote.distance_km ?? null;
+    deliveryDurationMinutes = deliveryQuote.duration_minutes ?? null;
+    deliveryDistanceSource = deliveryQuote.distance_source ?? null;
+
+    if (!deliveryQuote.within_radius) {
+      const distanceKm = deliveryQuote.distance_km;
+      return NextResponse.json(
+        {
+          error:
+            `Endereço fora do raio de entrega da loja` +
+            (distanceKm != null
+              ? ` (${distanceKm} km de distância, limite de ${deliveryQuote.max_delivery_radius_km} km).`
+              : "."),
+        },
+        { status: 400 }
+      );
+    }
   }
 
   // Ids de produtos necessários: itens do pedido + sabores meio a meio (para
@@ -798,8 +855,8 @@ export async function POST(request: Request) {
     });
   }
 
-  // Taxa de entrega já validada/recalculada acima por `quoteDelivery`.
-  const deliveryFee = deliveryQuote.fee;
+  // Taxa de entrega já validada/recalculada acima por `quoteDelivery` (zero em
+  // pedidos de retirada no balcão, que não passam pela cotação).
 
   // Pedido mínimo da loja (`establishments.min_order_value`, migração
   // 20261111000003): compara o SUBTOTAL dos itens (sem a taxa de entrega).
@@ -939,32 +996,37 @@ export async function POST(request: Request) {
   // Payload do pedido com fallbacks seguros para campos opcionais — nunca
   // enviamos `undefined` (vira ausência) nem objetos/arrays nulos para as
   // colunas jsonb (`customer_address`, `items`).
-  const addressData = {
-    street,
-    number,
-    neighborhood,
-    // Cidade: usa a do formulário (Places/CEP) e, quando ausente, a resolvida
-    // pelo servidor a partir do CEP — o painel sempre tem a cidade preenchida.
-    city:
-      customer.city?.trim() ||
-      deliveryQuote.address?.city ||
-      "",
-    complement: customer.complement?.trim() ?? "",
-    reference: customer.reference?.trim() ?? "",
-    cep: deliveryQuote.cep,
-    // Coordenadas efetivamente usadas no cálculo da rota (Places/CEP). Ficam
-    // no pedido para o entregador abrir a navegação sem redigitar o endereço.
-    ...(deliveryQuote.destination.latitude != null &&
-    deliveryQuote.destination.longitude != null
-      ? {
-          latitude: deliveryQuote.destination.latitude,
-          longitude: deliveryQuote.destination.longitude,
-        }
-      : {}),
-    ...(deliveryQuote.destination.place_id
-      ? { place_id: deliveryQuote.destination.place_id }
-      : {}),
-  };
+  //
+  // Retirada no balcão: o endereço é gravado vazio de propósito (o painel, as
+  // notificações e o rastreio tratam "sem endereço" como retirada). O endereço
+  // salvo no perfil do cliente continua intacto para o próximo pedido.
+  const addressData = isPickup
+    ? {}
+    : {
+        street,
+        number,
+        neighborhood,
+        // Cidade: usa a do formulário (Places/CEP) e, quando ausente, a
+        // resolvida pelo servidor a partir do endereço — o painel sempre tem a
+        // cidade preenchida.
+        city: customer.city?.trim() || deliveryQuote?.address?.city || "",
+        complement: customer.complement?.trim() ?? "",
+        reference: customer.reference?.trim() ?? "",
+        cep: deliveryQuote?.cep ?? null,
+        // Coordenadas efetivamente usadas no cálculo da rota (Places/CEP).
+        // Ficam no pedido para o entregador abrir a navegação sem redigitar o
+        // endereço.
+        ...(deliveryQuote?.destination.latitude != null &&
+        deliveryQuote.destination.longitude != null
+          ? {
+              latitude: deliveryQuote.destination.latitude,
+              longitude: deliveryQuote.destination.longitude,
+            }
+          : {}),
+        ...(deliveryQuote?.destination.place_id
+          ? { place_id: deliveryQuote.destination.place_id }
+          : {}),
+      };
   const itemsData = orderItems ?? [];
   const notesValue = body.notes?.trim() || null;
 
@@ -1020,14 +1082,18 @@ export async function POST(request: Request) {
     // existir em bases legadas nas demais formas de pagamento.
     ...(mealVoucherValue ? { meal_voucher: mealVoucherValue } : {}),
     notes: notesValue ?? null,
+    // Modalidade escolhida pelo cliente (migração 20261113000001). O painel usa
+    // para exibir "Pronto para buscar" na etapa final de pedidos retirados.
+    delivery_type: orderType,
     estimated_delivery_time: estimatedDeliveryTime,
     estimated_delivery_at: estimatedDeliveryAt,
     // Distância/taxa efetivamente cobradas (auditoria e reembolso). A distância
     // é a da rota do Google quando disponível; `delivery_distance_source`
-    // registra se veio da rota ou do fallback em linha reta.
-    delivery_distance_km: deliveryQuote.distance_km ?? null,
-    delivery_duration_minutes: deliveryQuote.duration_minutes ?? null,
-    delivery_distance_source: deliveryQuote.distance_source ?? null,
+    // registra se veio da rota ou do fallback em linha reta. Pedidos de
+    // retirada não têm rota (campos nulos).
+    delivery_distance_km: deliveryDistanceKm,
+    delivery_duration_minutes: deliveryDurationMinutes,
+    delivery_distance_source: deliveryDistanceSource,
     // Colunas de cupom só são enviadas quando um cupom foi aplicado: assim
     // pedidos sem cupom continuam funcionando mesmo em bases que ainda não
     // executaram as migrações de cupons.
@@ -1047,6 +1113,24 @@ export async function POST(request: Request) {
     .insert(orderPayload)
     .select("id")
     .single();
+
+  // Base sem a migração 20261113000001: grava o pedido sem a modalidade — o
+  // painel volta a inferir entrega/retirada pela presença de endereço.
+  if (
+    insertError &&
+    /delivery_type/i.test(insertError.message ?? "") &&
+    /does not exist|could not find|schema cache/i.test(
+      insertError.message ?? ""
+    )
+  ) {
+    const retryPayload = { ...orderPayload };
+    delete retryPayload.delivery_type;
+    ({ data: created, error: insertError } = await adminClient
+      .from("orders")
+      .insert(retryPayload)
+      .select("id")
+      .single());
+  }
 
   // Base sem a migração 20261110000015: grava o pedido normalmente, apenas
   // sem a previsão (o restante do fluxo continua funcionando).
@@ -1185,6 +1269,43 @@ export async function POST(request: Request) {
     }
   }
 
+  // Notificação automática de NOVO PEDIDO para a loja (Evolution API).
+  //
+  // Roda depois de o pedido estar gravado — o banco é a fonte da verdade e um
+  // WhatsApp fora do ar nunca desfaz o pedido. O `await` é intencional: em
+  // ambientes serverless a função pode ser congelada logo após a resposta, então
+  // disparar em background arriscaria perder a mensagem. O timeout curto de
+  // `ORDER_NOTIFICATION_TIMEOUT_MS` limita a espera.
+  try {
+    await notifyStoreNewOrder({
+      store: establishment,
+      order: {
+        id: created.id,
+        status: "pendente",
+        items: orderItems,
+        customer_name: customerName,
+        customer_phone: customerPhoneDigits,
+        customer_address: addressData,
+        subtotal,
+        delivery_fee: deliveryFee,
+        total,
+        payment_method: paymentMethod,
+        meal_voucher: mealVoucherValue,
+        change_for: changeForValue,
+        notes: notesValue,
+        // Modalidade explícita: pedidos de retirada não têm endereço e a
+        // mensagem da loja destaca "Retirada no balcão".
+        delivery_type: orderType,
+        estimated_delivery_time: estimatedDeliveryTime,
+      },
+    });
+  } catch (notificationError) {
+    console.error(
+      "[orders] Falha inesperada ao notificar a loja sobre o novo pedido:",
+      notificationError
+    );
+  }
+
   // Resumo do pedido no WhatsApp da loja.
   //
   // Regras (ver `lib/whatsappOrder.ts`):
@@ -1214,6 +1335,8 @@ export async function POST(request: Request) {
       mealVoucher: mealVoucherValue,
       changeFor: changeForValue,
       notes: notesValue,
+      // Modalidade explícita (sobrepõe a inferência por endereço).
+      deliveryType: orderType,
       estimatedDeliveryTime,
     }
   );
@@ -1231,6 +1354,8 @@ export async function POST(request: Request) {
         estimated_delivery_time: estimatedDeliveryTime,
         estimated_delivery_at: estimatedDeliveryAt,
         status: "pendente",
+        /** `entrega` ou `retirada` (modalidade escolhida no checkout). */
+        delivery_type: orderType,
         /** Forma escolhida (inclui `pix_online` no Split de Pagamentos). */
         payment_method: paymentMethod,
         /** Bandeira do vale na entrega (null nas demais formas). */
@@ -1239,8 +1364,8 @@ export async function POST(request: Request) {
         payment_status:
           paymentMethod === "pix_online" ? "pendente" : undefined,
         /** Distância da rota usada no cálculo (km) e tempo estimado. */
-        delivery_distance_km: deliveryQuote.distance_km,
-        delivery_duration_minutes: deliveryQuote.duration_minutes,
+        delivery_distance_km: deliveryDistanceKm,
+        delivery_duration_minutes: deliveryDurationMinutes,
         /** Link `wa.me` com o resumo do pedido (null quando indisponível). */
         whatsapp_url: whatsappUrl,
       },
@@ -1261,8 +1386,11 @@ export async function POST(request: Request) {
  *
  * Segurança: só quem gerencia o estabelecimento dono do pedido pode alterá-lo.
  *
- * Body: { id, status, cancellation_reason?, estimated_delivery_time_min?,
+ * Body: { id, status, action?, cancellation_reason?, estimated_delivery_time_min?,
  *         estimated_delivery_time_max? }
+ *  - action = "accept" (botão **Aceitar pedido**): equivale a status =
+ *    "preparando", só é aceito para pedidos `pendente` e é o momento em que o
+ *    cliente recebe a mensagem de confirmação no WhatsApp.
  *  - status = "cancelado" exige `cancellation_reason` (mínimo 3 caracteres).
  *  - ao sair de "cancelado", o motivo é limpo automaticamente.
  *  - a previsão (min/max) é opcional; quando enviada, também regrava o texto e
@@ -1275,6 +1403,12 @@ export async function PUT(request: Request) {
   let body: {
     id?: string;
     status?: string;
+    /**
+     * Ação explícita do painel. `"accept"` é o botão **Aceitar pedido**:
+     * atalho para `preparando` e ÚNICO momento em que o cliente recebe a
+     * mensagem de pedido confirmado (o `POST /api/orders` notifica só a loja).
+     */
+    action?: string;
     cancellation_reason?: string;
     estimated_delivery_time_min?: number;
     estimated_delivery_time_max?: number;
@@ -1295,7 +1429,13 @@ export async function PUT(request: Request) {
       { status: 400 }
     );
   }
-  const nextStatus = normalizeOrderStatusValue(body.status);
+  const action =
+    typeof body.action === "string" ? body.action.trim().toLowerCase() : "";
+  const isAcceptAction = action === "accept" || action === "aceitar";
+  // O aceite é um atalho semântico para "pedido confirmado / em preparo".
+  const nextStatus = isAcceptAction
+    ? ("preparando" as const)
+    : normalizeOrderStatusValue(body.status);
   if (!nextStatus) {
     return NextResponse.json(
       { error: `Status inválido. Use: ${ORDER_STATUSES.join(", ")}.` },
@@ -1347,6 +1487,17 @@ export async function PUT(request: Request) {
 
   // Nenhuma transição é bloqueada: o operador pode corrigir o status livremente.
   const currentStatus = normalizeOrderStatusValue(existing.status);
+  // Aceite só vale para pedido PENDENTE: evita "aceitar" duas vezes (o que
+  // reenviaria a mensagem de confirmação ao cliente) ou aceitar um cancelado.
+  if (isAcceptAction && currentStatus !== "pendente") {
+    return NextResponse.json(
+      {
+        error:
+          "Este pedido não está pendente — ele já foi aceito ou cancelado.",
+      },
+      { status: 409 }
+    );
+  }
   const updates: Record<string, unknown> = { status: nextStatus };
   if (nextStatus === "cancelado") {
     updates.cancellation_reason = cancellationReason;
@@ -1442,6 +1593,35 @@ export async function PUT(request: Request) {
       },
       { status: 400 }
     );
+  }
+
+  // Notificação automática de mudança de etapa para o CLIENTE (Evolution API).
+  //
+  // Em `pendente → preparando` este é o momento do botão "Aceitar pedido": o
+  // cliente recebe a confirmação ("pedido confirmado e já começou a ser
+  // preparado"). Na criação do pedido (`POST /api/orders`) só a LOJA é avisada.
+  //
+  // Só dispara quando o status realmente muda: regravar o mesmo status (ex.:
+  // apenas atualizar a previsão de entrega) não pode duplicar a mensagem. O
+  // envio usa a instância da loja e nunca altera a resposta — falhas ficam
+  // registradas no log do servidor.
+  if (currentStatus !== nextStatus) {
+    try {
+      const store = await fetchOrderNotificationStore(
+        adminClient,
+        existing.establishment_id
+      );
+      await notifyOrderStatusChange({
+        store,
+        order: updated,
+        previousStatus: currentStatus,
+      });
+    } catch (notificationError) {
+      console.error(
+        "[orders] Falha inesperada ao notificar o cliente sobre o status:",
+        notificationError
+      );
+    }
   }
 
   return NextResponse.json({ order: updated }, { status: 200 });

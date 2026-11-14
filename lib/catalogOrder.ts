@@ -65,6 +65,11 @@ export interface CatalogOrderInput {
   items: CatalogOrderItem[];
   /** CEP informado na sacola (opcional) — frete é combinado no atendimento. */
   deliveryCep?: string | null;
+  /**
+   * Modalidade escolhida na sacola (`entrega` | `retirada`). Na retirada o CEP
+   * é ignorado e a mensagem avisa que o cliente retira no balcão.
+   */
+  deliveryType?: "entrega" | "retirada" | null;
   /** Observação geral digitada pelo cliente (opcional). */
   notes?: string | null;
 }
@@ -195,12 +200,16 @@ export function buildCatalogWhatsAppMessage(
     lines.push(`Subtotal (sem frete): ${formatWhatsAppCurrency(subtotal)}`);
   }
 
-  const cep = input.deliveryCep?.trim();
+  const cep = input.deliveryType === "retirada" ? null : input.deliveryCep?.trim();
   if (cep) {
     lines.push("");
     lines.push("*Entrega*");
     lines.push(`CEP informado: ${formatCepForDisplay(cep)}`);
     lines.push("Frete e prazo a combinar com o atendente.");
+  } else if (input.deliveryType === "retirada") {
+    lines.push("");
+    lines.push("*Retirada*");
+    lines.push("O cliente retira no balcão do estabelecimento.");
   }
 
   if (input.notes?.trim()) {

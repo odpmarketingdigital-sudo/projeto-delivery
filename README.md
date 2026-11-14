@@ -227,9 +227,9 @@ passada:
   `/[slug]/pedidos`, perfil salvo no checkout e o link de resumo no WhatsApp em
   `/pedido/[id]` só aparecem após a montagem (nesse intervalo vale o esqueleto de
   carregamento, igual nos dois lados);
-- O carrinho e o CEP usam `useSyncExternalStore` com `getServerSnapshot` vazio,
-  então SSR e hidratação sempre concordam (o valor real entra no render
-  seguinte);
+- O carrinho, o CEP/endereço de entrega e o endereço do checkout usam
+  `useSyncExternalStore` com `getServerSnapshot` vazio, então SSR e hidratação
+  sempre concordam (o valor real entra no render seguinte);
 - `suppressHydrationWarning` existe **apenas** em `<html>` e `<body>`
   ([`app/layout.tsx`](app/layout.tsx)), onde extensões de navegador, tradutores
   automáticos e gerenciadores de senha injetam atributos antes da hidratação.
@@ -285,16 +285,21 @@ arquivo **no navegador** (Canvas API, ver
 Fluxo do checkout para lojas com entrega por km (`delivery_type = 'distance'`)
 ou raio máximo (`max_delivery_radius_km`):
 
-1. **Autocomplete de endereço** — o campo *Rua* do checkout
-   ([`AddressAutocomplete.tsx`](app/components/AddressAutocomplete.tsx)) usa a
-   Google Maps JS API (Places) para sugerir endereços no Brasil. Ao escolher uma
-   sugestão, o formulário recebe **rua, número, bairro, cidade, estado, CEP** e
-   as **coordenadas** (`lat`/`lng`), que seguem no corpo do pedido;
+1. **Busca automática de endereço (sem campo de CEP)** — o campo *Rua* do
+   checkout ([`AddressAutocomplete.tsx`](app/components/AddressAutocomplete.tsx))
+   usa a Google Maps JS API (Places) para sugerir endereços no Brasil. Ao escolher
+   uma sugestão, o formulário recebe **rua, número, bairro, cidade, estado** e as
+   **coordenadas** (`lat`/`lng`), que seguem no corpo do pedido. O **CEP não é
+   mais digitado pelo cliente**: quando o Google devolve o CEP ele é usado apenas
+   como dado interno do endereço (nunca como campo de formulário). O mesmo vale
+   para a sacola, que também só oferece a busca por endereço;
 2. **Cotação no servidor** — `POST /api/delivery-quote` (pré-visualização) e
    `POST /api/orders` (validação final) chamam a mesma função
    [`quoteDelivery`](lib/deliveryQuote.ts), que:
-   - resolve o endereço por coordenadas (Places) ou, na falta delas, pelo CEP
-     ([`lib/cep.ts`](lib/cep.ts): BrasilAPI → ViaCEP → Nominatim);
+   - usa as coordenadas do Places quando existem; na falta delas, geocodifica o
+     endereço digitado (rua/número/bairro/cidade) em
+     [`lib/cep.ts`](lib/cep.ts) (`geocodeAddressParts` → Nominatim) e, se houver
+     CEP, cai para a consulta de CEP (BrasilAPI → ViaCEP → Nominatim);
    - calcula a **rota real de carro** com a Google Routes API
      ([`lib/googleRoutes.ts`](lib/googleRoutes.ts), `computeRoutes`,
      `routingPreference: TRAFFIC_AWARE`) devolvendo distância em km e tempo em
@@ -309,7 +314,13 @@ ou raio máximo (`max_delivery_radius_km`):
 4. **Degradação segura** — sem `GOOGLE_MAPS_API_KEY` (ou em erro/timeout da API)
    a distância cai para linha reta (Haversine), a UI avisa que a taxa pode
    variar e o pedido continua sendo criado. Sem
-   `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` o campo de rua vira um input comum.
+   `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` o campo de rua vira um input comum e a
+   cotação passa a usar a geocodificação do endereço digitado no servidor.
+5. **Checkout pré-preenchido** — o endereço usado na sacola (e o telefone/nome do
+   perfil salvo no navegador) chega pronto ao checkout
+   ([`context/CartContext.tsx`](context/CartContext.tsx),
+   `deliveryAddress`, e [`lib/storage.ts`](lib/storage.ts)): o cliente só revisa
+   ou altera o que quiser antes de finalizar.
 
 Variáveis de ambiente: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (navegador, restrita por
 HTTP referrer) e `GOOGLE_MAPS_API_KEY` (servidor, Routes API). Passo a passo,
@@ -339,7 +350,7 @@ foto do cardápio atual. O fluxo tem duas etapas, sempre com revisão humana:
    `POST /api/ai/import-menu`;
 2. **Extração** — a rota valida a sessão/permissão (`requireMenuAccess`,
    `resolveMenuEstablishment`, `canManageEstablishment`), envia o arquivo ao
-   Gemini (`@google/genai`, padrão `gemini-2.5-flash`) via `inlineData` com
+   Gemini (`@google/genai`, padrão `gemini-3.8-flash`) via `inlineData` com
    **Structured Output** (`responseMimeType: "application/json"` +
    `responseSchema`) e devolve `{ menu, establishment_id }`. O prompt e o
    schema vivem em [`lib/ai/menuImport.ts`](lib/ai/menuImport.ts), junto da
@@ -358,7 +369,7 @@ foto do cardápio atual. O fluxo tem duas etapas, sempre com revisão humana:
    (rollback manual) e a API responde erro.
 
 Variáveis de ambiente: `GEMINI_API_KEY` (secreta, só no servidor) e
-`GEMINI_MODEL` (opcional, padrão `gemini-2.5-flash`). Sem a chave a rota
+`GEMINI_MODEL` (opcional, padrão `gemini-3.8-flash`). Sem a chave a rota
 responde **500** com `"A variável de ambiente GEMINI_API_KEY não está
 configurada no servidor."` — o cadastro manual continua funcionando normalmente.
 
@@ -367,6 +378,234 @@ configurada no servidor."` — o cadastro manual continua funcionando normalment
 > (`MENU_IMPORT_MAX_BYTES`), mas plataformas serverless impõem teto próprio ao
 > corpo da requisição (na Vercel, ~4,5 MB) — acima disso a importação falha
 > antes de chegar ao código; nesse caso envie um PDF/foto menor.
+
+## Arquitetura de permissões: Superadmin × Estabelecimento
+
+O painel é dividido em dois mundos com fronteiras explícitas. A regra é simples:
+**o global é da plataforma, o operacional é da loja.**
+
+| Área | Superadmin (`/painel/admin/...`) | Estabelecimento (`/painel/...`) |
+| --- | --- | --- |
+| Chaves de API (`GEMINI_API_KEY`, `EVOLUTION_API_*`, `WHATSAPP_WEBHOOK_TOKEN`) | Vê **apenas o status** (configurada/ausente) em `/painel/admin/ia`; os valores ficam só nas variáveis de ambiente do servidor | Não vê nada |
+| Prompt mestre do atendimento | Edita em `/painel/admin/ia` → `system_settings.ai_master_prompt` | Não vê (aplica-se a todas as lojas) |
+| Tom de voz da IA | Define o padrão global (`ai_default_personality`) | Não vê (aplicado pelo servidor em todas as respostas) |
+| Cadeia de modelos Gemini | Edita (`ai_models`); vazio = `GEMINI_MODEL`/`GEMINI_MODEL_FALLBACKS` | Não vê |
+| Conexão do WhatsApp (Evolution) e QR Code | Conecta/desconecta qualquer loja em `/painel/admin/ia` (`POST /api/whatsapp-ia`) | Conecta e desconecta o **próprio** número em `/painel/whatsapp-ia`: **Conectar WhatsApp** (gera o QR Code na tela) e **Desconectar WhatsApp** (encerra a sessão para conectar outro número) |
+| Nome do atendente, IA ligada/desligada e observações da loja | Edita por loja em `/painel/admin/ia` → **Configurar IA** (`PUT /api/whatsapp-ia`) | Não vê nenhum campo de configuração |
+| Histórico de conversas do WhatsApp | Não existe em nenhuma tela | Não existe: o sistema **não persiste mensagens** e a IA atende sozinha no número conectado |
+| Nome, horário, entrega, pedido mínimo, vale-refeição, cardápio, imagens | — | Edita em `/painel/configuracoes`, `/painel/produtos` |
+
+Endpoints e suas permissões:
+
+- `GET/PUT /api/admin/ai-settings` — **só Superadmin** (`requireSuperAdmin`):
+  prompt mestre, tom de voz, prefixo de instância, modelos, status das
+  integrações e a lista de lojas/instâncias (com nome do atendente e observações
+  de cada loja).
+  `POST { action: "ensure_instances" }` gera o nome das instâncias que faltam no
+  padrão `<prefixo>-<slug>`.
+- `GET /api/whatsapp-ia` — dono da loja **ou** Superadmin, somente leitura do
+  estado (conexão + metadados). `whatsapp_instance_name` volta como `null` para
+  quem não é Superadmin.
+- `PUT /api/whatsapp-ia` — **só Superadmin**: `ai_enabled`,
+  `ai_assistant_name`, `ai_personality`, `ai_custom_instructions` e
+  `whatsapp_instance_name`. O lojista não tem mais nenhum campo de configuração
+  no painel e qualquer `PUT` dele responde `403`.
+- `POST /api/whatsapp-ia` (`connect`/`status`/`disconnect`) — dono da loja **ou**
+  Superadmin: é a conexão do próprio número (QR Code) e o encerramento da sessão
+  (`DELETE /instance/logout/{instance}`, com `DELETE /instance/delete/{instance}`
+  apenas para limpar instâncias órfãs). O campo `instance_name` só é aceito do
+  Superadmin — o nome da instância é derivado de `<prefixo>-<slug>`.
+- `POST /api/webhooks/whatsapp` — máquina (Evolution API), autenticada por
+  `WHATSAPP_WEBHOOK_TOKEN`.
+
+### Como o prompt é montado
+
+O prompt do modelo é montado no servidor, em camadas, sempre nesta ordem de
+prioridade (ver [`buildWhatsappSystemPrompt`](lib/ai/whatsappAgent.ts)):
+
+1. **Prompt mestre da plataforma** (`system_settings.ai_master_prompt`, editável
+   só pelo Superadmin; padrão de fábrica em `DEFAULT_AI_MASTER_PROMPT`);
+2. **tom de voz global** (`ai_default_personality`);
+3. **observações operacionais da loja** (`establishments.ai_custom_instructions`,
+   cadastradas pelo Superadmin em **Configurar IA** a partir do que a loja informa)
+   — marcadas no prompt como subordinadas às regras da plataforma;
+4. dados reais da loja (horário calculado na hora, pedido mínimo, entrega,
+   vale-refeição, contato);
+5. cardápio atual (categorias e produtos ativos).
+
+Nenhum parâmetro técnico (modelo, chave, instância, webhook) entra no prompt, e
+o texto final reforça que o atendente **nunca** deve revelar regras internas,
+modelos, chaves ou detalhes da plataforma ao cliente final.
+
+## Atendente virtual de WhatsApp (Evolution API + Gemini)
+
+
+Em **Painel → WhatsApp** a loja faz uma coisa só: conecta o número que atende os
+clientes. A IA conduz o atendimento de forma autônoma nesse número, com base no
+cardápio, nos dados da loja e nas observações livres (`ai_custom_instructions`),
+e o painel do lojista **não tem histórico de conversas nem campo de resposta** —
+o sistema não grava nenhuma mensagem. Tudo que é configuração — prompt mestre,
+tom de voz, modelos, nome do atendente, IA ligada/desligada e as observações da
+loja — é definido pelo Superadmin em **Painel SaaS → Atendente IA**. O fluxo:
+
+1. **Conexão do número** — `POST /api/whatsapp-ia` com
+   `{ establishment_id, action: "connect" }`, chamado pela loja em
+   `/painel/whatsapp-ia` (**Conectar WhatsApp**) ou pelo Superadmin em
+   `/painel/admin/ia`, cria a instância na Evolution API (`POST /instance/create`,
+   com `integration: "WHATSAPP-BAILEYS"` e o webhook já apontando para
+   `/api/webhooks/whatsapp`; `403`/`409` = instância já existente) e só então
+   consulta `GET /instance/connect/{instance}` para devolver o QR Code. O nome da
+   instância vem do corpo (opcional), do banco ou é derivado de
+   `whatsapp_instance_prefix` + slug da loja. O QR é lido com o celular da loja e
+   `{ action: "status" }` atualiza `establishments.whatsapp_connected`. Para
+   trocar de aparelho, `{ action: "disconnect" }` executa
+   `DELETE /instance/logout/{instance}` (nome da instância no **path**, chave no
+   header `apikey` e **sem body**), grava `whatsapp_connected = false` e libera
+   um novo QR Code no próximo `connect`. A v2 responde `400` com
+   `{"status":400,"error":"Bad Request","message":["The \"<instance>\" instance
+   is not connected"]}` quando a sessão já caiu no celular: esse caso é tratado
+   como sucesso (`already_disconnected: true`) e o estado é limpo no banco do
+   mesmo jeito. Instância que não existe mais (`404`) é limpa com
+   `DELETE /instance/delete/{instance}`;
+2. **Mensagens recebidas** — a Evolution envia `messages.upsert` para
+   `POST /api/webhooks/whatsapp` (token em `WHATSAPP_WEBHOOK_TOKEN`, header
+   `x-webhook-token`). A rota localiza a loja pelo nome da instância e responde
+   pelo Gemini ([`lib/ai/whatsappAgent.ts`](lib/ai/whatsappAgent.ts)) **sem
+   gravar a mensagem no banco**;
+3. **Pausa automática** — quando alguém da loja responde pelo aplicativo
+   (`fromMe`), a IA fica pausada por `AI_PAUSE_MINUTES` (30 min) para aquele
+   telefone. Sem resposta humana a IA volta sozinha;
+4. **Sem histórico** — não existe tabela de conversas/mensagens, endpoint de
+   chat nem tela de atendimento. O contexto de curto prazo (últimos turnos) e as
+   pausas vivem apenas na memória do processo do servidor
+   ([`lib/whatsapp/conversationMemory.ts`](lib/whatsapp/conversationMemory.ts)):
+   reiniciar o processo zera o contexto e, com várias instâncias do servidor,
+   cada uma mantém a própria memória. Nenhum conteúdo de mensagem é persistido;
+
+As regras compartilhadas (personalidades, normalização de telefone/instância,
+limites de texto e duração da pausa) ficam em
+[`lib/whatsappAssistant.ts`](lib/whatsappAssistant.ts).
+
+Variáveis de ambiente (ver [`.env.local.example`](.env.local.example)):
+`GEMINI_API_KEY` + `GEMINI_MODEL` (opcional, padrão `gemini-3.8-flash`) e
+`EVOLUTION_API_URL`,
+`EVOLUTION_API_KEY`, `WHATSAPP_WEBHOOK_TOKEN` e `WHATSAPP_WEBHOOK_URL`
+(opcional: sem ela usa `NEXT_PUBLIC_APP_URL` + `/api/webhooks/whatsapp`). Sem as
+variáveis da Evolution a IA continua sendo chamada, mas nenhuma resposta é
+enviada — o texto fica no log estruturado do webhook.
+
+> **Alta demanda / modelo desligado:** o atendente usa a cadeia de
+> [`resolveWhatsappAiModels`](lib/ai/whatsappAgent.ts) — o modelo principal
+> (`GEMINI_MODEL`) seguido de `GEMINI_MODEL_FALLBACKS` (padrão
+> `gemini-3.6-flash,gemini-3.5-flash-lite`). Falhas temporárias (`429` limite,
+> `503` sobrecarga, `404` modelo inexistente e erro de rede) repetem a chamada
+> uma vez com backoff exponencial e depois passam para o próximo modelo; erro de
+> chave (`ai_auth_failed`) ou resposta vazia (`empty_reply`) não é repetido. Cada
+> tentativa fica no log com o código e o modelo.
+>
+> Modelos **não** use: `gemini-1.5-flash` (desligado em 2025) e
+> `gemini-2.0-flash` (desligado em 01/06/2026) — a API responde `404` e o
+> atendimento fica sem resposta. O substituto atual é `gemini-3.8-flash`.
+
+Migração: `20261111000005_add_ai_whatsapp_assistant.sql` (colunas de IA em
+`establishments`). Sem ela o painel abre com o aviso de migração pendente.
+
+Migração de limpeza: `20261113000002_drop_whatsapp_chat_history.sql` remove
+`whatsapp_messages` e `whatsapp_conversations` de bancos que ainda tinham o
+histórico antigo (idempotente; as colunas de IA da loja são preservadas).
+
+Migração da configuração global: `20261112000002_add_global_ai_settings.sql`
+(seed de `ai_default_personality` e `whatsapp_instance_prefix`, comentários das
+colunas e RLS defensiva em `system_settings`). O prompt mestre **não** é seedado:
+enquanto não for salvo em `/painel/admin/ia`, vale `DEFAULT_AI_MASTER_PROMPT` de
+[`lib/whatsappAssistant.ts`](lib/whatsappAssistant.ts) — uma única cópia do
+texto, sem risco de divergência entre SQL e TypeScript.
+
+### Notificações automáticas de pedidos
+
+O ciclo do pedido fala com os dois lados pelo WhatsApp
+([`lib/whatsapp/orderNotifications.ts`](lib/whatsapp/orderNotifications.ts)):
+
+| Evento | Quando dispara | Quem recebe |
+| --- | --- | --- |
+| **Novo pedido** | `POST /api/orders` grava o pedido | Loja (`establishments.whatsapp`, fallback `phone`) |
+| **Pedido aceito** | `PUT /api/orders` com `action: "accept"` (botão **Aceitar pedido**) | Cliente (`orders.customer_phone`) |
+| **Mudança de etapa** | `PUT /api/orders` com status diferente do atual | Cliente (`orders.customer_phone`) |
+
+- **O cliente não recebe nada na criação do pedido.** A confirmação
+  ("pedido recebido/confirmado") é disparada **somente** quando o lojista clica
+  em **Aceitar pedido** — botão presente nos cards pendentes do Kanban, na
+  visão em lista e no modal de detalhes. A ação envia `action: "accept"` para
+  `PUT /api/orders`, que valida que o pedido ainda está `pendente` (repetir a
+  ação responde `409`), muda o status para `preparando` e só então notifica o
+  cliente.
+- **Remetente é sempre a instância da loja**
+  (`establishments.whatsapp_instance_name`): a Evolution API só entrega mensagens
+  de um número conectado. Loja sem instância ou sem número de destino não gera
+  envio — a rota do pedido segue normalmente.
+- **Resumo do novo pedido** reaproveita
+  [`buildOrderWhatsAppMessage`](lib/whatsappOrder.ts): número do pedido, itens com
+  adicionais e observações, total, forma de pagamento (com troco/vale) e endereço
+  completo. Pedidos de **retirada** (`orders.delivery_type = 'retirada'`) nunca
+  mostram endereço: o bloco vira **Retirada no balcão do estabelecimento** e a
+  taxa aparece como "sem taxa".
+- **Mensagens por etapa** (`buildCustomerStatusMessage`), sempre com o primeiro
+  nome do cliente e o código curto do pedido: `preparando` (confirmado e em
+  preparo, com a previsão), `entrega` (**"saiu para entrega"** no delivery e
+  **"pronto para buscar no balcão"** na retirada), `finalizado` (bom apetite) e
+  `cancelado` (com o motivo informado pelo painel). `pendente` só é
+  enviado se o pedido voltar manualmente para essa etapa. Aliases de borda
+  (`em_preparo`, `confirmado`, `saiu_para_entrega`, `concluido`, `entregue`) são
+  normalizados antes de escolher o texto.
+- **Anti-duplicação:** o `PUT` só notifica quando o status realmente muda —
+  regravar o mesmo status (ex.: só ajustar a previsão de entrega) não reenvia.
+- **O pedido nunca depende do WhatsApp:** o envio acontece depois do
+  `insert`/`update` e dentro de `try/catch`; falhas viram log
+  (`[whatsapp:pedido] ...`), com timeout próprio de 6 s
+  (`ORDER_NOTIFICATION_TIMEOUT_MS`) para não segurar o checkout. Erros não são
+  reprocessados automaticamente.
+- **Número igual ao da instância:** se a loja cadastrar em
+  `establishments.whatsapp` o mesmo número conectado à instância, a mensagem cai
+  na conversa "Você" do próprio WhatsApp — comportamento esperado.
+
+## Entrega x retirada e confirmação de recebimento
+
+O checkout (e a sacola) pergunta **como o cliente quer receber** o pedido:
+
+| Modalidade | Endereço | Taxa | Etapa final |
+| --- | --- | --- | --- |
+| `entrega` | obrigatório (rua, número e bairro) | calculada pela loja | **Saiu para Entrega** |
+| `retirada` | dispensado (só nome + telefone) | zero | **Pronto para buscar** |
+
+- A escolha fica em `@delivery:order-type` (localStorage) via `CartContext`
+  (`orderType`/`setOrderType`) e chega pré-marcada no checkout. O corpo de
+  `POST /api/orders` leva `order_type`; o servidor grava
+  `orders.delivery_type` (migração
+  `20261113000001_add_delivery_type_to_orders.sql`), **não** cobra taxa e
+  **não** exige endereço quando a modalidade é `retirada`. O `delivery_type`
+  também é aceito como alias do campo para integrações externas.
+- Pedidos antigos (sem a coluna) continuam classificados pela presença de
+  endereço — a mesma regra histórica do painel, centralizada em
+  `orderDeliveryType` ([`lib/orderStatus.ts`](lib/orderStatus.ts)).
+- **Rótulos por modalidade:** `orderStatusLabel(status, deliveryType)` troca
+  "Saiu para Entrega" por **"Pronto para buscar"** nos cards do Kanban, na
+  visão em lista, no modal de detalhes, na página `/pedido/[id]`, em
+  `/[slug]/pedidos` e nas mensagens automáticas do WhatsApp. O card mostra um
+  selo **🛵 Entrega** / **🛍️ Retirada** e o botão de avanço em `preparando`
+  vira "Marcar pronto". A coluna final do Kanban exibe a nota
+  "Retirada: pronto para buscar".
+- **"Recebi o pedido":** na tela `/pedido/[id]`, quando o pedido está em
+  `entrega`, o cliente confirma o recebimento em
+  `POST /api/orders/received`. A rota é pública, valida o UUID **e** o telefone
+  do pedido (mesmo modelo de `POST /api/orders/cancel`) e só aceita essa etapa;
+  o status vira `finalizado`, encerrando o ciclo do pedido. Na retirada o botão
+  aparece como **"Já retirei o pedido"**.
+- Sem telefone salvo no navegador, o clique abre um diálogo pedindo o WhatsApp
+  usado no pedido (prova de posse); com o telefone salvo, a confirmação é
+  imediata (1 clique).
+- A base sem a migração continua funcionando: o `insert` de `POST /api/orders`
+  repete sem `delivery_type` quando a coluna não existe (o painel volta a
+  inferir pelo endereço).
 
 ## Sessão e cookies (`431 Request Header Fields Too Large`)
 

@@ -5,6 +5,8 @@ import {
   ORDER_STATUS_META,
   nextOrderActionLabel,
   nextOrderStatus,
+  orderDeliveryType,
+  orderStatusLabel,
 } from "@/lib/orderStatus";
 import {
   formatEstimatedDeliveryWindowLabel,
@@ -23,6 +25,14 @@ interface OrderCardProps {
   onOpen: (order: PanelOrder) => void;
   /** Avança o pedido para a próxima etapa direto pela API (sem abrir o modal). */
   onAdvance: (order: PanelOrder, nextStatus: OrderStatus) => void;
+  /**
+   * Botão **Aceitar pedido** (apenas para `pendente`).
+   *
+   * É o único caminho que confirma o pedido para o cliente: a criação do
+   * pedido avisa somente a loja; ao aceitar, o cliente recebe a mensagem de
+   * confirmação no WhatsApp.
+   */
+  onAccept?: (order: PanelOrder) => void;
   /** true = há uma atualização de status em andamento para este pedido. */
   isBusy?: boolean;
   /**
@@ -66,16 +76,21 @@ export function OrderCard({
   shortNumber,
   onOpen,
   onAdvance,
+  onAccept,
   isBusy = false,
   onDragStart,
   onDragEnd,
   isDragging = false,
 }: OrderCardProps) {
   const meta = ORDER_STATUS_META[order.status];
+  // Modalidade do pedido: em retirada a etapa final é "Pronto para buscar".
+  const deliveryType = orderDeliveryType(order);
+  const isPickup = deliveryType === "retirada";
+  const statusLabel = orderStatusLabel(order.status, deliveryType);
   const isPending = order.status === "pendente";
   const isCancelled = order.status === "cancelado";
   const nextStatus = nextOrderStatus(order.status);
-  const nextActionLabel = nextOrderActionLabel(order.status);
+  const nextActionLabel = nextOrderActionLabel(order.status, deliveryType);
   // Pedido com atualização em andamento não pode ser arrastado (evita corrida).
   const isDraggable = Boolean(onDragStart) && !isBusy;
   const estimateWindow = parseEstimatedDeliveryWindow(
@@ -131,6 +146,17 @@ export function OrderCard({
           <p className="mt-0.5 whitespace-nowrap text-[11px] font-medium text-slate-600">
             {formatDateTime(order.created_at)}
           </p>
+          {/* Modalidade: a loja precisa saber de imediato se prepara entrega
+              ou retirada no balcão. */}
+          <p
+            className={`mt-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+              isPickup
+                ? "bg-violet-100 text-violet-700"
+                : "bg-sky-100 text-sky-700"
+            }`}
+          >
+            {isPickup ? "🛍️ Retirada" : "🛵 Entrega"}
+          </p>
           {estimateLabel && !isCancelled && order.status !== "finalizado" && (
             <p className="mt-1 text-[11px] font-bold text-amber-600">
               ⏱ Previsão: {estimateLabel}
@@ -160,9 +186,38 @@ export function OrderCard({
           className={`inline-flex max-w-full shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ring-1 ${meta.badgeClass}`}
         >
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dotClass}`} />
-          {meta.label}
+          {statusLabel}
         </span>
       </div>
+
+      {isPending && onAccept && (
+        <button
+          type="button"
+          disabled={isBusy}
+          aria-busy={isBusy}
+          onClick={() => onAccept(order)}
+          className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2.5 text-xs font-black uppercase tracking-wide text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 disabled:cursor-not-allowed disabled:opacity-60"
+          title="Aceitar o pedido e avisar o cliente no WhatsApp"
+        >
+          {isBusy ? "Aceitando…" : "Aceitar pedido"}
+          {!isBusy && (
+            <svg
+              aria-hidden="true"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.4}
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="m4.5 12.75 6 6 9-13.5"
+              />
+            </svg>
+          )}
+        </button>
+      )}
 
       <button
         type="button"
@@ -186,7 +241,7 @@ export function OrderCard({
         </svg>
       </button>
 
-      {nextStatus && nextActionLabel && (
+      {nextStatus && nextActionLabel && !(isPending && onAccept) && (
         <button
           type="button"
           disabled={isBusy}

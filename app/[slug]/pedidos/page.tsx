@@ -15,6 +15,11 @@ import {
   parseEstimatedDeliveryWindow,
 } from "@/lib/deliveryEstimate";
 import { paymentMethodLabel } from "@/lib/paymentLabels";
+import {
+  orderDeliveryType,
+  orderDeliveryTypeLabel,
+  orderStatusLabel,
+} from "@/lib/orderStatus";
 
 type OrderStatus = "pendente" | "preparando" | "entrega" | "finalizado" | "cancelado";
 
@@ -41,6 +46,8 @@ interface OrderCard {
   customer_name: string;
   customer_phone: string | null;
   customer_address: { street?: string; number?: string; neighborhood?: string; complement?: string; reference?: string } | null;
+  /** Modalidade escolhida no checkout (`entrega` | `retirada`). */
+  delivery_type?: string | null;
   items: OrderItem[];
   cancellation_reason?: string | null;
   estimated_delivery_time?: string | null;
@@ -48,13 +55,18 @@ interface OrderCard {
   created_at: string;
 }
 
-const STATUS_LABEL: Record<OrderStatus, string> = {
-  pendente: "Pendente",
-  preparando: "Em preparo",
-  entrega: "Saiu para entrega",
-  finalizado: "Concluído",
-  cancelado: "Cancelado",
-};
+/**
+ * Rótulo do status adaptado à modalidade: em pedidos de retirada a etapa final
+ * é "Pronto para buscar" (mesma regra do painel e das notificações).
+ */
+function statusLabelFor(order: OrderCard): string {
+  return orderStatusLabel(order.status, orderDeliveryType(order));
+}
+
+/** Modalidade do pedido ("Entrega" | "Retirada"). */
+function deliveryLabelFor(order: OrderCard): string {
+  return orderDeliveryTypeLabel(orderDeliveryType(order));
+}
 
 const STATUS_BADGE: Record<OrderStatus, string> = {
   pendente: "bg-amber-100 text-amber-800 ring-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:ring-amber-800",
@@ -385,7 +397,7 @@ function OrdersHistoryPage() {
                     <span
                       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${STATUS_BADGE[order.status]}`}
                     >
-                      {STATUS_LABEL[order.status]}
+                      {statusLabelFor(order)}
                     </span>
                   </div>
                   <span className="text-xs tabular-nums text-gray-400 dark:text-gray-500">
@@ -398,11 +410,15 @@ function OrdersHistoryPage() {
                   estimateLabel(order.estimated_delivery_time) && (
                     <div className="mx-5 mt-3 rounded-xl border border-yellow-300/60 bg-yellow-50 px-3 py-2 dark:border-yellow-400/30 dark:bg-yellow-400/10">
                       <p className="text-xs font-bold uppercase tracking-wider text-yellow-700 dark:text-yellow-300">
-                        Previsão de entrega
+                        {orderDeliveryType(order) === "retirada"
+                          ? "Previsão de retirada"
+                          : "Previsão de entrega"}
                       </p>
                       <p className="mt-0.5 text-sm font-semibold text-gray-900 dark:text-white">
                         {order.status === "entrega"
-                          ? `Seu pedido está a caminho — chega em ${estimateLabel(order.estimated_delivery_time)}.`
+                          ? orderDeliveryType(order) === "retirada"
+                            ? "Seu pedido está pronto para retirar no balcão."
+                            : `Seu pedido está a caminho — chega em ${estimateLabel(order.estimated_delivery_time)}.`
                           : `Chega em ${estimateLabel(order.estimated_delivery_time)}.`}
                       </p>
                     </div>
@@ -455,11 +471,17 @@ function OrdersHistoryPage() {
                     <span className="tabular-nums">{formatBRL(order.subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-xs text-gray-400 dark:text-gray-500">
-                    <span>Taxa de entrega</span>
+                    <span>
+                      {orderDeliveryType(order) === "retirada"
+                        ? "Retirada no balcão"
+                        : "Taxa de entrega"}
+                    </span>
                     <span className="tabular-nums">
-                      {order.delivery_fee > 0
-                        ? formatBRL(order.delivery_fee)
-                        : "Grátis"}
+                      {orderDeliveryType(order) === "retirada"
+                        ? "Sem taxa"
+                        : order.delivery_fee > 0
+                          ? formatBRL(order.delivery_fee)
+                          : "Grátis"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between pt-1 text-sm font-bold text-gray-900 dark:text-white">
@@ -476,23 +498,27 @@ function OrdersHistoryPage() {
                   )}
                 </div>
 
-                {/* Endereço de entrega */}
-                {order.customer_address && (
+                {/* Endereço de entrega (ou retirada no balcão) */}
+                {(order.customer_address ||
+                  orderDeliveryType(order) === "retirada") && (
                   <div className="border-t border-gray-100 px-5 py-3 dark:border-gray-800">
                     <p className="text-xs font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                      Entrega
+                      {deliveryLabelFor(order)}
                     </p>
                     <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                      {[
-                        order.customer_address.street && order.customer_address.number
-                          ? `${order.customer_address.street}, ${order.customer_address.number}`
-                          : order.customer_address.street,
-                        order.customer_address.neighborhood,
-                        order.customer_address.complement,
-                        order.customer_address.reference,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
+                      {order.customer_address
+                        ? [
+                            order.customer_address.street &&
+                            order.customer_address.number
+                              ? `${order.customer_address.street}, ${order.customer_address.number}`
+                              : order.customer_address.street,
+                            order.customer_address.neighborhood,
+                            order.customer_address.complement,
+                            order.customer_address.reference,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")
+                        : "Retirada no balcão do estabelecimento."}
                     </p>
                   </div>
                 )}

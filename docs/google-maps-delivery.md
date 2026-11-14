@@ -75,14 +75,14 @@ O campo de rua usa o Web Component `google.maps.places.PlaceAutocompleteElement`
 
 | Tela | Posição | O que acontece ao selecionar uma sugestão |
 | --- | --- | --- |
-| Checkout (`/[slug]/checkout`) | campo **Rua**, logo **acima do CEP** | preenche rua, número, bairro, cidade e **CEP**; guarda lat/lng/`place_id` e dispara `POST /api/delivery-quote` |
-| Sacola (`CartDrawer` — lojas por distância ou com raio máximo) | bloco **Calcular entrega**, antes do campo de CEP (que continua disponível) | guarda lat/lng/`place_id`, grava o CEP no contexto do carrinho e cota **taxa + tempo** pela rota antes do checkout |
+| Checkout (`/[slug]/checkout`) | campo **Rua** | preenche rua, número, bairro, cidade e **CEP**; guarda lat/lng/`place_id`, mostra o endereço confirmado e dispara `POST /api/delivery-quote` |
+| Sacola (`CartDrawer` — lojas por distância ou com raio máximo) | bloco **Calcular entrega** | guarda lat/lng/`place_id`, grava o CEP no contexto do carrinho e cota **taxa + tempo** pela rota antes do checkout |
 
-O campo de CEP continua obrigatório quando a taxa depende de distância: o
-endereço escolhido apenas deixa a cotação mais precisa (coordenadas exatas em
-vez do centroide do CEP). Sem `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` o bloco de
-endereço da sacola não é renderizado (fica só o CEP) e no checkout o
-`AddressAutocomplete` cai para um input comum — nenhum fluxo quebra.
+No checkout o cliente **não digita CEP**: a localização vem da sugestão escolhida
+no autocomplete. Em lojas com taxa **por km**, escolher a sugestão é obrigatório —
+o formulário bloqueia o envio e o servidor responde `422` sem coordenadas exatas,
+porque distância estimada por texto livre gerava frete errado. Lojas com taxa
+fixa (sem raio) continuam funcionando sem endereço geocodificado.
 
 ## 2. Variáveis de ambiente
 
@@ -116,10 +116,17 @@ regrava o pedido sem elas e mantém o fluxo normal (com a taxa calculada).
 // requisição
 {
   "establishment_id": "uuid-da-loja",
-  "cep": "01310100",        // opcional (8 dígitos)
-  "latitude": -23.561414,   // opcional — vem do autocomplete
+  "latitude": -23.561414,   // coordenadas do autocomplete (preferido)
   "longitude": -46.655881,
-  "place_id": "ChIJ..."     // opcional
+  "place_id": "ChIJ...",    // opcional — gravado no pedido para auditoria
+  "cep": "01310100",        // legado: clientes antigos que ainda enviam o CEP
+  "address": {              // usado só se não houver coordenadas
+    "street": "Av. Paulista",
+    "number": "1500",
+    "neighborhood": "Bela Vista",
+    "city": "São Paulo",
+    "state": "SP"
+  }
 }
 
 // resposta 200
@@ -138,7 +145,12 @@ regrava o pedido sem elas e mantém o fluxo normal (com a taxa calculada).
     "fee_source": "distance",
     "requires_cep": true,
     "cep": "01310100",
-    "destination": { "latitude": -23.561414, "longitude": -46.655881, "place_id": "ChIJ..." },
+    "destination": {
+      "latitude": -23.561414,
+      "longitude": -46.655881,
+      "place_id": "ChIJ...",
+      "precision": "places"   // "places" | "geocoded_number" | "cep"
+    },
     "address": { "street": "Av. Paulista", "neighborhood": "Bela Vista", "city": "São Paulo", "state": "SP" },
     "warnings": []
   }
@@ -146,7 +158,8 @@ regrava o pedido sem elas e mantém o fluxo normal (com a taxa calculada).
 ```
 
 Erros: `400` endereço ausente/inválido ou CEP inexistente; `404` loja inativa;
-`500` falha ao carregar a loja.
+`422` modelo por km **sem posição exata** (o cliente precisa escolher uma
+sugestão no autocomplete); `500` falha ao carregar a loja.
 
 ### `POST /api/orders` (público)
 
@@ -191,15 +204,30 @@ taxa = distance_base_fee + max(0, km - distance_base_km) × distance_extra_km_fe
 A distância é arredondada para 2 casas (exibição em 1 casa) e `0 km` é tratado
 como “sem distância” para nunca cobrar 0 nem exibir “0,0 km”.
 
-## 6. Degradação (fallback)
+## 6. Precisão obrigatória e degradação (fallback)
+
+Para o modelo **por km**, a posição do cliente tem de estar no nível do número.
+Ordem de resolução (`lib/deliveryQuote.ts → quoteDelivery`):
+
+| Situação | `destination.precision` | Resultado |
+| --- | --- | --- |
+| coordenadas do autocomplete (`latitude`/`longitude`) | `places` | rota real do Google Routes |
+| sem coordenadas, mas o geocode confirmou rua + número (Google Geocoding → Nominatim estruturado) | `geocoded_number` | rota real do Google Routes |
+| apenas CEP (legado) | `cep` | rota a partir do ponto do CEP + aviso na UI |
+| nenhum ponto exato existente | `null` | **`422`** — nada de centroide de rua |
+
+O fallback antigo (geocodificar o texto livre e aceitar o centroide do
+logradouro) foi **removido**: o OSM guarda uma mesma rua em vários trechos, e o
+primeiro resultado podia ficar a 12 km do endereço real (ex.: taxa de 1,4 km
+para um endereço a 13,4 km).
 
 | Situação | Resultado |
 | --- | --- |
-| sem `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | campo de rua comum; cálculo segue pelo CEP |
-| sem `GOOGLE_MAPS_API_KEY` / erro / timeout | distância Haversine; `distance_source = "haversine"`; aviso na UI |
+| sem `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` | campo de rua comum; modelo por km fica bloqueado até o lojista configurar a chave (o servidor não estima distância) |
+| sem `GOOGLE_MAPS_API_KEY` / erro / timeout do Routes | distância Haversine a partir do ponto exato; `distance_source = "haversine"`; aviso na UI |
 | CEP não encontrado e sem coordenadas | `400` pedindo o endereço |
 | CEP não encontrado **com** coordenadas | segue com as coordenadas do Places |
-| loja sem origem configurada | taxa fixa (`fee_source = "fixed_fallback"`) + aviso |
+| loja sem origem configurada e sem coordenadas | `fee_source = "fixed_fallback"` + aviso (a origem é regeocodificada só nesse caso) |
 
 ## 7. Custos e cache
 

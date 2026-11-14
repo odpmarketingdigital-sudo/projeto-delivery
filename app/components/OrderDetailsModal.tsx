@@ -17,6 +17,9 @@ import {
   nextOrderStatus,
   ORDER_STATUS_META,
   ORDER_STATUS_OPTIONS,
+  orderDeliveryType,
+  orderDeliveryTypeLabel,
+  orderStatusLabel,
   previousOrderStatus,
 } from "@/lib/orderStatus";
 import {
@@ -45,6 +48,12 @@ interface OrderDetailsModalProps {
     cancellationReason?: string,
     estimate?: EstimatedDeliveryWindow
   ) => Promise<void>;
+  /**
+   * Botão **Aceitar pedido** (apenas `pendente`). Confirma o pedido para o
+   * cliente: é o momento em que a mensagem de confirmação é enviada pelo
+   * WhatsApp (a criação do pedido notifica somente a loja).
+   */
+  onAcceptOrder: (orderId: string) => Promise<void>;
 }
 
 function formatBRL(value: number): string {
@@ -66,19 +75,15 @@ function formatDateTime(iso: string): string {
   return `${day} às ${time}`;
 }
 
+/**
+ * Modalidade do pedido ("Entrega" | "Retirada").
+ *
+ * A regra vive em `lib/orderStatus` (`orderDeliveryType`), compartilhada com o
+ * card, a tabela e as notificações: usa `orders.delivery_type` quando gravado
+ * e cai na presença de endereço para pedidos antigos.
+ */
 function deliveryTypeLabel(order: PanelOrder): "Entrega" | "Retirada" {
-  const raw = order.delivery_type?.trim().toLowerCase();
-  if (raw === "retirada" || raw === "pickup") return "Retirada";
-  if (raw === "entrega" || raw === "delivery") return "Entrega";
-
-  const address = order.customer_address;
-  const hasAddress = Boolean(
-    address &&
-      (address.street?.trim() ||
-        address.number?.trim() ||
-        address.neighborhood?.trim())
-  );
-  return hasAddress ? "Entrega" : "Retirada";
+  return orderDeliveryTypeLabel(orderDeliveryType(order));
 }
 
 function addressText(order: PanelOrder): string {
@@ -122,12 +127,15 @@ function ThermalReceipt({
   shortNumber: string;
   establishmentName: string;
 }) {
-  const meta = ORDER_STATUS_META[order.status];
   const discount = orderDiscount(order);
   const payment =
     paymentMethodLabel(order.payment_method, order.meal_voucher) || "—";
   const address = addressText(order);
   const deliveryType = deliveryTypeLabel(order);
+  const receiptStatusLabel = orderStatusLabel(
+    order.status,
+    orderDeliveryType(order)
+  );
 
   return (
     <div className="text-black">
@@ -139,7 +147,7 @@ function ThermalReceipt({
       <p>
         <strong>{shortNumber}</strong> · {formatDateTime(order.created_at)}
       </p>
-      <p>Status: {meta.label}</p>
+      <p>Status: {receiptStatusLabel}</p>
       <p>Tipo: {deliveryType}</p>
       <div className="my-1 border-t border-dashed border-black" />
       <p>
@@ -318,10 +326,18 @@ export function OrderDetailsModal({
   initialCancelMode = false,
   onClose,
   onUpdateStatus,
+  onAcceptOrder,
 }: OrderDetailsModalProps) {
   const meta = ORDER_STATUS_META[order.status];
+  const deliveryKind = orderDeliveryType(order);
+  // Rótulos adaptados à modalidade: retirada usa "Pronto para buscar" na etapa
+  // final em vez de "Saiu para Entrega".
+  const statusLabel = orderStatusLabel(order.status, deliveryKind);
+  const statusLabelFor = (status: OrderStatus) =>
+    orderStatusLabel(status, deliveryKind);
   const previousStatus = previousOrderStatus(order.status);
   const nextStatus = nextOrderStatus(order.status);
+  const isPending = order.status === "pendente";
   const isCancelled = order.status === "cancelado";
   const canCancel = canCancelOrder(order.status);
   const discount = orderDiscount(order);
@@ -398,6 +414,29 @@ export function OrderDetailsModal({
   };
 
   /**
+   * Aceite do pedido (botão dedicado).
+   *
+   * Usa `action: "accept"` no `PUT /api/orders`: o servidor só aceita pedidos
+   * ainda pendentes e é justamente aí que o cliente recebe a mensagem de
+   * confirmação no WhatsApp. O status resultante é "Em Preparo".
+   */
+  const handleAccept = async () => {
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      await onAcceptOrder(order.id);
+      setCancelMode(false);
+      setActionMessage(
+        "Pedido aceito! O cliente recebeu a confirmação no WhatsApp."
+      );
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Falha ao aceitar o pedido."
+      );
+    }
+  };
+
+  /**
    * Aplica qualquer transição válida sem fechar o modal, para o operador
    * poder avançar, voltar ou pular etapas na mesma sessão.
    */
@@ -407,6 +446,18 @@ export function OrderDetailsModal({
     estimate?: EstimatedDeliveryWindow
   ) => {
     if (status === order.status && !estimate) return;
+    // Pendente → Em Preparo é o "aceite" do pedido: usa a ação dedicada
+    // (`action: "accept"`) para o servidor validar e o cliente ser avisado
+    // uma única vez.
+    if (
+      order.status === "pendente" &&
+      status === "preparando" &&
+      !cancellationReason &&
+      !estimate
+    ) {
+      await handleAccept();
+      return;
+    }
     setActionError(null);
     setActionMessage(null);
     try {
@@ -416,7 +467,7 @@ export function OrderDetailsModal({
       setActionMessage(
         estimate
           ? `Previsão de entrega atualizada para ${formatEstimatedDeliveryWindowLabel(estimate)}.`
-          : `Status atualizado para ${ORDER_STATUS_META[status].label}.`
+          : `Status atualizado para ${statusLabelFor(status)}.`
       );
     } catch (err) {
       setActionError(
@@ -498,7 +549,7 @@ export function OrderDetailsModal({
                   className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ring-1 ${meta.badgeClass}`}
                 >
                   <span className={`h-1.5 w-1.5 rounded-full ${meta.dotClass}`} />
-                  {meta.label}
+                  {statusLabel}
                 </span>
               </div>
               <p className="mt-2 flex flex-wrap items-center gap-x-1.5 text-xs text-slate-600">
@@ -618,7 +669,9 @@ export function OrderDetailsModal({
                     )}
                   </SectionCard>
 
-                  <SectionCard title="Entrega">
+                  <SectionCard
+                    title={deliveryType === "Retirada" ? "Retirada" : "Entrega"}
+                  >
                     <span className="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-800">
                       {deliveryType}
                     </span>
@@ -703,9 +756,15 @@ export function OrderDetailsModal({
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-3 text-slate-600">
-                      <dt>Taxa de entrega</dt>
+                      <dt>
+                        {deliveryType === "Retirada"
+                          ? "Retirada no balcão"
+                          : "Taxa de entrega"}
+                      </dt>
                       <dd className="tabular-nums">
-                        {formatBRL(order.delivery_fee)}
+                        {deliveryType === "Retirada"
+                          ? "Sem taxa"
+                          : formatBRL(order.delivery_fee)}
                       </dd>
                     </div>
                     <div className="flex items-center justify-between gap-3 text-slate-600">
@@ -755,6 +814,18 @@ export function OrderDetailsModal({
                   }
                 >
                   <div className="space-y-4">
+                    {isPending && (
+                      <button
+                        type="button"
+                        onClick={() => void handleAccept()}
+                        disabled={isBusy}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black uppercase tracking-wide text-white shadow-sm transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isBusy
+                          ? "Aceitando…"
+                          : "Aceitar pedido e avisar o cliente"}
+                      </button>
+                    )}
                     <div className="flex flex-wrap items-center gap-2">
                       <span
                         className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ring-1 ${meta.badgeClass}`}
@@ -762,13 +833,13 @@ export function OrderDetailsModal({
                         <span
                           className={`h-1.5 w-1.5 rounded-full ${meta.dotClass}`}
                         />
-                        {meta.label}
+                        {statusLabel}
                       </span>
                       {nextStatus && (
                         <span className="text-xs text-slate-600">
                           Próxima etapa:{" "}
                           <span className="font-semibold text-slate-800">
-                            {ORDER_STATUS_META[nextStatus].label}
+                            {statusLabelFor(nextStatus)}
                           </span>
                         </span>
                       )}
@@ -794,7 +865,7 @@ export function OrderDetailsModal({
                             value={status}
                             disabled={status === order.status}
                           >
-                            {ORDER_STATUS_META[status].label}
+                            {statusLabelFor(status)}
                             {status === order.status ? " (atual)" : ""}
                           </option>
                         ))}
@@ -810,7 +881,7 @@ export function OrderDetailsModal({
                         disabled={!previousStatus || isBusy}
                         title={
                           previousStatus
-                            ? `Voltar para ${ORDER_STATUS_META[previousStatus].label}`
+                            ? `Voltar para ${statusLabelFor(previousStatus)}`
                             : undefined
                         }
                         className="rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-xs font-bold text-slate-800 transition hover:border-amber-300 hover:text-amber-700 disabled:cursor-not-allowed disabled:opacity-40"
@@ -823,7 +894,7 @@ export function OrderDetailsModal({
                         disabled={!nextStatus || isBusy}
                         title={
                           nextStatus
-                            ? `Avançar para ${ORDER_STATUS_META[nextStatus].label}`
+                            ? `Avançar para ${statusLabelFor(nextStatus)}`
                             : undefined
                         }
                         className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40"
@@ -836,7 +907,11 @@ export function OrderDetailsModal({
 
                 {!isCancelled && (
                   <SectionCard
-                    title="Previsão de entrega"
+                    title={
+                      deliveryType === "Retirada"
+                        ? "Previsão de retirada"
+                        : "Previsão de entrega"
+                    }
                     tone="warning"
                     description="Ao escolher uma janela, a previsão e o horário previsto são recalculados a partir de agora."
                   >
@@ -1090,6 +1165,17 @@ export function OrderDetailsModal({
               >
                 Fechar
               </button>
+
+              {isPending && (
+                <button
+                  type="button"
+                  onClick={() => void handleAccept()}
+                  disabled={isBusy}
+                  className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-md shadow-emerald-600/20 transition hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isBusy ? "Aceitando…" : "Aceitar Pedido"}
+                </button>
+              )}
 
               {canCancel ? (
                 <button

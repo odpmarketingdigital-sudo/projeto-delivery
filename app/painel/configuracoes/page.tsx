@@ -1,3 +1,22 @@
+/**
+ * Configurações do estabelecimento — `/painel/configuracoes`.
+ *
+ * Tela **operacional**: aqui o lojista informa apenas os dados da própria
+ * operação (nome, descrição, horário, entrega/frete, pedido mínimo,
+ * vale-refeição e imagens da vitrine) e, quando houver, os dados de
+ * recebimento online (subconta Asaas da loja).
+ *
+ * O WhatsApp da loja **não** é editado aqui: o número de atendimento e os
+ * disparos do sistema são geridos pela conexão da Evolution API em
+ * `/painel/whatsapp-ia`. O checkout continua lendo `establishments.whatsapp`
+ * (definido no cadastro) para montar o link "enviar resumo no WhatsApp".
+ *
+ * Nada de configuração global/sensível da plataforma fica aqui: prompt mestre
+ * e tom de voz da IA, cadeia de modelos, instâncias de WhatsApp, chaves de API e
+ * preço do plano são geridos pelo Superadmin em `/painel/admin/...` (ver
+ * "Arquitetura de permissões" no README).
+ */
+
 "use client";
 
 import {
@@ -21,8 +40,11 @@ import { AdminHeader } from "@/app/painel/components/AdminHeader";
 import {
   formatCep,
   normalizeDeliverySettings,
+  normalizeStoreAddress,
   parseCep,
   toFiniteNumber,
+  STORE_ADDRESS_MAX_LENGTH,
+  STORE_ADDRESS_MIN_LENGTH,
   type DeliveryType,
 } from "@/lib/delivery";
 import {
@@ -168,7 +190,7 @@ const timeInputClass =
 const deliveryInputClass =
   "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-500 hover:border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-40";
 
-/** Input do telefone/WhatsApp da loja (contato usado no checkout). */
+/** Input dos dados de contato do recebimento online (Asaas). */
 const contactInputClass =
   "w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-500 hover:border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-40";
 
@@ -185,7 +207,8 @@ interface DeliveryFormState {
   distance_base_fee: string;
   distance_extra_km_fee: string;
   max_delivery_radius_km: string;
-  store_cep: string;
+  /** Endereço da loja por extenso (origem do cálculo do frete). */
+  store_address: string;
   estimated_delivery_time_min: string;
   estimated_delivery_time_max: string;
 }
@@ -193,9 +216,16 @@ interface DeliveryFormState {
 interface StoreLocationState {
   latitude: number;
   longitude: number;
-  /** CEP (somente dígitos) que originou estas coordenadas. */
-  cep: string;
+  /** Endereço (chave normalizada) que originou estas coordenadas. */
+  address: string;
+  /** Endereço completo devolvido pela API de geocodificação. */
   label: string;
+  /**
+   * Procedência das coordenadas: `api` quando vieram de uma consulta feita
+   * nesta sessão (`/api/geocode`) e `saved` quando foram apenas carregadas da
+   * base (`store_latitude`/`store_longitude` já persistidos).
+   */
+  source: "api" | "saved";
 }
 
 const EMPTY_DELIVERY_FORM: DeliveryFormState = {
@@ -205,7 +235,7 @@ const EMPTY_DELIVERY_FORM: DeliveryFormState = {
   distance_base_fee: "0",
   distance_extra_km_fee: "0",
   max_delivery_radius_km: "",
-  store_cep: "",
+  store_address: "",
   estimated_delivery_time_min: String(DEFAULT_ESTIMATED_DELIVERY_TIME_MIN),
   estimated_delivery_time_max: String(DEFAULT_ESTIMATED_DELIVERY_TIME_MAX),
 };
@@ -213,6 +243,32 @@ const EMPTY_DELIVERY_FORM: DeliveryFormState = {
 /** Valor numérico legível em input (vírgula decimal, sem zeros inúteis). */
 function numberInputValue(value: number): string {
   return Number.isInteger(value) ? String(value) : String(value).replace(".", ",");
+}
+
+/**
+ * Chave de comparação do endereço da loja: espaços colapsados + minúsculas.
+ * Usada para saber se as coordenadas em memória correspondem ao texto atual.
+ */
+function normalizeStoreAddressKey(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+/**
+ * Espera após o último caractere digitado no endereço antes de consultar a API
+ * de geocodificação. Evita uma chamada por tecla enquanto o lojista digita.
+ */
+const STORE_ADDRESS_LOOKUP_DEBOUNCE_MS = 1000;
+
+/**
+ * O texto já parece um endereço completo o suficiente para consultar sozinho?
+ *
+ * Exige um número (rua + número) e um mínimo de caracteres — assim a API não é
+ * chamada enquanto o lojista ainda digita só o nome da rua. O botão "Buscar
+ * localização" força a consulta em qualquer momento.
+ */
+function isLikelyCompleteStoreAddress(value: string): boolean {
+  const address = value.replace(/\s+/g, " ").trim();
+  return address.length >= 10 && /\d/.test(address);
 }
 
 /**
@@ -316,6 +372,17 @@ export default function ConfiguracoesIdentidade() {
     useState<DeliveryFormState>(EMPTY_DELIVERY_FORM);
   const [storeLocation, setStoreLocation] =
     useState<StoreLocationState | null>(null);
+  /**
+   * Último endereço consultado na API de geocodificação (chave normalizada).
+   * Impede que a busca automática repita a mesma chamada (inclusive após erro)
+   * a cada render.
+   */
+  const lastStoreAddressRef = useRef<string | null>(null);
+  /**
+   * Sequência das consultas de localização. Descarta a resposta de um endereço
+   * anterior que chegue depois de uma consulta mais recente (digitação rápida).
+   */
+  const storeLookupRequestRef = useRef(0);
   const [isSavingDelivery, setIsSavingDelivery] = useState(false);
   const [isGeocodingStore, setIsGeocodingStore] = useState(false);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
@@ -341,25 +408,6 @@ export default function ConfiguracoesIdentidade() {
   const [mealVoucherWarning, setMealVoucherWarning] = useState<string | null>(
     null
   );
-
-  // Envio do resumo do pedido para o WhatsApp da loja (migração 16).
-  // Default `true` — mesma regra de `isWhatsAppCheckoutEnabled`.
-  const [whatsappCheckoutEnabled, setWhatsappCheckoutEnabled] = useState(true);
-  // Telefone/WhatsApp da loja (coluna `whatsapp`) — editável pelo lojista.
-  const [whatsappValue, setWhatsappValue] = useState("");
-  const [isSavingWhatsApp, setIsSavingWhatsApp] = useState(false);
-  const [whatsappError, setWhatsappError] = useState<string | null>(null);
-  const [whatsappSuccess, setWhatsappSuccess] = useState<string | null>(null);
-  const [whatsappWarning, setWhatsappWarning] = useState<string | null>(null);
-  // Modo catálogo (migração 17) — pedido/orçamento direto no WhatsApp.
-  // O recurso não é mais exibido nesta tela: continua controlado pelo Super
-  // Admin (`catalog_mode_allowed`, migração 25) e pela coluna
-  // `direct_whatsapp_checkout` no banco. O estado é mantido apenas para
-  // preservar/repassar o valor já gravado ao salvar o WhatsApp (sem alterá-lo).
-  const [directWhatsAppCheckout, setDirectWhatsAppCheckout] = useState(false);
-  // Liberação do Modo catálogo pelo Super Admin (`catalog_mode_allowed`,
-  // migração 25). Lida do banco para decidir se o valor acima é reenviado.
-  const [catalogModeAllowed, setCatalogModeAllowed] = useState(false);
 
   // Pagamento online (Asaas Split) — dados de recebimento da subconta.
   const [subaccountForm, setSubaccountForm] = useState<AsaasSubaccountForm>(
@@ -422,7 +470,7 @@ export default function ConfiguracoesIdentidade() {
             settings.max_delivery_radius_km != null
               ? numberInputValue(settings.max_delivery_radius_km)
               : "",
-          store_cep: formatCep(settings.store_cep ?? ""),
+          store_address: settings.store_address ?? "",
           estimated_delivery_time_min: numberInputValue(
             settings.estimated_delivery_time_min
           ),
@@ -443,26 +491,20 @@ export default function ConfiguracoesIdentidade() {
             ? {
                 latitude: settings.store_latitude,
                 longitude: settings.store_longitude,
-                cep: settings.store_cep ?? "",
-                label: settings.store_cep
-                  ? `CEP ${formatCep(settings.store_cep)}`
-                  : "Localização já cadastrada",
+                address: normalizeStoreAddressKey(settings.store_address ?? ""),
+                label:
+                  settings.store_address ??
+                  (settings.store_cep
+                    ? `Origem salva · CEP ${formatCep(settings.store_cep)}`
+                    : "Localização já cadastrada"),
+                source: "saved",
               }
             : null
         );
+        // Troca de loja: a busca automática pode consultar o endereço do novo
+        // estabelecimento mesmo que seja o mesmo texto da loja anterior.
+        lastStoreAddressRef.current = null;
         setLoadError(null);
-        // Migração 20261110000016: ausência da coluna = recurso ativo.
-        setWhatsappCheckoutEnabled(row.whatsapp_checkout_enabled !== false);
-        // Migração 25: liberação do Super Admin (ausência = não liberado).
-        const catalogAllowed = row.catalog_mode_allowed === true;
-        setCatalogModeAllowed(catalogAllowed);
-        // Migração 17: modo catálogo desligado por padrão (ausência = false).
-        // O valor só é lido para ser reenviado (inalterado) ao salvar o WhatsApp.
-        setDirectWhatsAppCheckout(
-          catalogAllowed && row.direct_whatsapp_checkout === true
-        );
-        // Número usado pelo checkout: WhatsApp oficial com fallback ao telefone.
-        setWhatsappValue(row.whatsapp ?? row.phone ?? "");
         // Pagamento online: snapshot da subconta (ou preenchimento inicial com
         // os dados já conhecidos da loja).
         setSubaccountForm(buildSubaccountFormFromRow(row));
@@ -509,10 +551,6 @@ export default function ConfiguracoesIdentidade() {
   const storePath = storeSlug ? `/${storeSlug}` : "/";
   // Origem só existe no cliente; até a hidratação o link aparece relativo.
   const storeLink = siteOrigin ? `${siteOrigin}${storePath}` : storePath;
-
-  // Prévia formatada do número digitado (`null` = vazio ou inválido).
-  const whatsappPreview = formatWhatsAppPhoneForDisplay(whatsappValue);
-  const whatsappInvalid = whatsappValue.trim() !== "" && !whatsappPreview;
 
   // Pagamento online: documento (só dígitos) define PF/CNPJ para exibir os
   // campos exigidos pelo Asaas (data de nascimento x tipo de empresa).
@@ -899,88 +937,170 @@ export default function ConfiguracoesIdentidade() {
       const next = { ...prev };
       if (field === "delivery_type") {
         next.delivery_type = value === "distance" ? "distance" : "fixed";
-      } else if (field === "store_cep") {
-        next.store_cep = formatCep(value);
+      } else if (field === "store_address") {
+        next.store_address = value.slice(0, STORE_ADDRESS_MAX_LENGTH);
       } else {
         next[field] = value;
       }
       return next;
     });
-    if (field === "store_cep") {
-      // CEP mudou: as coordenadas antigas não representam mais a origem.
-      const digits = parseCep(value) ?? "";
-      setStoreLocation((prev) => (prev && prev.cep !== digits ? null : prev));
+    if (field === "store_address") {
+      // Endereço mudou: as coordenadas antigas não representam mais a origem.
+      const key = normalizeStoreAddressKey(value);
+      setStoreLocation((prev) => (prev && prev.address !== key ? null : prev));
+      // Invalida consultas em andamento para o endereço anterior: a resposta
+      // não deve preencher uma origem que já não corresponde ao campo.
+      if (lastStoreAddressRef.current && lastStoreAddressRef.current !== key) {
+        storeLookupRequestRef.current += 1;
+        // Libera nova tentativa caso o lojista volte ao mesmo endereço.
+        lastStoreAddressRef.current = null;
+        setIsGeocodingStore(false);
+      }
     }
     setDeliveryError(null);
     setDeliverySuccess(null);
     setDeliveryWarning(null);
   };
 
-  /** Geocodifica o CEP da loja e guarda as coordenadas de origem do frete. */
-  const handleLookupStoreCep = async () => {
-    const cep = parseCep(deliveryForm.store_cep);
-    if (!cep) {
-      setDeliveryError("Informe um CEP válido com 8 dígitos para a loja.");
-      return;
-    }
-
-    setIsGeocodingStore(true);
-    setDeliveryError(null);
-    setDeliverySuccess(null);
-    setDeliveryWarning(null);
-    try {
-      const res = await fetch(`/api/geocode?cep=${encodeURIComponent(cep)}`);
-      const json = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        address?: {
-          street?: string | null;
-          neighborhood?: string | null;
-          city?: string | null;
-          state?: string | null;
-          latitude?: number | null;
-          longitude?: number | null;
-        };
-      };
-      if (!res.ok || !json.address) {
-        throw new Error(json.error ?? "CEP não encontrado.");
-      }
-
-      const latitude = toFiniteNumber(json.address.latitude);
-      const longitude = toFiniteNumber(json.address.longitude);
-      if (latitude == null || longitude == null) {
-        throw new Error(
-          "Não foi possível obter as coordenadas deste CEP. Tente outro CEP."
+  /**
+   * Consulta a API de endereços (`/api/geocode?address=...` → Nominatim) a
+   * partir do endereço da loja digitado por extenso.
+   *
+   * O retorno é a fonte da verdade da origem do frete: o endereço formatado é
+   * exibido abaixo do campo e `latitude`/`longitude` são guardadas para o
+   * `PUT /api/establishment` gravar `store_latitude`/`store_longitude`.
+   *
+   * `force` ignora o controle de "uma consulta por endereço" (usado pelo botão
+   * "Buscar localização" e pelo salvamento); a busca automática usa o padrão.
+   */
+  const lookupStoreLocation = useCallback(
+    async (
+      rawAddress: string,
+      options?: { force?: boolean }
+    ): Promise<StoreLocationState | null> => {
+      const force = options?.force === true;
+      const address = rawAddress.replace(/\s+/g, " ").trim();
+      if (address.length < STORE_ADDRESS_MIN_LENGTH) {
+        setDeliveryError(
+          "Informe o endereço completo da loja (rua e número) para localizar a origem do frete."
         );
+        return null;
       }
+      const key = normalizeStoreAddressKey(address);
+      // Busca automática: no máximo uma tentativa por endereço. O botão força
+      // uma nova consulta (ex.: quando a API estava indisponível).
+      if (!force && lastStoreAddressRef.current === key) return null;
+      lastStoreAddressRef.current = key;
 
-      const label = [
-        json.address.street,
-        json.address.neighborhood,
-        json.address.city,
-        json.address.state,
-      ]
-        .filter((part): part is string => Boolean(part && part.trim()))
-        .join(", ");
+      // Cada consulta recebe um id: se outro endereço disparar uma busca
+      // enquanto esta está em andamento, a resposta antiga é ignorada.
+      const requestId = ++storeLookupRequestRef.current;
 
-      setStoreLocation({
-        latitude,
-        longitude,
-        cep,
-        label: label || `CEP ${formatCep(cep)}`,
-      });
-      setDeliverySuccess(
-        "Localização da loja encontrada. Clique em “Salvar entrega” para aplicar."
-      );
-    } catch (err) {
-      setDeliveryError(
-        err instanceof Error
-          ? err.message
-          : "Não foi possível localizar o CEP da loja."
-      );
-    } finally {
-      setIsGeocodingStore(false);
-    }
+      setIsGeocodingStore(true);
+      setDeliveryError(null);
+      setDeliverySuccess(null);
+      setDeliveryWarning(null);
+      try {
+        const res = await fetch(
+          `/api/geocode?address=${encodeURIComponent(address)}`
+        );
+        const json = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          formatted_address?: string;
+          address?: {
+            street?: string | null;
+            neighborhood?: string | null;
+            city?: string | null;
+            state?: string | null;
+            cep?: string | null;
+            latitude?: number | null;
+            longitude?: number | null;
+          };
+        };
+        if (requestId !== storeLookupRequestRef.current) return null;
+        if (!res.ok || !json.address) {
+          throw new Error(json.error ?? "Endereço não localizado.");
+        }
+
+        const latitude = toFiniteNumber(json.address.latitude);
+        const longitude = toFiniteNumber(json.address.longitude);
+        if (latitude == null || longitude == null) {
+          throw new Error(
+            "Não foi possível obter as coordenadas deste endereço. Confira rua e número e tente novamente."
+          );
+        }
+
+        // Endereço validado pela API (rua, número · bairro · cidade/UF · CEP).
+        // O texto serve de feedback para o lojista conferir a origem do frete.
+        const city = json.address.city?.trim() ?? "";
+        const state = json.address.state?.trim() ?? "";
+        const label =
+          json.formatted_address?.trim() ||
+          [
+            json.address.street,
+            json.address.neighborhood,
+            [city, state].filter((part) => part !== "").join("/"),
+            json.address.cep ? `CEP ${formatCep(json.address.cep)}` : null,
+          ]
+            .filter((part): part is string => Boolean(part && part.trim()))
+            .join(" · ");
+
+        const location: StoreLocationState = {
+          latitude,
+          longitude,
+          address: key,
+          label,
+          source: "api",
+        };
+        setStoreLocation(location);
+        setDeliverySuccess(
+          "Localização da loja confirmada pela API. Clique em “Salvar entrega” para aplicar."
+        );
+        return location;
+      } catch (err) {
+        if (requestId !== storeLookupRequestRef.current) return null;
+        setDeliveryError(
+          err instanceof Error
+            ? err.message
+            : "Não foi possível localizar o endereço da loja."
+        );
+        return null;
+      } finally {
+        // Só encerra o loading da consulta atual; uma busca mais recente ainda
+        // em andamento continua exibindo "Consultando…".
+        if (requestId === storeLookupRequestRef.current) {
+          setIsGeocodingStore(false);
+        }
+      }
+    },
+    []
+  );
+
+  /** Botão “Buscar localização”: força uma nova consulta à API de endereços. */
+  const handleLookupStoreAddress = () => {
+    void lookupStoreLocation(deliveryForm.store_address, { force: true });
   };
+
+  // Busca automática: quando o texto já tem rua + número a API é consultada sem
+  // exigir clique. O botão continua disponível para forçar nova tentativa.
+  useEffect(() => {
+    if (!selectedId) return;
+    const address = deliveryForm.store_address.replace(/\s+/g, " ").trim();
+    if (!isLikelyCompleteStoreAddress(address)) return;
+    const key = normalizeStoreAddressKey(address);
+    if (storeLocation?.address === key) return;
+    if (lastStoreAddressRef.current === key) return;
+
+    const timer = setTimeout(() => {
+      void lookupStoreLocation(address);
+    }, STORE_ADDRESS_LOOKUP_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [
+    deliveryForm.store_address,
+    lookupStoreLocation,
+    selectedId,
+    storeLocation?.address,
+  ]);
 
   /** Salva modelo de frete, taxas, raio e origem via PUT /api/establishment. */
   const handleSaveDelivery = async () => {
@@ -993,7 +1113,8 @@ export default function ConfiguracoesIdentidade() {
     const extraKmFee = toFiniteNumber(deliveryForm.distance_extra_km_fee);
     const radiusRaw = deliveryForm.max_delivery_radius_km.trim();
     const radius = radiusRaw ? toFiniteNumber(radiusRaw) : null;
-    const storeCep = parseCep(deliveryForm.store_cep);
+    const storeAddress = deliveryForm.store_address.replace(/\s+/g, " ").trim();
+    const storeAddressKey = normalizeStoreAddressKey(storeAddress);
     const estimatedMin = toFiniteNumber(
       deliveryForm.estimated_delivery_time_min
     );
@@ -1025,19 +1146,15 @@ export default function ConfiguracoesIdentidade() {
       );
       return;
     }
-    if (deliveryForm.store_cep.trim() && !storeCep) {
-      setDeliveryError("O CEP da loja deve ter 8 dígitos.");
-      return;
-    }
-    if (deliveryType === "distance" && !storeCep) {
+    if (storeAddress && storeAddress.length < STORE_ADDRESS_MIN_LENGTH) {
       setDeliveryError(
-        "Informe o CEP da loja para calcular a entrega por distância."
+        `Informe o endereço da loja com rua e número (mínimo ${STORE_ADDRESS_MIN_LENGTH} caracteres).`
       );
       return;
     }
-    if ((deliveryType === "distance" || radius != null) && !storeLocation) {
+    if (isGeocodingStore) {
       setDeliveryError(
-        "Busque a localização da loja pelo CEP antes de salvar (necessária para calcular a distância)."
+        "Aguarde a consulta de localização da API de endereços terminar antes de salvar."
       );
       return;
     }
@@ -1064,6 +1181,27 @@ export default function ConfiguracoesIdentidade() {
       return;
     }
 
+    // Endereço ainda não confirmado nesta sessão (o lojista digitou e clicou
+    // direto em salvar): geocodifica agora, como o botão faria. A gravação
+    // abaixo usa exatamente as coordenadas devolvidas pela API.
+    // Loja legada com coordenadas salvas e sem endereço no campo mantém a
+    // origem já validada (o campo vazio não deve apagar `store_latitude`).
+    let location =
+      storeLocation &&
+      (storeAddressKey === "" || storeLocation.address === storeAddressKey)
+        ? storeLocation
+        : null;
+    if (!location && storeAddress) {
+      location = await lookupStoreLocation(storeAddress, { force: true });
+      if (!location) return; // mensagem de erro já exibida abaixo do campo
+    }
+    if ((deliveryType === "distance" || radius != null) && !location) {
+      setDeliveryError(
+        "Informe o endereço da loja (rua e número) para calcular a entrega por distância."
+      );
+      return;
+    }
+
     setIsSavingDelivery(true);
     setDeliveryError(null);
     setDeliverySuccess(null);
@@ -1080,9 +1218,11 @@ export default function ConfiguracoesIdentidade() {
           distance_base_fee: baseFee ?? 0,
           distance_extra_km_fee: extraKmFee ?? 0,
           max_delivery_radius_km: radius,
-          store_cep: storeCep,
-          store_latitude: storeLocation?.latitude ?? null,
-          store_longitude: storeLocation?.longitude ?? null,
+          store_address: storeAddress || null,
+          // Origem do frete: exatamente as coordenadas devolvidas pela API de
+          // geocodificação (ou as já persistidas e exibidas no formulário).
+          store_latitude: location?.latitude ?? null,
+          store_longitude: location?.longitude ?? null,
           estimated_delivery_time_min: estimatedMin,
           estimated_delivery_time_max: estimatedMax,
         }),
@@ -1104,6 +1244,27 @@ export default function ConfiguracoesIdentidade() {
       const saved = json.establishment;
       if (saved) {
         setEstablishmentData((prev) => ({ ...(prev ?? saved), ...saved }));
+
+        // Reflete no formulário exatamente o que ficou gravado no banco — a
+        // origem do frete passa a ser esse par de coordenadas, sem recálculo
+        // local. Se a gravação devolveu coordenadas vazias (endereço removido),
+        // o estado acompanha para não exibir uma origem que não existe mais.
+        const savedLatitude = toFiniteNumber(saved.store_latitude);
+        const savedLongitude = toFiniteNumber(saved.store_longitude);
+        const savedAddress =
+          normalizeStoreAddress(saved.store_address) ?? storeAddress;
+        if (savedLatitude != null && savedLongitude != null) {
+          setStoreLocation({
+            latitude: savedLatitude,
+            longitude: savedLongitude,
+            address: normalizeStoreAddressKey(savedAddress),
+            label:
+              location?.label || savedAddress || "Localização cadastrada",
+            source: location?.source ?? "saved",
+          });
+        } else {
+          setStoreLocation(null);
+        }
       }
       setDeliverySuccess(
         warning
@@ -1318,80 +1479,6 @@ export default function ConfiguracoesIdentidade() {
       );
     } finally {
       setIsSavingMealVouchers(false);
-    }
-  };
-
-  /**
-   * Salva o telefone/WhatsApp da loja junto da preferência de envio do resumo
-   * no checkout. O número é o mesmo usado pelo botão do WhatsApp no checkout —
-   * sem número válido o botão simplesmente não aparece lá.
-   */
-  const handleSaveWhatsApp = async () => {
-    if (!selectedId) return;
-
-    const whatsapp = whatsappValue.trim();
-    // `formatWhatsAppPhoneForDisplay` devolve null para números inválidos.
-    if (whatsapp && !formatWhatsAppPhoneForDisplay(whatsapp)) {
-      setWhatsappError(
-        "Informe um WhatsApp válido com DDD (ex.: (17) 99999-9999)."
-      );
-      setWhatsappSuccess(null);
-      setWhatsappWarning(null);
-      return;
-    }
-
-    setIsSavingWhatsApp(true);
-    setWhatsappError(null);
-    setWhatsappSuccess(null);
-    setWhatsappWarning(null);
-    try {
-      const res = await fetch("/api/establishment", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          establishment_id: selectedId,
-          // String vazia limpa o número cadastrado na loja.
-          whatsapp,
-          whatsapp_checkout_enabled: whatsappCheckoutEnabled,
-          // Migração 17: modo catálogo (pedido direto no WhatsApp). A chave não é
-          // mais exibida nesta tela; o valor gravado é reenviado sem alterações
-          // (a liberação continua exclusiva do Super Admin, migração 25).
-          ...(catalogModeAllowed
-            ? { direct_whatsapp_checkout: directWhatsAppCheckout }
-            : {}),
-        }),
-      });
-      const json = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        warning?: string;
-        establishment?: Establishment;
-      };
-      if (!res.ok) {
-        throw new Error(json.error ?? "Falha ao salvar o WhatsApp da loja.");
-      }
-
-      const warning =
-        typeof json.warning === "string" && json.warning ? json.warning : null;
-      setWhatsappWarning(warning);
-      const saved = json.establishment;
-      if (saved) {
-        setEstablishmentData((prev) => ({ ...(prev ?? saved), ...saved }));
-        // A API devolve o número no formato de exibição (já normalizado).
-        if (saved.whatsapp !== undefined) {
-          setWhatsappValue(saved.whatsapp ?? "");
-        }
-      }
-      setWhatsappSuccess(
-        warning
-          ? "Número salvo. A preferência de envio será gravada após criar a coluna pendente."
-          : "Telefone/WhatsApp e preferências de envio salvos."
-      );
-    } catch (err) {
-      setWhatsappError(
-        err instanceof Error ? err.message : "Erro inesperado ao salvar."
-      );
-    } finally {
-      setIsSavingWhatsApp(false);
     }
   };
 
@@ -1768,7 +1855,8 @@ export default function ConfiguracoesIdentidade() {
           </div>
         </section>
 
-        {/* Entrega e frete: modelo fixo/por distância, raio e origem (CEP da loja) */}
+        {/* Entrega e frete: modelo fixo/por distância, raio e origem (endereço
+            da loja geocodificado pela API → lat/long persistidas) */}
         <section
           aria-labelledby="delivery-title"
           className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
@@ -1995,45 +2083,70 @@ export default function ConfiguracoesIdentidade() {
 
             <div>
               <label
-                htmlFor="store-cep"
+                htmlFor="store-address"
                 className="mb-1.5 block text-sm font-medium text-slate-700"
               >
-                CEP da loja (origem do cálculo)
+                Endereço da Loja (ex: Av. Bady Bassitt, 1500 - Centro)
               </label>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
-                  id="store-cep"
+                  id="store-address"
                   type="text"
-                  inputMode="numeric"
-                  maxLength={9}
-                  value={deliveryForm.store_cep}
+                  autoComplete="off"
+                  maxLength={STORE_ADDRESS_MAX_LENGTH}
+                  value={deliveryForm.store_address}
                   onChange={(e) =>
-                    updateDeliveryField("store_cep", e.target.value)
+                    updateDeliveryField("store_address", e.target.value)
                   }
-                  placeholder="00000-000"
+                  placeholder="Av. Bady Bassitt, 1500 - Centro, São José do Rio Preto - SP"
                   className={deliveryInputClass}
                 />
                 <button
                   type="button"
-                  onClick={() => void handleLookupStoreCep()}
-                  disabled={isGeocodingStore || !selectedId}
+                  onClick={handleLookupStoreAddress}
+                  disabled={isGeocodingStore || isSavingDelivery || !selectedId}
                   className="shrink-0 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-600 transition hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isGeocodingStore ? "Buscando..." : "Buscar localização"}
+                  {isGeocodingStore
+                    ? "Buscando..."
+                    : storeLocation
+                      ? "Buscar novamente"
+                      : "Buscar localização"}
                 </button>
               </div>
-              {storeLocation ? (
-                <p className="mt-1.5 flex items-start gap-1.5 text-xs text-green-600">
-                  <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-green-400" />
-                  <span>
-                    {storeLocation.label} · {storeLocation.latitude.toFixed(5)},{" "}
-                    {storeLocation.longitude.toFixed(5)}
-                  </span>
+              <p className="mt-1 text-xs text-slate-500">
+                Digite rua e número (e, se possível, bairro e cidade). Com o
+                número no texto, a localização é buscada automaticamente na API
+                de endereços; o botão força uma nova consulta.
+              </p>
+              {isGeocodingStore ? (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500">
+                  <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />
+                  Consultando a API de endereços…
                 </p>
+              ) : storeLocation ? (
+                <div className="mt-2 rounded-xl border border-green-200 bg-green-50 px-3 py-2.5 text-xs leading-relaxed text-green-700">
+                  <p className="flex items-center gap-1.5 font-semibold">
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" />
+                    {storeLocation.source === "api"
+                      ? "Localização confirmada pela API"
+                      : "Localização salva da loja"}
+                  </p>
+                  <p className="mt-1">{storeLocation.label}</p>
+                  <p className="mt-1 font-mono text-[11px] text-green-800/90">
+                    Latitude {storeLocation.latitude.toFixed(6)} · Longitude{" "}
+                    {storeLocation.longitude.toFixed(6)}
+                  </p>
+                  <p className="mt-1 text-[11px] text-green-700/80">
+                    Estas coordenadas são o ponto de partida do cálculo de frete
+                    por km.
+                  </p>
+                </div>
               ) : (
-                <p className="mt-1.5 text-xs text-amber-600">
-                  Informe o CEP e clique em “Buscar localização” — as coordenadas
-                  são necessárias para calcular a distância até o cliente.
+                <p className="mt-2 text-xs text-amber-600">
+                  Informe o endereço completo da loja (rua e número) — as
+                  coordenadas retornadas pela API são necessárias para calcular
+                  a distância até o cliente.
                 </p>
               )}
             </div>
@@ -2058,7 +2171,7 @@ export default function ConfiguracoesIdentidade() {
             <button
               type="button"
               onClick={() => void handleSaveDelivery()}
-              disabled={isSavingDelivery || !selectedId}
+              disabled={isSavingDelivery || isGeocodingStore || !selectedId}
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isSavingDelivery ? (
@@ -2301,156 +2414,6 @@ export default function ConfiguracoesIdentidade() {
                 </>
               ) : (
                 "Salvar bandeiras"
-              )}
-            </button>
-          </div>
-        </section>
-
-        {/* Envio do resumo do pedido no WhatsApp (migração 20261110000016) */}
-        <section
-          aria-labelledby="whatsapp-checkout-title"
-          className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
-        >
-          <div className="flex items-center gap-2">
-            <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-yellow-400" />
-            <h2
-              id="whatsapp-checkout-title"
-              className="font-semibold text-slate-900"
-            >
-              Pedidos no WhatsApp
-            </h2>
-          </div>
-          <p className="mt-1 text-xs text-slate-600">
-            O pedido continua sendo registrado no painel normalmente. Com esta
-            opção ativa, o cliente vê ao finalizar o checkout um botão para
-            enviar o resumo completo (itens, adicionais, endereço e valores)
-            para o WhatsApp da loja.
-          </p>
-
-          {/* Telefone/WhatsApp da loja: sempre editável pelo lojista. */}
-          <div className="mt-4">
-            <label
-              htmlFor="store-whatsapp"
-              className="mb-1.5 block text-sm font-medium text-slate-700"
-            >
-              Telefone / WhatsApp da loja
-            </label>
-            <input
-              id="store-whatsapp"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              value={whatsappValue}
-              onChange={(e) => {
-                setWhatsappValue(e.target.value);
-                setWhatsappError(null);
-                setWhatsappSuccess(null);
-                setWhatsappWarning(null);
-              }}
-              maxLength={20}
-              placeholder="(17) 99999-9999"
-              aria-invalid={whatsappInvalid}
-              aria-describedby="store-whatsapp-hint"
-              className={contactInputClass}
-            />
-            <p
-              id="store-whatsapp-hint"
-              className={`mt-1 text-xs ${
-                whatsappInvalid ? "text-red-600" : "text-slate-500"
-              }`}
-            >
-              {whatsappInvalid
-                ? "Número inválido — informe DDD + número (ex.: (17) 99999-9999)."
-                : "Número com DDD que recebe o resumo do pedido. Altere e salve quando precisar."}
-            </p>
-          </div>
-
-          <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p
-                id="whatsapp-checkout-label"
-                className="text-sm font-medium text-slate-800"
-              >
-                Enviar resumo do pedido para o WhatsApp do estabelecimento ao
-                finalizar
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                {whatsappPreview
-                  ? `Número usado no checkout: ${whatsappPreview}`
-                  : "Nenhum WhatsApp/telefone válido cadastrado — o botão não aparecerá no checkout até que um número seja cadastrado."}
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={whatsappCheckoutEnabled}
-              aria-labelledby="whatsapp-checkout-label"
-              onClick={() => {
-                setWhatsappCheckoutEnabled((prev) => !prev);
-                setWhatsappSuccess(null);
-                setWhatsappError(null);
-                setWhatsappWarning(null);
-              }}
-              disabled={!selectedId || isSavingWhatsApp}
-              className={`relative inline-flex h-7 w-12 shrink-0 items-center rounded-full transition focus:outline-none focus:ring-2 focus:ring-amber-400/40 disabled:cursor-not-allowed disabled:opacity-60 ${
-                whatsappCheckoutEnabled ? "bg-yellow-400" : "bg-slate-200"
-              }`}
-            >
-              <span className="sr-only">
-                {whatsappCheckoutEnabled ? "Desativar" : "Ativar"} envio do
-                resumo pelo WhatsApp
-              </span>
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
-                  whatsappCheckoutEnabled ? "translate-x-6" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
-
-          {/*
-           * Base sem a migração 16: o campo não vem no `select("*")`. Avisa o
-           * lojista antes de ele tentar salvar (o PUT também devolve erro).
-           */}
-          {establishmentData &&
-            establishmentData.whatsapp_checkout_enabled === undefined && (
-              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
-                A coluna <code>whatsapp_checkout_enabled</code> ainda não existe
-                no banco. Execute a migração{" "}
-                <code>20261110000016_add_whatsapp_checkout_setting.sql</code> no
-                SQL Editor do Supabase para que esta preferência seja gravada.
-              </p>
-            )}
-
-          {whatsappError && (
-            <p className="mt-3 text-sm text-red-600">{whatsappError}</p>
-          )}
-          {whatsappSuccess && (
-            <p className="mt-3 flex items-center gap-2 text-sm text-green-600">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-              {whatsappSuccess}
-            </p>
-          )}
-          {whatsappWarning && (
-            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
-              {whatsappWarning}
-            </p>
-          )}
-
-          <div className="mt-4 flex justify-end">
-            <button
-              type="button"
-              onClick={() => void handleSaveWhatsApp()}
-              disabled={isSavingWhatsApp || !selectedId || whatsappInvalid}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-yellow-400 px-5 py-2.5 text-sm font-bold text-slate-950 shadow-md shadow-yellow-400/30 transition hover:bg-yellow-300 focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSavingWhatsApp ? (
-                <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-200 border-t-transparent" />
-                  Salvando...
-                </>
-              ) : (
-                "Salvar WhatsApp e envio"
               )}
             </button>
           </div>
