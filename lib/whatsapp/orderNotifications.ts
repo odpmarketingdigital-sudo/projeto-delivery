@@ -15,8 +15,10 @@
  * - Quem envia é SEMPRE a instância da própria loja
  *   (`establishments.whatsapp_instance_name`), porque a Evolution API só entrega
  *   mensagens de um número conectado. Loja sem instância = nada é enviado.
- * - Telefones passam por `normalizeWhatsAppNumber` (DDI 55 + DDD + número), o
- *   formato do `remoteJid` do WhatsApp.
+ * - Telefones passam por `normalizeWhatsAppMobileNumber` (`lib/whatsappPhone.ts`):
+ *   máscara fora, DDI 55 + DDD válidos e nono dígito no celular. Fixo, número
+ *   incompleto ou pedido sem `customer_phone` é IGNORADO com log — a Evolution
+ *   responderia `400 Bad Request` para esses casos.
  * - A notificação NUNCA quebra o fluxo do pedido: as rotas chamam estas funções
  *   dentro de `try/catch` e só registram o resultado no log do servidor.
  * - Se a loja conectou no WhatsApp o mesmo número que recebe as notificações, a
@@ -32,8 +34,11 @@ import { normalizeOrderStatus } from "@/lib/types";
 import { orderDeliveryType } from "@/lib/orderStatus";
 import { normalizeWhatsappInstanceName } from "@/lib/whatsappAssistant";
 import {
+  isWhatsAppMobileNumber,
+  normalizeWhatsAppMobileNumber,
+} from "@/lib/whatsappPhone";
+import {
   buildOrderWhatsAppMessage,
-  normalizeWhatsAppNumber,
   orderShortCode,
   resolveStoreWhatsAppNumber,
   type WhatsAppOrderAddress,
@@ -98,6 +103,23 @@ export interface OrderNotificationResult {
   skipped?: boolean;
   /** Motivo da falha ou da omissão (vai para o log do servidor). */
   error?: string;
+  /** Status HTTP devolvido pela Evolution (`0` = rede/timeout); ausente em skip. */
+  status?: number;
+}
+
+/**
+ * Registra uma notificação omitida e devolve o resultado correspondente.
+ *
+ * Omitir NÃO é erro do pedido (falta de telefone, loja sem instância etc.):
+ * apenas um aviso em `console.warn`, para o operador entender por que a
+ * mensagem não chegou. Por isso `skipped: true` e `ok: false`.
+ */
+function skipNotification(
+  event: string,
+  reason: string
+): OrderNotificationResult {
+  console.warn(`[whatsapp:pedido] ${event} ignorado: ${reason}`);
+  return { ok: false, skipped: true, error: reason };
 }
 
 /** Objeto simples ou `null` (JSON desconhecido vindo do banco). */
@@ -300,8 +322,9 @@ export function buildCustomerStatusMessage({
  * Envio único (instância + telefone + texto). Centraliza as validações que valem
  * para qualquer notificação:
  * - sem instância configurada a loja não tem WhatsApp conectado → omite;
- * - telefone inválido (sem DDD/DDI) → omite;
- * - falha da Evolution → registra o motivo no log e devolve `ok: false`.
+ * - telefone vazio/inválido → omite (a Evolution nem é chamada);
+ * - falha da Evolution → imprime status HTTP, payload exato e resposta da API e
+ *   devolve `ok: false` (o pedido segue normalmente).
  */
 async function sendOrderNotification({
   store,
@@ -318,16 +341,23 @@ async function sendOrderNotification({
     store?.whatsapp_instance_name
   );
   if (!instanceName) {
-    return {
-      ok: false,
-      skipped: true,
-      error:
-        "A loja não tem instância da Evolution API configurada (whatsapp_instance_name).",
-    };
+    return skipNotification(
+      event,
+      "a loja não tem instância da Evolution API configurada (establishments.whatsapp_instance_name)."
+    );
   }
 
   if (!phone) {
-    return { ok: false, skipped: true, error: "Telefone de destino inválido." };
+    return skipNotification(event, "o telefone de destino está vazio.");
+  }
+
+  // Aviso SEM bloquear: fixo/DDD fora do padrão de celular costuma ser recusado
+  // pela Evolution com `400 Bad Request`. O cliente já chega validado (só
+  // celular); este log cobre o destino da loja (whatsapp/phone cadastrados).
+  if (!isWhatsAppMobileNumber(phone)) {
+    console.warn(
+      `[whatsapp:pedido] ${event}: o destino ${phone} não parece um celular brasileiro — a Evolution API pode recusar o envio (HTTP 400).`
+    );
   }
 
   const result = await sendWhatsappText({
@@ -339,13 +369,30 @@ async function sendOrderNotification({
 
   if (!result.ok) {
     console.warn(
-      `[whatsapp:pedido] ${event} não enviado: ${result.error ?? "erro desconhecido"}`
+      `[whatsapp:pedido] ${event} não enviado (HTTP ${
+        result.status ?? "sem resposta"
+      }): ${result.error ?? "erro desconhecido"}`
     );
-    return { ok: false, error: result.error ?? "Falha ao enviar a mensagem." };
+    // Payload exato + resposta bruta: é isto que revela o motivo real do
+    // `400 Bad Request` (a Evolution manda o detalhe em `message: [...]`).
+    if (result.payload) {
+      console.warn(
+        "[whatsapp:pedido] payload enviado à Evolution:",
+        result.payload
+      );
+    }
+    if (result.responseBody) {
+      console.warn("[whatsapp:pedido] resposta da Evolution:", result.responseBody);
+    }
+    return {
+      ok: false,
+      status: result.status,
+      error: result.error ?? "Falha ao enviar a mensagem.",
+    };
   }
 
   console.info(`[whatsapp:pedido] ${event} enviado (instância ${instanceName}).`);
-  return { ok: true };
+  return { ok: true, status: result.status };
 }
 
 /**
@@ -361,21 +408,22 @@ export async function notifyStoreNewOrder({
   store?: OrderNotificationStore | null;
   order: OrderNotificationOrder;
 }): Promise<OrderNotificationResult> {
+  const event = `novo pedido ${orderShortCode(order.id)}`;
+
   // Resolvido antes do texto: sem destino a mensagem nem é montada.
   const phone = resolveStoreWhatsAppNumber(store ?? null);
   if (!phone) {
-    return {
-      ok: false,
-      skipped: true,
-      error: "A loja não tem WhatsApp/telefone válido cadastrado.",
-    };
+    return skipNotification(
+      event,
+      "a loja não tem WhatsApp/telefone válido cadastrado."
+    );
   }
 
   return sendOrderNotification({
     store,
     phone,
     text: buildStoreNewOrderMessage({ store, order }),
-    event: `novo pedido ${orderShortCode(order.id)}`,
+    event,
   });
 }
 
@@ -383,7 +431,7 @@ export async function notifyStoreNewOrder({
  * Notifica o CLIENTE sobre o novo status do pedido.
  *
  * Só envia quando o status tem texto próprio (ver `buildCustomerStatusMessage`)
- * e o pedido tem telefone válido.
+ * e o pedido tem celular válido em `customer_phone`.
  */
 export async function notifyCustomerOrderStatus({
   store,
@@ -396,37 +444,46 @@ export async function notifyCustomerOrderStatus({
 }): Promise<OrderNotificationResult> {
   const nextStatus = normalizeOrderStatus(status ?? order.status);
   if (!nextStatus) {
-    return {
-      ok: false,
-      skipped: true,
-      error: "Status desconhecido — nenhuma mensagem foi enviada.",
-    };
+    return skipNotification(
+      `pedido ${orderShortCode(order.id)}`,
+      "status desconhecido — nenhuma mensagem foi enviada."
+    );
   }
+
+  const event = `status ${nextStatus} do pedido ${orderShortCode(order.id)}`;
 
   const text = buildCustomerStatusMessage({ store, order, status: nextStatus });
   if (!text) {
-    return {
-      ok: false,
-      skipped: true,
-      error: `O status "${nextStatus}" não tem mensagem automática.`,
-    };
+    return skipNotification(
+      event,
+      `o status "${nextStatus}" não tem mensagem automática.`
+    );
   }
 
-  const phone = normalizeWhatsAppNumber(order.customer_phone);
+  // 1) O telefone precisa existir no pedido: pedidos antigos/importados podem
+  //    não ter `customer_phone`. Sem ele não há como notificar — e isso NÃO é
+  //    erro do pedido (`PUT /api/orders` continua respondendo com sucesso).
+  const rawPhone = readText(order.customer_phone);
+  if (!rawPhone) {
+    return skipNotification(
+      event,
+      "o pedido não tem telefone do cliente (orders.customer_phone vazio)."
+    );
+  }
+
+  // 2) Sanitização antes de qualquer chamada HTTP: máscara fora, DDI 55 + DDD
+  //    válidos e nono dígito no celular (completa o formato antigo de 8 dígitos).
+  //    Fixo, número incompleto ou fora do padrão é ignorado aqui — a Evolution
+  //    responderia `400 Bad Request` e o log ficaria só com a frase do status.
+  const phone = normalizeWhatsAppMobileNumber(rawPhone);
   if (!phone) {
-    return {
-      ok: false,
-      skipped: true,
-      error: "O pedido não tem telefone do cliente.",
-    };
+    return skipNotification(
+      event,
+      `telefone do cliente não é um celular brasileiro válido para WhatsApp: "${rawPhone}".`
+    );
   }
 
-  return sendOrderNotification({
-    store,
-    phone,
-    text,
-    event: `status ${nextStatus} do pedido ${orderShortCode(order.id)}`,
-  });
+  return sendOrderNotification({ store, phone, text, event });
 }
 
 /**

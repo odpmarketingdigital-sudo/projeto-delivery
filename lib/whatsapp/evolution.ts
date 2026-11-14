@@ -61,6 +61,15 @@ export interface EvolutionInstanceResult {
 export interface SendWhatsappTextResult {
   ok: boolean;
   error?: string;
+  /** Status HTTP devolvido pela Evolution (`0` = falha de rede/timeout). */
+  status?: number;
+  /**
+   * Payload JSON exatamente como foi enviado (`{ number, text }`).
+   * Usado no log de depuração quando a Evolution recusa o envio.
+   */
+  payload?: string;
+  /** Corpo bruto da resposta da Evolution (o detalhe real do `400`). */
+  responseBody?: string | null;
 }
 
 /** Resultado da desconexão (logout) do número. */
@@ -229,12 +238,70 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+/** Limite do corpo de resposta impresso no log (evita linhas gigantes). */
+const MAX_LOG_BODY_LENGTH = 4_000;
+
+/** Corta um corpo muito grande para o log, preservando o início do conteúdo. */
+function truncateForLog(value: string): string {
+  return value.length <= MAX_LOG_BODY_LENGTH
+    ? value
+    : `${value.slice(0, MAX_LOG_BODY_LENGTH)}… (${value.length} caracteres)`;
+}
+
+/**
+ * Log de depuração de uma chamada recusada pela Evolution.
+ *
+ * Sem isto um `400 Bad Request` chegava ao log da Vercel apenas como
+ * "Bad Request": o detalhe real (`message: ["..."]`) e o payload enviado não
+ * apareciam. Aqui o corpo do request é impresso EXATAMENTE como foi montado e a
+ * resposta vem em seguida — a `apikey` nunca entra no log (fica só no header).
+ */
+function logEvolutionFailure({
+  method,
+  path,
+  status,
+  requestBody,
+  responseBody,
+}: {
+  method: string;
+  path: string;
+  status: number;
+  requestBody: string | null;
+  responseBody: string | null;
+}): void {
+  console.error(
+    "[evolution:debug] chamada recusada",
+    JSON.stringify({
+      at: new Date().toISOString(),
+      method,
+      path,
+      status,
+      requestBody,
+      responseBody: responseBody ? truncateForLog(responseBody) : null,
+    })
+  );
+}
+
+/** Retorno normalizado de uma chamada à Evolution. */
+interface EvolutionResponse {
+  ok: boolean;
+  status: number;
+  data: unknown;
+  error: string | null;
+  /** Corpo bruto devolvido pela API (`null` em falha de rede/timeout). */
+  raw: string | null;
+}
+
 /**
  * Executa uma chamada autenticada e devolve JSON/erro já normalizados.
  *
  * O header `apikey` vai em TODAS as chamadas. O `Content-Type` só é enviado
  * quando há body: `DELETE /instance/logout/{instance}` não leva corpo e alguns
  * proxies/hospedagens recusam (`400`/`415`) um JSON vazio declarado.
+ *
+ * Falhas (`4xx`/`5xx`) são registradas com o payload enviado e a resposta da
+ * API (`[evolution:debug]`), além de devolverem o corpo bruto em `raw` para que
+ * o chamador possa complementar o log com o contexto do pedido.
  */
 async function requestEvolution(
   config: EvolutionConfig,
@@ -244,7 +311,7 @@ async function requestEvolution(
    * requisição do usuário (ex.: notificações automáticas de pedido).
    */
   init: { method: string; body?: string; timeoutMs?: number } = { method: "GET" }
-): Promise<{ ok: boolean; status: number; data: unknown; error: string | null }> {
+): Promise<EvolutionResponse> {
   const headers: Record<string, string> = {
     apikey: config.apiKey,
     Accept: "application/json",
@@ -271,17 +338,28 @@ async function requestEvolution(
     }
 
     if (!response.ok) {
-      return {
-        ok: false,
+      const error = extractApiError(data) ?? `HTTP ${response.status}`;
+
+      logEvolutionFailure({
+        method: init.method,
+        path,
         status: response.status,
-        data,
-        error: extractApiError(data) ?? `HTTP ${response.status}`,
-      };
+        requestBody: init.body ?? null,
+        responseBody: raw || null,
+      });
+
+      return { ok: false, status: response.status, data, raw, error };
     }
 
-    return { ok: true, status: response.status, data, error: null };
+    return { ok: true, status: response.status, data, raw, error: null };
   } catch (error) {
-    return { ok: false, status: 0, data: null, error: errorMessage(error) };
+    return {
+      ok: false,
+      status: 0,
+      data: null,
+      raw: null,
+      error: errorMessage(error),
+    };
   }
 }
 
@@ -316,12 +394,16 @@ export function isIgnoredWhatsappJid(jid: string | null | undefined): boolean {
 /**
  * Envia uma mensagem de texto pelo número conectado à instância.
  *
- * `phone` pode vir com máscara/DDI: só os dígitos são usados. O número precisa
- * estar no formato internacional (`55` + DDD + número), responsabilidade de quem
- * chama (ver `normalizeWhatsAppNumber` em `lib/whatsappOrder.ts`).
+ * `phone` pode vir com máscara/JID/DDI: o payload usa apenas os dígitos
+ * (`normalizeJidPhone`) e o número precisa estar no formato internacional
+ * (`55` + DDD + número). Para notificações de pedido a validação completa
+ * (DDI/DDD/celular) acontece antes, em `lib/whatsapp/orderNotifications.ts`.
  *
  * `timeoutMs` é opcional: as notificações automáticas usam um limite curto para
  * nunca segurar a resposta do checkout.
+ *
+ * O payload é montado UMA vez e devolvido no resultado: em caso de `400` o
+ * chamador imprime exatamente o que foi enviado, junto com a resposta da API.
  */
 export async function sendWhatsappText({
   instanceName,
@@ -343,20 +425,42 @@ export async function sendWhatsappText({
     };
   }
 
+  // Remove sufixo de JID (`@s.whatsapp.net`), device (`:12`) e qualquer
+  // caractere não numérico (traço, parêntese, espaço, `+`).
   const number = normalizeJidPhone(phone);
   if (!number) return { ok: false, error: "Telefone do cliente inválido." };
+
+  const payload = JSON.stringify({ number, text });
 
   const result = await requestEvolution(
     config,
     `/message/sendText/${encodeURIComponent(instanceName)}`,
     {
       method: "POST",
-      body: JSON.stringify({ number, text }),
+      body: payload,
       ...(timeoutMs ? { timeoutMs } : {}),
     }
   );
 
-  return result.ok ? { ok: true } : { ok: false, error: result.error ?? undefined };
+  if (!result.ok) {
+    // O payload e a resposta exata já saem em `[evolution:debug]`; aqui fica o
+    // resumo com a instância e o número usado (ajuda a cruzar com o pedido).
+    console.warn(
+      `[evolution] sendText recusado (instância ${instanceName}, número ${number}, HTTP ${result.status}): ${
+        result.error ?? "erro desconhecido"
+      }`
+    );
+
+    return {
+      ok: false,
+      status: result.status,
+      error: result.error ?? undefined,
+      payload,
+      responseBody: result.raw,
+    };
+  }
+
+  return { ok: true, status: result.status, payload };
 }
 
 /** Consulta o estado de conexão do número. */

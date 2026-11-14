@@ -559,6 +559,20 @@ O ciclo do pedido fala com os dois lados pelo WhatsApp
   normalizados antes de escolher o texto.
 - **Anti-duplicação:** o `PUT` só notifica quando o status realmente muda —
   regravar o mesmo status (ex.: só ajustar a previsão de entrega) não reenvia.
+- **Telefone sanitizado antes do envio** ([`lib/whatsappPhone.ts`](lib/whatsappPhone.ts)):
+  `orders.customer_phone` já é gravado só com dígitos no checkout, mas o envio
+  passa por `normalizeWhatsAppMobileNumber`, que descarta máscara/zeros à
+  esquerda, exige **DDD brasileiro válido**, prefixa o **DDI 55** e completa o
+  **nono dígito** de celulares digitados no formato antigo (`9961-2915`). Pedido
+  sem telefone, fixo ou número incompleto é **ignorado com log**
+  (`[whatsapp:pedido] ... ignorado: ...`) em vez de virar `400 Bad Request` na
+  Evolution API; a rota do pedido segue com sucesso.
+- **Log de depuração em falha:** quando a Evolution recusa uma chamada, o log
+  traz `[evolution:debug]` com método, path, status HTTP, **o payload JSON
+  exatamente como foi enviado** e a **resposta bruta da API** (o detalhe do
+  `400` vem em `message: [...]`). A `EVOLUTION_API_KEY` nunca é impressa — vai
+  apenas no header `apikey`. As notificações repetem o resumo em
+  `[whatsapp:pedido] ... não enviado (HTTP 400)` com o pedido/transição.
 - **O pedido nunca depende do WhatsApp:** o envio acontece depois do
   `insert`/`update` e dentro de `try/catch`; falhas viram log
   (`[whatsapp:pedido] ...`), com timeout próprio de 6 s

@@ -1277,7 +1277,7 @@ export async function POST(request: Request) {
   // disparar em background arriscaria perder a mensagem. O timeout curto de
   // `ORDER_NOTIFICATION_TIMEOUT_MS` limita a espera.
   try {
-    await notifyStoreNewOrder({
+    const notification = await notifyStoreNewOrder({
       store: establishment,
       order: {
         id: created.id,
@@ -1299,6 +1299,16 @@ export async function POST(request: Request) {
         estimated_delivery_time: estimatedDeliveryTime,
       },
     });
+
+    // O formato do retorno já vira log no módulo de notificações; aqui fica o
+    // vínculo com o pedido, que é o identificador usado no painel/suporte.
+    if (!notification.ok) {
+      console.warn(
+        `[orders] Notificação da loja sobre o pedido ${created.id} não enviada: ${
+          notification.error ?? "motivo desconhecido"
+        }`
+      );
+    }
   } catch (notificationError) {
     console.error(
       "[orders] Falha inesperada ao notificar a loja sobre o novo pedido:",
@@ -1611,11 +1621,22 @@ export async function PUT(request: Request) {
         adminClient,
         existing.establishment_id
       );
-      await notifyOrderStatusChange({
+      const notification = await notifyOrderStatusChange({
         store,
         order: updated,
         previousStatus: currentStatus,
       });
+
+      // Omitir (pedido sem telefone, loja sem instância, status sem mensagem)
+      // já sai no log do módulo como `[whatsapp:pedido] ... ignorado`. Aqui só
+      // as FALHAS reais ganham o vínculo com o pedido e a transição de status.
+      if (!notification.ok && !notification.skipped) {
+        console.warn(
+          `[orders] Notificação de status (${currentStatus} → ${nextStatus}) do pedido ${id} falhou: ${
+            notification.error ?? "motivo desconhecido"
+          }`
+        );
+      }
     } catch (notificationError) {
       console.error(
         "[orders] Falha inesperada ao notificar o cliente sobre o status:",

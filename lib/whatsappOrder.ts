@@ -21,6 +21,10 @@
  */
 
 import { paymentMethodLabel } from "@/lib/paymentLabels";
+import {
+  formatWhatsAppPhoneForDisplay,
+  normalizeWhatsAppNumber,
+} from "@/lib/whatsappPhone";
 
 /** Chave do `sessionStorage` que carrega o link até a tela do pedido. */
 export const WHATSAPP_ORDER_STORAGE_KEY = "ipepper:whatsapp_order_url";
@@ -101,43 +105,11 @@ export function orderShortCode(orderId: string): string {
 }
 
 /**
- * Normaliza o número para o formato aceito pelo `wa.me` (DDI + DDD + número,
- * apenas dígitos). Retorna `null` quando o número é claramente inválido, para
- * que o checkout não monte um link quebrado.
+ * Normalização/exibição de telefone ficam em `lib/whatsappPhone.ts` (módulo
+ * puro, compartilhado com o cliente da Evolution API). Reexportadas aqui para
+ * manter os imports históricos deste arquivo funcionando.
  */
-export function normalizeWhatsAppNumber(
-  raw: string | null | undefined
-): string | null {
-  const digits = String(raw ?? "")
-    .replace(/\D/g, "")
-    .replace(/^0+/, "");
-
-  if (!digits) return null;
-  // Número local com DDD (fixo ou celular) → prefixa o DDI do Brasil.
-  if (digits.length === 10 || digits.length === 11) return `55${digits}`;
-  // Número já com DDI 55.
-  if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) {
-    return digits;
-  }
-  return null;
-}
-
-/** Telefone formatado para exibição na mensagem (`(17) 99265-0460`). */
-export function formatWhatsAppPhoneForDisplay(
-  raw: string | null | undefined
-): string | null {
-  const normalized = normalizeWhatsAppNumber(raw);
-  if (!normalized) return null;
-
-  const national = normalized.replace(/^55/, "");
-  if (national.length === 11) {
-    return `(${national.slice(0, 2)}) ${national.slice(2, 7)}-${national.slice(7)}`;
-  }
-  if (national.length === 10) {
-    return `(${national.slice(0, 2)}) ${national.slice(2, 6)}-${national.slice(6)}`;
-  }
-  return normalized;
-}
+export { formatWhatsAppPhoneForDisplay, normalizeWhatsAppNumber };
 
 /**
  * A loja habilitou o envio do resumo no WhatsApp?
