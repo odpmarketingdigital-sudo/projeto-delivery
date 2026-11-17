@@ -16,6 +16,10 @@ import {
   MEAL_VOUCHER_PAYMENT_METHOD,
   mealVoucherPaymentLabel,
 } from "@/lib/mealVouchers";
+import {
+  CARD_PAYMENT_METHOD,
+  cardPaymentDetailLabel,
+} from "@/lib/cardBrands";
 
 interface OrderCardProps {
   order: PanelOrder;
@@ -178,6 +182,15 @@ export function OrderCard({
           {order.payment_method === MEAL_VOUCHER_PAYMENT_METHOD && (
             <p className="mt-1 text-[11px] font-bold text-amber-700">
               💳 {mealVoucherPaymentLabel(order.meal_voucher)}
+            </p>
+          )}
+          {/* Cartão na entrega: o entregador precisa saber qual cartão
+              (crédito/débito) e bandeira conferir na maquininha. */}
+          {order.payment_method === CARD_PAYMENT_METHOD && (
+            <p className="mt-1 text-[11px] font-bold text-sky-700">
+              💳{" "}
+              {cardPaymentDetailLabel(order.card_type, order.card_brand) ||
+                "Cartão na entrega"}
             </p>
           )}
         </div>

@@ -68,6 +68,16 @@ import {
   normalizeMealVouchers,
 } from "@/lib/mealVouchers";
 import {
+  CARD_BRAND_OPTIONS,
+  CARD_TYPE_LABELS,
+  CARD_TYPES,
+  MAX_CARD_BRAND_NAME_LENGTH,
+  MAX_CARD_BRANDS,
+  normalizeCardBrandName,
+  normalizeCardBrands,
+  type CardType,
+} from "@/lib/cardBrands";
+import {
   BANNER_IMAGE_PRESET,
   LOGO_IMAGE_PRESET,
   resizeAndCropToWebP,
@@ -409,6 +419,18 @@ export default function ConfiguracoesIdentidade() {
     null
   );
 
+  // Cartão de crédito/débito na entrega (migração 20261116000001): bandeiras
+  // aceitas pela loja na maquininha, separadas por tipo.
+  const [creditBrands, setCreditBrands] = useState<string[]>([]);
+  const [debitBrands, setDebitBrands] = useState<string[]>([]);
+  const [customCardBrand, setCustomCardBrand] = useState<
+    Record<CardType, string>
+  >({ credito: "", debito: "" });
+  const [isSavingCardBrands, setIsSavingCardBrands] = useState(false);
+  const [cardBrandError, setCardBrandError] = useState<string | null>(null);
+  const [cardBrandSuccess, setCardBrandSuccess] = useState<string | null>(null);
+  const [cardBrandWarning, setCardBrandWarning] = useState<string | null>(null);
+
   // Pagamento online (Asaas Split) — dados de recebimento da subconta.
   const [subaccountForm, setSubaccountForm] = useState<AsaasSubaccountForm>(
     EMPTY_ASAAS_SUBACCOUNT_FORM
@@ -486,6 +508,10 @@ export default function ConfiguracoesIdentidade() {
         // Vale-Refeição/Alimentação na entrega (migração 20261111000004):
         // base legada sem a coluna cai em lista vazia (não aceita vale).
         setMealVouchers(normalizeMealVouchers(row.accepted_meal_vouchers));
+        // Cartão de crédito/débito na entrega (migração 20261116000001): base
+        // legada sem as colunas cai em listas vazias (loja não configurou).
+        setCreditBrands(normalizeCardBrands(row.accepted_credit_brands));
+        setDebitBrands(normalizeCardBrands(row.accepted_debit_brands));
         setStoreLocation(
           settings.store_latitude != null && settings.store_longitude != null
             ? {
@@ -1482,6 +1508,163 @@ export default function ConfiguracoesIdentidade() {
     }
   };
 
+  /** Lista local do tipo de cartão selecionado. */
+  const cardBrandListOf = (type: CardType): string[] =>
+    type === "credito" ? creditBrands : debitBrands;
+
+  /** Grava a lista local do tipo de cartão (crédito/débito). */
+  const setCardBrandListOf = (type: CardType, brands: string[]) => {
+    if (type === "credito") setCreditBrands(brands);
+    else setDebitBrands(brands);
+  };
+
+  /** Limpa as mensagens de feedback da seção de cartão. */
+  const resetCardBrandFeedback = () => {
+    setCardBrandError(null);
+    setCardBrandSuccess(null);
+    setCardBrandWarning(null);
+  };
+
+  /**
+   * Marca/desmarca uma bandeira de cartão no tipo informado. O salvamento só
+   * acontece no botão "Salvar bandeiras de cartão" (mesmo padrão das demais
+   * seções).
+   */
+  const toggleCardBrand = (type: CardType, brand: string) => {
+    const list = cardBrandListOf(type);
+    const alreadySelected = list.some(
+      (item) => item.toLowerCase() === brand.toLowerCase()
+    );
+    if (!alreadySelected && list.length >= MAX_CARD_BRANDS) {
+      setCardBrandError(
+        `Cadastre no máximo ${MAX_CARD_BRANDS} bandeiras por tipo de cartão.`
+      );
+      return;
+    }
+
+    resetCardBrandFeedback();
+    setCardBrandListOf(
+      type,
+      alreadySelected
+        ? list.filter((item) => item.toLowerCase() !== brand.toLowerCase())
+        : [...list, brand]
+    );
+  };
+
+  /** Remove uma bandeira do tipo informado (usado pelas customizadas). */
+  const removeCardBrand = (type: CardType, brand: string) => {
+    resetCardBrandFeedback();
+    setCardBrandListOf(
+      type,
+      cardBrandListOf(type).filter(
+        (item) => item.toLowerCase() !== brand.toLowerCase()
+      )
+    );
+  };
+
+  /** Adiciona uma bandeira customizada ao tipo informado. */
+  const handleAddCustomCardBrand = (type: CardType) => {
+    resetCardBrandFeedback();
+
+    const raw = customCardBrand[type] ?? "";
+    const name = normalizeCardBrandName(raw);
+    if (!name) {
+      setCardBrandError("Informe o nome da bandeira que deseja adicionar.");
+      return;
+    }
+    if (raw.trim().length > MAX_CARD_BRAND_NAME_LENGTH) {
+      setCardBrandError(
+        `O nome da bandeira deve ter até ${MAX_CARD_BRAND_NAME_LENGTH} caracteres.`
+      );
+      return;
+    }
+
+    const list = cardBrandListOf(type);
+    if (list.some((item) => item.toLowerCase() === name.toLowerCase())) {
+      setCardBrandError(
+        `A bandeira "${name}" já está na lista de ${CARD_TYPE_LABELS[type].toLowerCase()}.`
+      );
+      return;
+    }
+    if (list.length >= MAX_CARD_BRANDS) {
+      setCardBrandError(
+        `Cadastre no máximo ${MAX_CARD_BRANDS} bandeiras por tipo de cartão.`
+      );
+      return;
+    }
+
+    setCardBrandListOf(type, [...list, name]);
+    setCustomCardBrand((prev) => ({ ...prev, [type]: "" }));
+  };
+
+  /**
+   * Salva as bandeiras de cartão de crédito/débito aceitas NA ENTREGA
+   * (migração 20261116000001). Como no vale-refeição, a cobrança é presencial
+   * na maquininha — nunca passa pelo pagamento online/gateway.
+   */
+  const handleSaveCardBrands = async () => {
+    if (!selectedId) return;
+
+    setIsSavingCardBrands(true);
+    resetCardBrandFeedback();
+    try {
+      const res = await fetch("/api/establishment", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          establishment_id: selectedId,
+          accepted_credit_brands: creditBrands,
+          accepted_debit_brands: debitBrands,
+        }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        warning?: string;
+        establishment?: Establishment;
+      };
+      if (!res.ok) {
+        throw new Error(
+          json.error ?? "Falha ao salvar as bandeiras de cartão."
+        );
+      }
+
+      const warning =
+        typeof json.warning === "string" && json.warning ? json.warning : null;
+      setCardBrandWarning(warning);
+
+      const savedCredit = normalizeCardBrands(
+        json.establishment?.accepted_credit_brands ?? creditBrands
+      );
+      const savedDebit = normalizeCardBrands(
+        json.establishment?.accepted_debit_brands ?? debitBrands
+      );
+      setCreditBrands(savedCredit);
+      setDebitBrands(savedDebit);
+
+      const savedEstablishment = json.establishment;
+      if (savedEstablishment) {
+        setEstablishmentData((prev) => ({
+          ...(prev ?? savedEstablishment),
+          ...savedEstablishment,
+        }));
+      }
+
+      setCardBrandSuccess(
+        warning
+          ? "Bandeiras de cartão salvas parcialmente."
+          : savedCredit.length > 0 || savedDebit.length > 0
+            ? `Bandeiras salvas (crédito: ${savedCredit.length}, débito: ${savedDebit.length}). O cliente já escolhe tipo e bandeira no checkout.`
+            : "Sem bandeiras cadastradas: o checkout continua aceitando cartão na entrega, mas não pede tipo/bandeira ao cliente."
+      );
+    } catch (err) {
+      setCardBrandError(
+        err instanceof Error ? err.message : "Erro inesperado ao salvar."
+      );
+    } finally {
+      setIsSavingCardBrands(false);
+    }
+  };
+
   /**
    * Conecta/atualiza o recebimento online (Asaas Split). Na primeira conexão a
    * rota cria a subconta e guarda o `asaas_account_id`; depois atualiza a chave
@@ -2414,6 +2597,181 @@ export default function ConfiguracoesIdentidade() {
                 </>
               ) : (
                 "Salvar bandeiras"
+              )}
+            </button>
+          </div>
+        </section>
+
+        {/* Cartão de Crédito / Débito na entrega (migração 20261116000001) */}
+        <section
+          aria-labelledby="card-brands-title"
+          className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6"
+        >
+          <div className="flex items-center gap-2">
+            <span className="mt-1.5 h-2.5 w-2.5 rounded-full bg-sky-400" />
+            <h2 id="card-brands-title" className="font-semibold text-slate-900">
+              Cartão de Crédito / Débito (Pagamento na entrega)
+            </h2>
+          </div>
+          <p className="mt-1 text-xs text-slate-600">
+            Marque as bandeiras que sua loja aceita cobrar{" "}
+            <strong>presencialmente na entrega</strong> (maquininha), separadas
+            por tipo. O cliente escolhe crédito/débito e a bandeira no checkout e
+            o entregador leva a maquininha correspondente.
+          </p>
+          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
+            Esta opção é exclusiva para cobrança presencial na entrega — o
+            pagamento <strong>não</strong> passa pelo sistema (não usa PIX
+            Online/gateway).
+          </p>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {CARD_TYPES.map((type) => {
+              const list = type === "credito" ? creditBrands : debitBrands;
+              const customBrands = list.filter(
+                (brand) =>
+                  !CARD_BRAND_OPTIONS.some(
+                    (option) => option.toLowerCase() === brand.toLowerCase()
+                  )
+              );
+              const inputId = `custom-card-brand-${type}`;
+              const typeLabel = CARD_TYPE_LABELS[type].toLowerCase();
+              return (
+                <fieldset
+                  key={type}
+                  className="rounded-xl border border-slate-200 p-3"
+                >
+                  <legend className="px-1 text-sm font-medium text-slate-700">
+                    {CARD_TYPE_LABELS[type]}
+                  </legend>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {CARD_BRAND_OPTIONS.map((option) => {
+                      const checked = list.some(
+                        (brand) => brand.toLowerCase() === option.toLowerCase()
+                      );
+                      return (
+                        <label
+                          key={option}
+                          className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2 text-sm transition ${
+                            checked
+                              ? "border-sky-400 bg-sky-50 text-slate-900"
+                              : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleCardBrand(type, option)}
+                            className="h-4 w-4 accent-sky-500"
+                          />
+                          <span className="font-medium">{option}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+
+                  {customBrands.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                        Outras bandeiras
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap gap-2">
+                        {customBrands.map((brand) => (
+                          <span
+                            key={brand}
+                            className="inline-flex items-center gap-2 rounded-full border border-sky-300 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-800"
+                          >
+                            {brand}
+                            <button
+                              type="button"
+                              onClick={() => removeCardBrand(type, brand)}
+                              aria-label={`Remover ${brand}`}
+                              className="text-sky-700 transition hover:text-sky-900"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <div className="flex-1">
+                      <label htmlFor={inputId} className="sr-only">
+                        Outra bandeira de {typeLabel}
+                      </label>
+                      <input
+                        id={inputId}
+                        type="text"
+                        value={customCardBrand[type]}
+                        maxLength={MAX_CARD_BRAND_NAME_LENGTH}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setCustomCardBrand((prev) => ({
+                            ...prev,
+                            [type]: value,
+                          }));
+                          setCardBrandError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") return;
+                          e.preventDefault();
+                          handleAddCustomCardBrand(type);
+                        }}
+                        placeholder="Outra bandeira"
+                        className={deliveryInputClass}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleAddCustomCardBrand(type)}
+                      className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-400/40"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                </fieldset>
+              );
+            })}
+          </div>
+
+          <p className="mt-2 text-xs text-slate-500">
+            Sem nenhuma bandeira marcada nos dois tipos o checkout continua
+            aceitando cartão na entrega, mas não pede tipo/bandeira ao cliente.
+            Com bandeiras marcadas, o cliente é obrigado a escolher uma bandeira
+            aceita por você.
+          </p>
+
+          {cardBrandError && (
+            <p className="mt-3 text-sm text-red-600">{cardBrandError}</p>
+          )}
+          {cardBrandSuccess && (
+            <p className="mt-3 flex items-center gap-2 text-sm text-green-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+              {cardBrandSuccess}
+            </p>
+          )}
+          {cardBrandWarning && (
+            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-700">
+              {cardBrandWarning}
+            </p>
+          )}
+
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => void handleSaveCardBrands()}
+              disabled={isSavingCardBrands || !selectedId}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-500 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-sky-500/30 transition hover:bg-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSavingCardBrands ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-transparent" />
+                  Salvando...
+                </>
+              ) : (
+                "Salvar bandeiras de cartão"
               )}
             </button>
           </div>

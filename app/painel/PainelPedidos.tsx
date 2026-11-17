@@ -86,6 +86,8 @@ function toPanelOrder(raw: unknown): PanelOrder | null {
     total: num(r.total),
     payment_method: typeof r.payment_method === "string" ? r.payment_method : "—",
     meal_voucher: typeof r.meal_voucher === "string" ? r.meal_voucher : null,
+    card_type: typeof r.card_type === "string" ? r.card_type : null,
+    card_brand: typeof r.card_brand === "string" ? r.card_brand : null,
     change_for: typeof r.change_for === "number" ? r.change_for : null,
     notes: typeof r.notes === "string" ? r.notes : null,
     delivery_type:

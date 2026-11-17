@@ -83,6 +83,10 @@ export interface OrderNotificationOrder {
   total?: number | string | null;
   payment_method?: string | null;
   meal_voucher?: string | null;
+  /** Tipo do cartão na entrega (`credito` | `debito`, migração 20261116000001). */
+  card_type?: string | null;
+  /** Bandeira do cartão escolhida na entrega (migração 20261116000001). */
+  card_brand?: string | null;
   change_for?: number | string | null;
   notes?: string | null;
   cancellation_reason?: string | null;
@@ -243,6 +247,8 @@ export function buildStoreNewOrderMessage({
     total: toNumber(order.total) ?? 0,
     paymentMethod: readText(order.payment_method) ?? "",
     mealVoucher: readText(order.meal_voucher),
+    cardType: readText(order.card_type),
+    cardBrand: readText(order.card_brand),
     changeFor: toNumber(order.change_for),
     notes: readText(order.notes),
     estimatedDeliveryTime: readText(order.estimated_delivery_time),

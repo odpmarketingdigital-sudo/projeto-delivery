@@ -80,6 +80,17 @@ export interface WhatsAppOrderSummaryInput {
    * (`orders.meal_voucher`, migração 20261111000004). `null` nas demais formas.
    */
   mealVoucher?: string | null;
+  /**
+   * Tipo do cartão escolhido para pagamento NA ENTREGA (`orders.card_type`,
+   * migração 20261116000001): `credito` | `debito`. `null` nas demais formas.
+   */
+  cardType?: string | null;
+  /**
+   * Bandeira do cartão escolhida para pagamento NA ENTREGA
+   * (`orders.card_brand`). `null` nas demais formas e quando a loja não
+   * cadastrou bandeiras.
+   */
+  cardBrand?: string | null;
   changeFor?: number | null;
   notes?: string | null;
   estimatedDeliveryTime?: string | null;
@@ -245,11 +256,15 @@ export function buildOrderWhatsAppMessage(
   }
 
   lines.push("*Pagamento*");
-  // `paymentMethodLabel` já inclui a bandeira do vale na entrega
-  // ("Vale-Refeição (Alelo) - na entrega").
+  // `paymentMethodLabel` já inclui o detalhe escolhido pelo cliente:
+  // "Vale-Refeição (Alelo) - na entrega" e "Cartão na entrega (Crédito · Visa)".
   lines.push(
-    paymentMethodLabel(input.paymentMethod, input.mealVoucher) ||
-      "Não informado"
+    paymentMethodLabel(
+      input.paymentMethod,
+      input.mealVoucher,
+      input.cardBrand,
+      input.cardType
+    ) || "Não informado"
   );
   if (
     input.paymentMethod === "dinheiro" &&

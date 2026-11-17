@@ -35,6 +35,13 @@ import {
   normalizeMinOrderValue,
 } from "@/lib/minOrder";
 import {
+  CARD_PAYMENT_METHOD,
+  cardPaymentDetailLabel,
+  matchAcceptedCardBrand,
+  normalizeCardBrands,
+  normalizeCardType,
+} from "@/lib/cardBrands";
+import {
   MEAL_VOUCHER_PAYMENT_METHOD,
   matchAcceptedMealVoucher,
   mealVoucherPaymentLabel,
@@ -203,6 +210,8 @@ export async function GET(request: Request) {
  *   customer: { name, phone, street, number, neighborhood, complement?, reference? },
  *   payment_method: "pix" | "cartao" | "dinheiro" | "pix_online" | "vale_refeicao",
  *   meal_voucher?: string,      // bandeira do vale (obrigatória em vale_refeicao)
+ *   card_type?: "credito" | "debito", // tipo do cartão (migração 20261116000001)
+ *   card_brand?: string,        // bandeira do cartão aceita pela loja
  *   customer.document?: string,  // CPF/CNPJ do pagador (PIX Online)
  *   change_for?: number | null,
  *   notes?: string,
@@ -248,6 +257,16 @@ export async function POST(request: Request) {
     delivery_type?: string;
     /** Bandeira do vale-refeição/alimentação (somente `vale_refeicao`). */
     meal_voucher?: string;
+    /**
+     * Tipo do cartão na entrega (somente `cartao`), migração 20261116000001:
+     * `credito` | `debito`. Obrigatório quando a loja cadastrou bandeiras.
+     */
+    card_type?: string;
+    /**
+     * Bandeira do cartão aceita pela loja (somente `cartao`). Obrigatória
+     * quando a loja cadastrou bandeiras para o tipo escolhido.
+     */
+    card_brand?: string;
     change_for?: number | null;
     notes?: string;
     /** Código do cupom aplicado no checkout (opcional). */
@@ -529,6 +548,67 @@ export async function POST(request: Request) {
         },
         { status: 400 }
       );
+    }
+  }
+
+  // Cartão de Crédito / Débito NA ENTREGA (migração 20261116000001).
+  //
+  // Modalidade presencial (maquininha): NUNCA passa pelo gateway online. Quando
+  // a loja cadastrou bandeiras, o tipo e a bandeira escolhidos são revalidados
+  // contra as listas gravadas pela loja — o servidor não confia na lista que o
+  // navegador exibiu. Loja sem bandeiras cadastradas continua aceitando cartão
+  // livremente (comportamento anterior).
+  let cardTypeValue: string | null = null;
+  let cardBrandValue: string | null = null;
+  if (paymentMethod === CARD_PAYMENT_METHOD) {
+    const cardStore = establishment as {
+      accepted_credit_brands?: unknown;
+      accepted_debit_brands?: unknown;
+    };
+    const creditBrands = normalizeCardBrands(cardStore.accepted_credit_brands);
+    const debitBrands = normalizeCardBrands(cardStore.accepted_debit_brands);
+    const brandsConfigured = creditBrands.length > 0 || debitBrands.length > 0;
+
+    cardTypeValue = normalizeCardType(body.card_type);
+
+    if (brandsConfigured) {
+      if (!cardTypeValue) {
+        return NextResponse.json(
+          {
+            error:
+              "Selecione o tipo do cartão (crédito ou débito) para pagar na entrega.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const acceptedForType =
+        cardTypeValue === "credito" ? creditBrands : debitBrands;
+      if (acceptedForType.length === 0) {
+        return NextResponse.json(
+          {
+            error:
+              `Esta loja não aceita cartão de ${
+                cardTypeValue === "credito" ? "crédito" : "débito"
+              } na entrega. Escolha outra forma de pagamento.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      cardBrandValue = matchAcceptedCardBrand(
+        acceptedForType,
+        body.card_brand
+      );
+      if (!cardBrandValue) {
+        return NextResponse.json(
+          {
+            error:
+              "Selecione a bandeira do cartão aceita pela loja para pagar na entrega.",
+          },
+          { status: 400 }
+        );
+      }
     }
   }
 
@@ -1038,6 +1118,14 @@ export async function POST(request: Request) {
     ? mealVoucherPaymentLabel(mealVoucherValue)
     : null;
 
+  // Tipo/bandeira do cartão (migração 20261116000001). O texto garante que o
+  // entregador saiba qual cartão conferir mesmo em bases legadas sem as colunas
+  // `orders.card_type`/`orders.card_brand`.
+  const cardDetailLabel = cardPaymentDetailLabel(cardTypeValue, cardBrandValue);
+  const cardPaymentNote = cardDetailLabel
+    ? `Cartão: ${cardDetailLabel}`
+    : null;
+
   // Telefone salvo somente com dígitos (ex.: `17996129158`). A busca em
   // "Meus Pedidos" (/api/orders/customer) normaliza ambos os lados.
   const customerPhoneDigits =
@@ -1081,6 +1169,15 @@ export async function POST(request: Request) {
     // quando a modalidade foi escolhida, para não gravar colunas que podem não
     // existir em bases legadas nas demais formas de pagamento.
     ...(mealVoucherValue ? { meal_voucher: mealVoucherValue } : {}),
+    // Tipo/bandeira do cartão na entrega (migração 20261116000001): enviados
+    // apenas quando a modalidade foi escolhida, para não gravar colunas que
+    // podem não existir em bases legadas nas demais formas de pagamento.
+    ...(paymentMethod === CARD_PAYMENT_METHOD && cardTypeValue
+      ? { card_type: cardTypeValue }
+      : {}),
+    ...(paymentMethod === CARD_PAYMENT_METHOD && cardBrandValue
+      ? { card_brand: cardBrandValue }
+      : {}),
     notes: notesValue ?? null,
     // Modalidade escolhida pelo cliente (migração 20261113000001). O painel usa
     // para exibir "Pronto para buscar" na etapa final de pedidos retirados.
@@ -1212,6 +1309,48 @@ export async function POST(request: Request) {
       .single());
   }
 
+  // Base sem a migração 20261116000001: mantém o pedido e registra tipo/bandeira
+  // do cartão nas observações (o entregador continua sabendo qual cartão
+  // conferir antes de passar na maquininha).
+  if (
+    insertError &&
+    /card_brand|card_type/i.test(insertError.message ?? "") &&
+    /does not exist|could not find|schema cache/i.test(insertError.message ?? "")
+  ) {
+    const retryPayload: Record<string, unknown> = { ...orderPayload };
+    delete retryPayload.card_brand;
+    delete retryPayload.card_type;
+    if (cardPaymentNote) {
+      retryPayload.notes = [notesValue, cardPaymentNote]
+        .filter((part): part is string => Boolean(part))
+        .join(" · ");
+    }
+    ({ data: created, error: insertError } = await adminClient
+      .from("orders")
+      .insert(retryPayload)
+      .select("id")
+      .single());
+
+    // Base legada que também não tem `orders.meal_voucher`: solta a coluna e
+    // garante as duas bandeiras nas observações (nada de informação perdida).
+    if (
+      insertError &&
+      /meal_voucher/i.test(insertError.message ?? "") &&
+      (mealVoucherNote || cardPaymentNote)
+    ) {
+      const fallbackPayload = { ...retryPayload };
+      delete fallbackPayload.meal_voucher;
+      fallbackPayload.notes = [notesValue, mealVoucherNote, cardPaymentNote]
+        .filter((part): part is string => Boolean(part))
+        .join(" · ");
+      ({ data: created, error: insertError } = await adminClient
+        .from("orders")
+        .insert(fallbackPayload)
+        .select("id")
+        .single());
+    }
+  }
+
   if (insertError || !created) {
     const detail =
       insertError && typeof insertError === "object"
@@ -1291,6 +1430,9 @@ export async function POST(request: Request) {
         total,
         payment_method: paymentMethod,
         meal_voucher: mealVoucherValue,
+        /** Tipo/bandeira do cartão na entrega (null nas demais formas). */
+        card_type: cardTypeValue,
+        card_brand: cardBrandValue,
         change_for: changeForValue,
         notes: notesValue,
         // Modalidade explícita: pedidos de retirada não têm endereço e a
@@ -1343,6 +1485,8 @@ export async function POST(request: Request) {
       total,
       paymentMethod,
       mealVoucher: mealVoucherValue,
+      cardType: cardTypeValue,
+      cardBrand: cardBrandValue,
       changeFor: changeForValue,
       notes: notesValue,
       // Modalidade explícita (sobrepõe a inferência por endereço).
@@ -1370,6 +1514,9 @@ export async function POST(request: Request) {
         payment_method: paymentMethod,
         /** Bandeira do vale na entrega (null nas demais formas). */
         meal_voucher: mealVoucherValue,
+        /** Tipo/bandeira do cartão na entrega (null nas demais formas). */
+        card_type: cardTypeValue,
+        card_brand: cardBrandValue,
         /** `pendente` no PIX Online até o webhook confirmar o pagamento. */
         payment_status:
           paymentMethod === "pix_online" ? "pendente" : undefined,

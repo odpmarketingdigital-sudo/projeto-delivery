@@ -17,6 +17,7 @@
  */
 
 import { normalizeMealVouchers } from "@/lib/mealVouchers";
+import { normalizeCardBrands } from "@/lib/cardBrands";
 import { describeNextOpening, isStoreOpen } from "@/lib/openingHours";
 import { SITE_URL } from "@/lib/site";
 import type { AiPersonality } from "@/lib/types";
@@ -112,6 +113,16 @@ export interface WhatsappAgentStore {
   opening_hours?: unknown;
   min_order_value?: number | string | null;
   accepted_meal_vouchers?: unknown;
+  /**
+   * Bandeiras de cartão de CRÉDITO aceitas na entrega
+   * (`establishments.accepted_credit_brands`, migração 20261116000001).
+   */
+  accepted_credit_brands?: unknown;
+  /**
+   * Bandeiras de cartão de DÉBITO aceitas na entrega
+   * (`establishments.accepted_debit_brands`, migração 20261116000001).
+   */
+  accepted_debit_brands?: unknown;
   delivery_type?: string | null;
   delivery_fee?: number | string | null;
   estimated_delivery_time_min?: number | string | null;
@@ -260,6 +271,27 @@ export function buildStoreBlock(
       ? `- Vale-refeição/alimentação: aceito NA ENTREGA (maquininha do entregador) nas bandeiras ${vouchers.join(", ")}`
       : "- Vale-refeição/alimentação: a loja não informou bandeiras aceitas — não confirme aceite, diga que vai confirmar com a loja"
   );
+
+  // Cartão NA ENTREGA: mesma regra do checkout — a loja informa as bandeiras
+  // por tipo (crédito/débito) e o entregador leva a maquininha.
+  const creditBrands = normalizeCardBrands(store.accepted_credit_brands);
+  const debitBrands = normalizeCardBrands(store.accepted_debit_brands);
+  if (creditBrands.length > 0 || debitBrands.length > 0) {
+    const parts: string[] = [];
+    if (creditBrands.length > 0) {
+      parts.push(`crédito: ${creditBrands.join(", ")}`);
+    }
+    if (debitBrands.length > 0) {
+      parts.push(`débito: ${debitBrands.join(", ")}`);
+    }
+    lines.push(
+      `- Cartão: aceito NA ENTREGA (maquininha do entregador), bandeiras — ${parts.join("; ")}`
+    );
+  } else {
+    lines.push(
+      "- Cartão: aceito NA ENTREGA (maquininha do entregador), mas a loja não informou bandeiras — não confirme bandeira/tipo específicos, diga que vai confirmar com a loja"
+    );
+  }
 
   const contact = toCleanText(store.whatsapp) || toCleanText(store.phone);
   if (contact) lines.push(`- Contato da loja (para casos que você não resolve): ${contact}`);

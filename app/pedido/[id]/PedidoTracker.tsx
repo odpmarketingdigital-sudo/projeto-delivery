@@ -57,6 +57,16 @@ interface TrackerOrder {
    * (coluna `orders.meal_voucher`, migração 20261111000004).
    */
   meal_voucher: string | null;
+  /**
+   * Tipo do cartão escolhido para pagamento na entrega (coluna
+   * `orders.card_type`, migração 20261116000001): `credito` | `debito`.
+   */
+  card_type: string | null;
+  /**
+   * Bandeira do cartão escolhida para pagamento na entrega (coluna
+   * `orders.card_brand`, migração 20261116000001).
+   */
+  card_brand: string | null;
   /** PIX Online: `pendente` | `pago` | `expirado` | `cancelado` (migração 28). */
   payment_status: string | null;
   /** Pix Copia e Cola salvo no pedido (reexibido enquanto pendente). */
@@ -221,6 +231,8 @@ function normalizeTracker(raw: unknown): TrackerOrder | null {
     total: num(r.total),
     payment_method: typeof r.payment_method === "string" ? r.payment_method : "—",
     meal_voucher: typeof r.meal_voucher === "string" ? r.meal_voucher : null,
+    card_type: typeof r.card_type === "string" ? r.card_type : null,
+    card_brand: typeof r.card_brand === "string" ? r.card_brand : null,
     payment_status:
       typeof r.payment_status === "string" ? r.payment_status : null,
     pix_payload: typeof r.pix_payload === "string" ? r.pix_payload : null,
@@ -819,7 +831,12 @@ export function PedidoTracker({ orderId }: { orderId: string }) {
           ) : null}
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Pagto:{" "}
-            {paymentMethodLabel(order.payment_method, order.meal_voucher) || "—"}
+            {paymentMethodLabel(
+              order.payment_method,
+              order.meal_voucher,
+              order.card_brand,
+              order.card_type
+            ) || "—"}
           </p>
           <div className="mt-3 flex flex-col gap-1.5 border-t border-gray-200 pt-3 text-sm dark:border-gray-700">
             <div className="flex items-center justify-between gap-2">

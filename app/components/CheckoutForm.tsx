@@ -35,6 +35,12 @@ import {
   normalizeMealVouchers,
 } from "@/lib/mealVouchers";
 import {
+  CARD_TYPE_LABELS,
+  CARD_TYPES,
+  normalizeCardBrands,
+  type CardType,
+} from "@/lib/cardBrands";
+import {
   getCustomerProfile,
   readSavedCustomerPhone,
   saveCustomerProfile,
@@ -435,6 +441,10 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   const [troco, setTroco] = useState("");
   // Bandeira do vale-refeição/alimentação escolhida (só em `vale_refeicao`).
   const [mealVoucher, setMealVoucher] = useState("");
+  // Tipo/bandeira do cartão na entrega (só em `cartao`, migração
+  // 20261116000001). Ficam vazios quando a loja ainda não configurou bandeiras.
+  const [cardType, setCardType] = useState<CardType | "">("");
+  const [cardBrand, setCardBrand] = useState("");
   // PIX Online (Split Asaas): cobrança em exibição e ciclo de confirmação.
   const [pixPayment, setPixPayment] = useState<PixCheckoutState | null>(null);
   const [pixCopied, setPixCopied] = useState(false);
@@ -525,6 +535,37 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   );
   const mealVoucherAvailable = mealVoucherOptions.length > 0;
 
+  // ---- Cartão de Crédito / Débito na entrega -------------------------------
+  // `accepted_credit_brands`/`accepted_debit_brands` já chegam normalizados de
+  // `/api/menu`. As duas listas vazias = loja ainda não configurou bandeiras:
+  // o cartão continua aceito sem exigir tipo/bandeira (compatibilidade).
+  const creditBrandOptions = useMemo(
+    () => normalizeCardBrands(establishment?.accepted_credit_brands),
+    [establishment?.accepted_credit_brands]
+  );
+  const debitBrandOptions = useMemo(
+    () => normalizeCardBrands(establishment?.accepted_debit_brands),
+    [establishment?.accepted_debit_brands]
+  );
+  const cardBrandsConfigured =
+    creditBrandOptions.length > 0 || debitBrandOptions.length > 0;
+  // Só os tipos com pelo menos uma bandeira cadastrada podem ser escolhidos.
+  const cardTypeOptions = useMemo(
+    () =>
+      CARD_TYPES.filter((type) =>
+        type === "credito"
+          ? creditBrandOptions.length > 0
+          : debitBrandOptions.length > 0
+      ),
+    [creditBrandOptions, debitBrandOptions]
+  );
+  /** Bandeiras da loja para o tipo já escolhido (vazio antes da escolha). */
+  const cardBrandOptions = useMemo(() => {
+    if (cardType === "credito") return creditBrandOptions;
+    if (cardType === "debito") return debitBrandOptions;
+    return [];
+  }, [cardType, creditBrandOptions, debitBrandOptions]);
+
   const paymentOptions = useMemo(() => {
     // Formas presenciais primeiro (PIX na hora, cartão e dinheiro na entrega,
     // vale na entrega); o PIX Online fica por último.
@@ -570,6 +611,16 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       if (mealVoucher) setMealVoucher("");
     } else if (mealVoucher && !mealVoucherOptions.includes(mealVoucher)) {
       setMealVoucher("");
+    }
+  }
+  // Cartão na entrega: a loja configurou/desconfigurou bandeiras com o checkout
+  // aberto — limpa tipo/bandeira que deixaram de ser aceitos.
+  if (payment === "cartao" && establishment && cardBrandsConfigured) {
+    if (cardType && !cardTypeOptions.includes(cardType)) {
+      setCardType("");
+      if (cardBrand) setCardBrand("");
+    } else if (cardBrand && !cardBrandOptions.includes(cardBrand)) {
+      setCardBrand("");
     }
   }
 
@@ -667,11 +718,25 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     setDeliveryPoint((prev) => prev ?? toDeliveryPoint(deliveryAddress));
   }, [deliveryAddress]);
 
-
-  const [prevEstablishmentId, setPrevEstablishmentId] =
-    useState(establishmentId);
-  if (establishmentId !== prevEstablishmentId) {
-    setPrevEstablishmentId(establishmentId);
+  /**
+   * Loja alvo do checkout — o SELETOR da loja, não o id já resolvido:
+   *
+   *  - `/[slug]/checkout` → o slug da rota é a fonte de verdade;
+   *  - `/checkout` (legado) → o `establishment_id` gravado nos itens da sacola.
+   *
+   * A limpeza abaixo acontece quando esse seletor muda (troca de loja ou
+   * hidratação tardia da sacola). Chavear em `establishmentId` era um bug: no
+   * caminho por slug ele só é preenchido DEPOIS do fetch (por
+   * `setEstablishmentIdFromSlug`), então o `establishment` recém-carregado era
+   * zerado no mesmo ciclo de render e o efeito de fetch não rodava de novo
+   * (suas dependências não mudavam). Resultado: o checkout ficava sem nome da
+   * loja, taxa fixa, min_order_value, vale-refeição, PIX Online e bandeiras de
+   * cartão (`accepted_credit_brands`/`accepted_debit_brands`).
+   */
+  const storeKey = slug ?? establishmentIdFromCart ?? "";
+  const [prevStoreKey, setPrevStoreKey] = useState(storeKey);
+  if (storeKey !== prevStoreKey) {
+    setPrevStoreKey(storeKey);
     setEstablishment(null);
     setMenuMetaError(null);
   }
@@ -682,7 +747,11 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       (async () => {
         try {
           const res = await fetch(
-            `/api/menu?slug=${encodeURIComponent(slug)}`
+            `/api/menu?slug=${encodeURIComponent(slug)}`,
+            // Sem cache: as bandeiras de cartão (e demais dados da loja) podem
+            // ter sido alteradas no painel agora — o checkout precisa da versão
+            // vigente para montar os seletores.
+            { cache: "no-store" }
           );
           const data = (await res.json().catch(() => ({}))) as Partial<
             StorefrontMenu & { error?: string }
@@ -722,7 +791,10 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     (async () => {
       try {
         const res = await fetch(
-          `/api/menu?establishment_id=${encodeURIComponent(establishmentIdFromCart)}`
+          `/api/menu?establishment_id=${encodeURIComponent(establishmentIdFromCart)}`,
+          // Mesma regra do caminho por slug: nada de resposta em cache, para o
+          // checkout refletir o que o lojista acabou de salvar no painel.
+          { cache: "no-store" }
         );
         const data = (await res.json().catch(() => ({}))) as Partial<
           StorefrontMenu & { error?: string }
@@ -1458,6 +1530,16 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       next.pagamento = isPickup
         ? "Selecione a bandeira do vale-refeição que será usado na retirada."
         : "Selecione a bandeira do vale-refeição que será usado na entrega.";
+    } else if (payment === "cartao" && cardBrandsConfigured) {
+      // Cartão na entrega com bandeiras cadastradas: o entregador precisa saber
+      // a modalidade/bandeira antes de sair. A API revalida a escolha contra as
+      // listas da loja — aqui é só a validação amigável do formulário.
+      if (!cardType || !cardTypeOptions.includes(cardType)) {
+        next.pagamento =
+          "Escolha se o cartão é de crédito ou de débito.";
+      } else if (!cardBrandOptions.includes(cardBrand)) {
+        next.pagamento = `Selecione a bandeira do cartão (${CARD_TYPE_LABELS[cardType]}).`;
+      }
     }
 
     return next;
@@ -1806,6 +1888,15 @@ export function CheckoutForm({ slug }: { slug?: string }) {
           ...(payment === MEAL_VOUCHER_PAYMENT_METHOD
             ? { meal_voucher: mealVoucher }
             : {}),
+          // Cartão na entrega: tipo/bandeira (migração 20261116000001). A API
+          // revalida contra `accepted_credit_brands`/`accepted_debit_brands` e
+          // recusa tipo/bandeira que a loja não aceita.
+          ...(payment === "cartao" && cardType
+            ? {
+                card_type: cardType,
+                ...(cardBrand ? { card_brand: cardBrand } : {}),
+              }
+            : {}),
           // A API revalida o cupom e recalcula o desconto no servidor.
           coupon_code: appliedCoupon?.code,
           // Troco sanitizado: só envia número válido quando for dinheiro com
@@ -1926,6 +2017,8 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       setCouponError(null);
       setTroco("");
       setMealVoucher("");
+      setCardType("");
+      setCardBrand("");
       setPayment("");
       setErrors({});
       if (targetId) {
@@ -3191,6 +3284,102 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                       maquininha do entregador — nada é cobrado online pelo
                       sistema. Tenha o cartão de vale em mãos no momento da
                       entrega.
+                    </>
+                  )}
+                </p>
+              </div>
+            )}
+            {payment === "cartao" && cardBrandsConfigured && (
+              <div id="field-cartao" className="mt-4">
+                <span className="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                  {isPickup
+                    ? "Como você vai pagar o cartão na retirada?"
+                    : "Como você vai pagar o cartão na entrega?"}
+                </span>
+                <div
+                  role="radiogroup"
+                  aria-label="Tipo do cartão"
+                  className="flex gap-2"
+                >
+                  {cardTypeOptions.map((type) => {
+                    const isActive = cardType === type;
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        role="radio"
+                        aria-checked={isActive}
+                        onClick={() => {
+                          setCardType(type);
+                          // Troca de tipo troca a lista de bandeiras: limpa a
+                          // escolha anterior para não enviar uma bandeira que a
+                          // loja não aceita naquele tipo.
+                          setCardBrand("");
+                          if (errors.pagamento) {
+                            setErrors((prev) => ({
+                              ...prev,
+                              pagamento: undefined,
+                            }));
+                          }
+                        }}
+                        className={`flex flex-1 items-center justify-center rounded-xl border px-3 py-2.5 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-yellow-400 ${
+                          isActive
+                            ? "border-gray-900 bg-gray-50 text-gray-900 shadow-sm dark:border-yellow-400 dark:bg-gray-900/60 dark:text-white"
+                            : "border-gray-200 bg-white text-gray-600 hover:border-gray-300 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-300 dark:hover:border-gray-600"
+                        }`}
+                      >
+                        {CARD_TYPE_LABELS[type]}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {cardType && (
+                  <div className="mt-3">
+                    <label
+                      htmlFor="card-brand"
+                      className="mb-1.5 block text-sm font-semibold text-gray-700 dark:text-gray-300"
+                    >
+                      Qual bandeira do cartão?
+                    </label>
+                    <select
+                      id="card-brand"
+                      name="card_brand"
+                      value={cardBrand}
+                      onChange={(event) => {
+                        setCardBrand(event.target.value);
+                        if (errors.pagamento) {
+                          setErrors((prev) => ({
+                            ...prev,
+                            pagamento: undefined,
+                          }));
+                        }
+                      }}
+                      aria-invalid={errors.pagamento ? true : undefined}
+                      className="w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm text-gray-900 transition focus:border-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:border-gray-700 dark:bg-gray-900/60 dark:text-white dark:focus:border-yellow-400 dark:focus:ring-yellow-400/20"
+                    >
+                      <option value="">Selecione a bandeira…</option>
+                      {cardBrandOptions.map((brand) => (
+                        <option key={brand} value={brand}>
+                          {brand}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <p className="mt-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                  {isPickup ? (
+                    <>
+                      O pagamento é feito <strong>na retirada</strong>, na
+                      maquininha do balcão — nada é cobrado online pelo sistema.
+                      Leve o cartão com você ao buscar o pedido.
+                    </>
+                  ) : (
+                    <>
+                      O pagamento é feito <strong>na entrega</strong>, na
+                      maquininha do entregador — nada é cobrado online pelo
+                      sistema. Tenha o cartão em mãos no momento da entrega.
                     </>
                   )}
                 </p>

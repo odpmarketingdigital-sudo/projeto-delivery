@@ -5,6 +5,7 @@ import { fetchWithOrderFallback } from "@/lib/menuOrder";
 import { normalizeOpeningHours } from "@/lib/openingHours";
 import { normalizeDeliverySettings } from "@/lib/delivery";
 import { normalizeMealVouchers } from "@/lib/mealVouchers";
+import { normalizeCardBrands } from "@/lib/cardBrands";
 import type {
   Category,
   MenuAddon,
@@ -120,6 +121,13 @@ function mapEstablishment(row: EstablishmentRow): StorefrontInfo {
      * `[]` — o checkout simplesmente não mostra a opção.
      */
     accepted_meal_vouchers: normalizeMealVouchers(row.accepted_meal_vouchers),
+    /**
+     * Cartão de Crédito/Débito na entrega (migração 20261116000001): bandeiras
+     * aceitas por tipo. Base legada sem as colunas devolve `[]` — o checkout
+     * aceita cartão sem exigir bandeira (comportamento anterior).
+     */
+    accepted_credit_brands: normalizeCardBrands(row.accepted_credit_brands),
+    accepted_debit_brands: normalizeCardBrands(row.accepted_debit_brands),
     delivery_type: delivery.delivery_type,
     distance_base_km: delivery.distance_base_km,
     distance_base_fee: delivery.distance_base_fee,
@@ -163,6 +171,11 @@ export async function GET(request: Request) {
   // 1) Resolve a loja alvo (id → slug → primeira ativa).
   // NOTA: `delivery_fee` pode não existir em bases legadas — por isso o
   // select usa `*` (tolerante) e `mapEstablishment` aplica fallback `?? 0`.
+  // O `*` também é o que garante que `accepted_credit_brands` e
+  // `accepted_debit_brands` (migração 20261116000001) cheguem em
+  // `mapEstablishment`: lá elas viram `StorefrontInfo.accepted_credit_brands`/
+  // `accepted_debit_brands` (sempre array de strings, `[]` em base legada), que
+  // é o que o `CheckoutForm` lê para montar os seletores de tipo/bandeira.
   let establishmentQuery = adminClient
     .from("establishments")
     .select("*")
@@ -295,6 +308,14 @@ export async function GET(request: Request) {
       : (addonGroupsRes.data ?? [])) as MenuAddonGroup[],
   };
 
-  return NextResponse.json(payload, { status: 200 });
+  return NextResponse.json(payload, {
+    status: 200,
+    /**
+     * O lojista altera bandeiras de cartão/vale, taxa, horário e demais dados
+     * no painel a qualquer momento: a vitrine e o checkout precisam sempre da
+     * versão vigente. Sem cache de navegador/CDN para o cardápio público.
+     */
+    headers: { "Cache-Control": "no-store, max-age=0" },
+  });
 }
 

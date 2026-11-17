@@ -43,6 +43,16 @@ interface OrderCard {
    * `orders.meal_voucher`, migração 20261111000004).
    */
   meal_voucher?: string | null;
+  /**
+   * Tipo do cartão escolhido para pagamento na entrega (coluna
+   * `orders.card_type`, migração 20261116000001).
+   */
+  card_type?: string | null;
+  /**
+   * Bandeira do cartão escolhida para pagamento na entrega (coluna
+   * `orders.card_brand`, migração 20261116000001).
+   */
+  card_brand?: string | null;
   customer_name: string;
   customer_phone: string | null;
   customer_address: { street?: string; number?: string; neighborhood?: string; complement?: string; reference?: string } | null;
@@ -492,7 +502,9 @@ function OrdersHistoryPage() {
                     <p className="text-xs text-gray-400 dark:text-gray-500">
                       {paymentMethodLabel(
                         order.payment_method,
-                        order.meal_voucher
+                        order.meal_voucher,
+                        order.card_brand,
+                        order.card_type
                       ) || order.payment_method}
                     </p>
                   )}

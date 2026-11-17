@@ -158,6 +158,18 @@ export interface PanelOrder {
    * todas as demais formas de pagamento.
    */
   meal_voucher?: string | null;
+  /**
+   * Tipo do cartão escolhido para pagamento na entrega (coluna
+   * `orders.card_type`, migração 20261116000001): `credito` | `debito`.
+   * `null`/ausente nas demais formas de pagamento.
+   */
+  card_type?: string | null;
+  /**
+   * Bandeira do cartão escolhida para pagamento na entrega (coluna
+   * `orders.card_brand`). `null`/ausente nas demais formas de pagamento e
+   * quando a loja não cadastrou bandeiras.
+   */
+  card_brand?: string | null;
   change_for: number | null;
   notes: string | null;
   /**
@@ -388,6 +400,18 @@ export interface Establishment {
    * Normalize com `normalizeMealVouchers` (`lib/mealVouchers.ts`).
    */
   accepted_meal_vouchers?: unknown;
+  /**
+   * Bandeiras de cartão de CRÉDITO aceitas na entrega (maquininha) — coluna
+   * `accepted_credit_brands` (jsonb), migração 20261116000001.
+   * Normalize com `normalizeCardBrands` (`lib/cardBrands.ts`).
+   */
+  accepted_credit_brands?: unknown;
+  /**
+   * Bandeiras de cartão de DÉBITO aceitas na entrega (maquininha) — coluna
+   * `accepted_debit_brands` (jsonb), migração 20261116000001.
+   * Normalize com `normalizeCardBrands` (`lib/cardBrands.ts`).
+   */
+  accepted_debit_brands?: unknown;
   /**
    * Fim do período de teste grátis (coluna `trial_ends_at`).
    * Ver `lib/subscriptions.ts` para a regra dos 30 dias.
@@ -685,6 +709,21 @@ export interface StorefrontInfo {
    * Lista vazia/ausente = a opção não aparece no checkout.
    */
   accepted_meal_vouchers?: string[];
+  /**
+   * Bandeiras de cartão de CRÉDITO que a loja aceita cobrar NA ENTREGA
+   * (maquininha) — coluna `establishments.accepted_credit_brands`, migração
+   * 20261116000001. Já normalizada por `/api/menu` (array de strings).
+   *
+   * Lista vazia = tipo não oferecido no checkout. As duas listas vazias =
+   * loja ainda não configurou bandeiras: o checkout aceita cartão livremente,
+   * sem exigir bandeira.
+   */
+  accepted_credit_brands?: string[];
+  /**
+   * Bandeiras de cartão de DÉBITO aceitas na entrega (maquininha) — coluna
+   * `establishments.accepted_debit_brands`. Mesma regra da lista de crédito.
+   */
+  accepted_debit_brands?: string[];
   /** Modelo de frete configurado pela loja. */
   delivery_type: DeliveryType;
   /** Distância inclusa na taxa base (km) — modelo por distância. */

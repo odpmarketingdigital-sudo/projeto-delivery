@@ -27,6 +27,11 @@ import {
   MAX_MEAL_VOUCHERS,
   normalizeMealVouchers,
 } from "@/lib/mealVouchers";
+import {
+  MAX_CARD_BRANDS,
+  MAX_CARD_BRAND_NAME_LENGTH,
+  normalizeCardBrands,
+} from "@/lib/cardBrands";
 
 /** Campos aceitos no body do PUT /api/establishment. */
 export interface IdentityUpdate {
@@ -75,6 +80,17 @@ export interface IdentityUpdate {
    * deixar de aceitar vale na entrega.
    */
   accepted_meal_vouchers?: unknown;
+  /**
+   * Bandeiras de cartão de CRÉDITO aceitas NA ENTREGA (maquininha) — coluna
+   * `accepted_credit_brands`, migração 20261116000001. Envie `[]` para deixar
+   * de aceitar crédito (ou para limpar a lista).
+   */
+  accepted_credit_brands?: unknown;
+  /**
+   * Bandeiras de cartão de DÉBITO aceitas NA ENTREGA (maquininha) — coluna
+   * `accepted_debit_brands`, migração 20261116000001.
+   */
+  accepted_debit_brands?: unknown;
   /**
    * Liga/desliga o envio do resumo do pedido para o WhatsApp da loja no
    * checkout (migração 20261110000016).
@@ -268,6 +284,51 @@ function isMissingAcceptedMealVouchersColumn(
     /accepted_meal_vouchers/i.test(message) &&
     (/does not exist/i.test(message) || /could not find/i.test(message))
   );
+}
+
+/** Colunas `accepted_credit_brands`/`accepted_debit_brands` ainda não migradas? */
+function isMissingAcceptedCardBrandsColumn(
+  error: { code?: string | null; message?: string | null } | null
+): boolean {
+  const message = error?.message ?? "";
+  return (
+    /accepted_credit_brands|accepted_debit_brands/i.test(message) &&
+    (/does not exist/i.test(message) || /could not find/i.test(message))
+  );
+}
+
+/**
+ * Valida/normaliza uma lista de bandeiras de cartão vinda do painel.
+ *
+ * Devolve `{ value }` quando ok ou `{ error }` com a mensagem exibida ao
+ * lojista. `label` entra no texto ("crédito"/"débito").
+ */
+function parseCardBrandList(
+  raw: unknown,
+  label: "crédito" | "débito"
+): { value: string[] } | { error: string } {
+  if (!Array.isArray(raw)) {
+    return {
+      error: `A lista de bandeiras de ${label} deve ser um array (ex.: ["Visa"]).`,
+    };
+  }
+  // Rejeita itens que não sejam texto (o painel sempre envia strings).
+  if (raw.some((entry) => typeof entry !== "string")) {
+    return { error: `Cada bandeira de ${label} deve ser informada como texto.` };
+  }
+  if (raw.length > MAX_CARD_BRANDS) {
+    return { error: `Cadastre no máximo ${MAX_CARD_BRANDS} bandeiras por tipo.` };
+  }
+  if (
+    raw.some(
+      (entry) => (entry as string).trim().length > MAX_CARD_BRAND_NAME_LENGTH
+    )
+  ) {
+    return {
+      error: `O nome de cada bandeira deve ter até ${MAX_CARD_BRAND_NAME_LENGTH} caracteres.`,
+    };
+  }
+  return { value: normalizeCardBrands(raw) };
 }
 
 /**
@@ -508,6 +569,22 @@ export async function PUT(request: Request) {
     updateFields.accepted_meal_vouchers = normalizeMealVouchers(rawEntries);
   }
 
+  // ---- Cartão de Crédito / Débito na entrega (migração 20261116000001) ----
+  if (body.accepted_credit_brands !== undefined) {
+    const parsed = parseCardBrandList(body.accepted_credit_brands, "crédito");
+    if ("error" in parsed) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+    updateFields.accepted_credit_brands = parsed.value;
+  }
+  if (body.accepted_debit_brands !== undefined) {
+    const parsed = parseCardBrandList(body.accepted_debit_brands, "débito");
+    if ("error" in parsed) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+    updateFields.accepted_debit_brands = parsed.value;
+  }
+
   // ---- Entrega e frete (migração 20261110000014) --------------------------
   if (body.delivery_type !== undefined) {
     if (body.delivery_type !== "fixed" && body.delivery_type !== "distance") {
@@ -734,7 +811,7 @@ export async function PUT(request: Request) {
     return NextResponse.json(
       {
         error:
-          "Informe ao menos um campo: `name`, `description`, `whatsapp`, `whatsapp_checkout_enabled`, `direct_whatsapp_checkout`, `opening_hours`, `min_order_value`, `accepted_meal_vouchers`, `logo_url`, `banner_url` ou configurações de entrega.",
+          "Informe ao menos um campo: `name`, `description`, `whatsapp`, `whatsapp_checkout_enabled`, `direct_whatsapp_checkout`, `opening_hours`, `min_order_value`, `accepted_meal_vouchers`, `accepted_credit_brands`, `accepted_debit_brands`, `logo_url`, `banner_url` ou configurações de entrega.",
       },
       { status: 400 }
     );
@@ -760,6 +837,10 @@ export async function PUT(request: Request) {
     "alter table public.establishments add column if not exists min_order_value numeric(10,2) not null default 0;";
   const ACCEPTED_MEAL_VOUCHERS_SQL =
     "alter table public.establishments add column if not exists accepted_meal_vouchers jsonb not null default '[]'::jsonb;";
+  const ACCEPTED_CARD_BRANDS_SQL =
+    "alter table public.establishments " +
+    "add column if not exists accepted_credit_brands jsonb not null default '[]'::jsonb, " +
+    "add column if not exists accepted_debit_brands jsonb not null default '[]'::jsonb;";
 
   const buildSelect = (
     withDescription: boolean,
@@ -801,6 +882,12 @@ export async function PUT(request: Request) {
   // Vale-Refeição/Alimentação na entrega (migração 20261111000004) — mesma
   // tolerância: base legada sem a coluna salva o restante e avisa via `warning`.
   const hasAcceptedMealVouchers = "accepted_meal_vouchers" in updateFields;
+  // Cartão de Crédito/Débito na entrega (migração 20261116000001) — mesma
+  // tolerância: base legada sem as colunas salva o restante e avisa via
+  // `warning` (a loja continua vendendo no cartão sem exigir bandeira).
+  const hasAcceptedCardBrands =
+    "accepted_credit_brands" in updateFields ||
+    "accepted_debit_brands" in updateFields;
   // Número da loja (coluna `whatsapp`, migração 20261110000006) — base legada
   // sem a coluna não pode derrubar o restante do formulário.
   const hasWhatsAppNumber = "whatsapp" in updateFields;
@@ -923,6 +1010,42 @@ export async function PUT(request: Request) {
             "A coluna de vale-refeição/alimentação ainda não existe no banco. Execute a " +
             "migração 20261111000004_add_meal_vouchers.sql no SQL Editor do Supabase. " +
             `SQL: ${ACCEPTED_MEAL_VOUCHERS_SQL}`,
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (
+    updateError &&
+    hasAcceptedCardBrands &&
+    isMissingAcceptedCardBrandsColumn(updateError)
+  ) {
+    const rest: Record<string, unknown> = { ...currentFields };
+    delete rest.accepted_credit_brands;
+    delete rest.accepted_debit_brands;
+
+    if (Object.keys(rest).length > 0) {
+      currentFields = rest;
+      ({ data: updated, error: updateError } = await runUpdate(
+        rest,
+        "description" in rest,
+        "opening_hours" in rest
+      ));
+      const cardBrandWarning =
+        "As bandeiras de cartão (crédito/débito) ainda não foram gravadas: as colunas da migração " +
+        "20261116000001_add_card_brands.sql não existem. " +
+        `Execute no SQL Editor do Supabase: ${ACCEPTED_CARD_BRANDS_SQL}`;
+      warning = warning
+        ? `${warning} ${cardBrandWarning}`
+        : cardBrandWarning;
+    } else {
+      return NextResponse.json(
+        {
+          error:
+            "As colunas de bandeiras de cartão ainda não existem no banco. Execute a " +
+            "migração 20261116000001_add_card_brands.sql no SQL Editor do Supabase. " +
+            `SQL: ${ACCEPTED_CARD_BRANDS_SQL}`,
         },
         { status: 400 }
       );
@@ -1137,6 +1260,10 @@ export async function PUT(request: Request) {
     // Bandeiras de vale-refeição/alimentação na entrega (migração
     // 20261111000004) — mesmo tratamento.
     "accepted_meal_vouchers",
+    // Bandeiras de cartão de crédito/débito aceitas na maquininha (migração
+    // 20261116000001) — mesmo tratamento.
+    "accepted_credit_brands",
+    "accepted_debit_brands",
   ]) {
     if (field in currentFields) {
       deliveryUpdates[field] = currentFields[field];

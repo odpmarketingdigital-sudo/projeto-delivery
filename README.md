@@ -168,6 +168,38 @@ colunas de pagamento em `orders`). Passo a passo e variáveis de ambiente:
 - Base sem a coluna `orders.meal_voucher`: o pedido continua sendo gravado e a
   bandeira é anexada às observações, sem perder a informação.
 
+### Cartão de Crédito / Débito na entrega
+
+- `establishments.accepted_credit_brands` e `accepted_debit_brands` (jsonb,
+  migração `20261116000001_add_card_brands.sql`) guardam, **por tipo**, as
+  bandeiras que a loja aceita cobrar presencialmente na maquininha (`Visa`,
+  `Mastercard`, `Elo`, `American Express`, `Hipercard`, `Diners Club`, `JCB`,
+  `UnionPay` e bandeiras customizadas — constantes em
+  [`lib/cardBrands.ts`](lib/cardBrands.ts)). O cadastro fica em
+  `/painel/configuracoes` (seção "Cartão de Crédito / Débito (Pagamento na
+  entrega)") e é salvo por `PUT /api/establishment`, que também responde com
+  `warning` quando a coluna ainda não existe na base;
+- `/api/menu` devolve as listas normalizadas em
+  `StorefrontInfo.accepted_credit_brands` / `accepted_debit_brands`; o checkout
+  ([`CheckoutForm`](app/components/CheckoutForm.tsx)) mostra os botões
+  **Crédito/Débito** (só os tipos com bandeira cadastrada) e o select de bandeira
+  quando o cliente escolhe "Cartão na Entrega". Sem nenhuma bandeira cadastrada
+  nos dois tipos a loja é tratada como "não configurada": o cartão continua
+  aceito e nenhum tipo/bandeira é exigido (compatibilidade);
+- Com bandeiras cadastradas, a escolha é obrigatória no formulário e revalidada
+  no servidor: `POST /api/orders` confere o tipo e a bandeira contra as listas da
+  loja (400 quando não aceita) e grava `orders.card_type` (`credito`/`debito`) e
+  `orders.card_brand`, mantendo `payment_method = 'cartao'`;
+- Os rótulos (`paymentMethodLabel` em
+  [`lib/paymentLabels.ts`](lib/paymentLabels.ts)), o resumo do WhatsApp, o card do
+  `/painel` ([`OrderCard`](app/components/OrderCard.tsx) mostra `💳 Crédito ·
+  Visa`), o modal de detalhes, o acompanhamento (`/pedido/[id]`) e "Meus Pedidos"
+  exibem `Cartão na entrega (Crédito · Visa)` — o entregador sabe qual
+  modalidade/bandeira conferir antes de passar o cartão;
+- Base sem as colunas `orders.card_type`/`card_brand`: o pedido continua sendo
+  gravado e o tipo/bandeira é anexado às observações (`cardPaymentNote`), sem
+  perder a informação.
+
 ### Marca e navegação inferior (visão do cliente)
 
 - A vitrine é **white-label**: o topo do cardápio não exibe o logotipo/marca

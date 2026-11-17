@@ -129,7 +129,12 @@ function ThermalReceipt({
 }) {
   const discount = orderDiscount(order);
   const payment =
-    paymentMethodLabel(order.payment_method, order.meal_voucher) || "—";
+    paymentMethodLabel(
+      order.payment_method,
+      order.meal_voucher,
+      order.card_brand,
+      order.card_type
+    ) || "—";
   const address = addressText(order);
   const deliveryType = deliveryTypeLabel(order);
   const receiptStatusLabel = orderStatusLabel(
@@ -344,7 +349,12 @@ export function OrderDetailsModal({
   const deliveryType = deliveryTypeLabel(order);
   const address = addressText(order);
   const payment =
-    paymentMethodLabel(order.payment_method, order.meal_voucher) || "—";
+    paymentMethodLabel(
+      order.payment_method,
+      order.meal_voucher,
+      order.card_brand,
+      order.card_type
+    ) || "—";
   const phoneHref = whatsappHref(order.customer_phone);
   const estimateWindow = parseEstimatedDeliveryWindow(
     order.estimated_delivery_time

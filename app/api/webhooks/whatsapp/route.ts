@@ -70,8 +70,8 @@ import {
 /** Tamanho máximo de um turno guardado na memória (mesmo limite do envio). */
 const MAX_TURN_LENGTH = 4000;
 
-/** Colunas da loja usadas no prompt do atendente. */
-const ESTABLISHMENT_COLUMNS = [
+/** Colunas da loja usadas no prompt do atendente (parte estável). */
+const ESTABLISHMENT_BASE_COLUMNS = [
   "id",
   "name",
   "slug",
@@ -91,7 +91,24 @@ const ESTABLISHMENT_COLUMNS = [
   "ai_personality",
   "ai_custom_instructions",
   "whatsapp_instance_name",
+];
+
+/**
+ * Colunas da loja usadas no prompt do atendente.
+ *
+ * As bandeiras de cartão (migração 20261116000001) ficam no fim da lista: se a
+ * base ainda não tiver as colunas, o webhook refaz o select com
+ * `ESTABLISHMENT_BASE_COLUMNS` e o atendente continua respondendo (apenas sem
+ * confirmar bandeiras de cartão).
+ */
+const ESTABLISHMENT_COLUMNS = [
+  ...ESTABLISHMENT_BASE_COLUMNS,
+  "accepted_credit_brands",
+  "accepted_debit_brands",
 ].join(", ");
+
+/** Select de reserva quando a migração das bandeiras de cartão está pendente. */
+const ESTABLISHMENT_COLUMNS_LEGACY = ESTABLISHMENT_BASE_COLUMNS.join(", ");
 
 /** Loja resolvida pela instância. */
 interface EstablishmentRow extends WhatsappAgentStore {
@@ -407,11 +424,33 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient();
-  const { data: storeRow, error: storeError } = await admin
-    .from("establishments")
-    .select(ESTABLISHMENT_COLUMNS)
-    .eq("whatsapp_instance_name", instanceName)
-    .maybeSingle();
+  const storeQuery = () =>
+    admin
+      .from("establishments")
+      .select(ESTABLISHMENT_COLUMNS)
+      .eq("whatsapp_instance_name", instanceName)
+      .maybeSingle();
+
+  let { data: storeRow, error: storeError } = await storeQuery();
+
+  // Migração 20261116000001 pendente: o atendente continua funcionando, só não
+  // recebe as bandeiras de cartão no prompt.
+  if (
+    storeError &&
+    /accepted_credit_brands|accepted_debit_brands/i.test(
+      storeError.message ?? ""
+    )
+  ) {
+    console.warn(
+      "[whatsapp-webhook] colunas de bandeiras de cartão ausentes; seguindo sem elas:",
+      storeError.message
+    );
+    ({ data: storeRow, error: storeError } = await admin
+      .from("establishments")
+      .select(ESTABLISHMENT_COLUMNS_LEGACY)
+      .eq("whatsapp_instance_name", instanceName)
+      .maybeSingle());
+  }
 
   if (storeError) {
     // Sem a migração a coluna não existe: confirmar para a Evolution não
