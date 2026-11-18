@@ -79,10 +79,13 @@ O campo de rua usa o Web Component `google.maps.places.PlaceAutocompleteElement`
 | Sacola (`CartDrawer` — lojas por distância ou com raio máximo) | bloco **Calcular entrega** | guarda lat/lng/`place_id`, grava o CEP no contexto do carrinho e cota **taxa + tempo** pela rota antes do checkout |
 
 No checkout o cliente **não digita CEP**: a localização vem da sugestão escolhida
-no autocomplete. Em lojas com taxa **por km**, escolher a sugestão é obrigatório —
-o formulário bloqueia o envio e o servidor responde `422` sem coordenadas exatas,
-porque distância estimada por texto livre gerava frete errado. Lojas com taxa
-fixa (sem raio) continuam funcionando sem endereço geocodificado.
+no autocomplete (ou da geocodificação de rua + número no servidor). Em lojas com
+taxa **por km**, a escolha na lista passa a ser exigida apenas quando o cliente
+**limpa o campo e digita um endereço novo**. Endereços pré-preenchidos pela sacola
+ou pelo perfil salvo no `localStorage` já são considerados confirmados e não
+travam o envio; sem coordenadas, o servidor geocodifica o endereço e responde
+`422` se não conseguir comprovar o número. Lojas com taxa fixa (sem raio)
+continuam funcionando sem endereço geocodificado.
 
 ## 2. Variáveis de ambiente
 

@@ -264,6 +264,19 @@ function toDeliveryPoint(
   };
 }
 
+/**
+ * Campos que descrevem o endereço de entrega. Uma edição manual em qualquer um
+ * deles aposenta a importação automática feita a partir da sacola.
+ */
+const ADDRESS_FIELDS: ReadonlySet<keyof DeliveryForm> = new Set([
+  "cep",
+  "rua",
+  "numero",
+  "bairro",
+  "cidade",
+  "complemento",
+]);
+
 const PAYMENT_OPTIONS: { value: PaymentMethod; label: string; hint: string }[] =
   [
     { value: "pix", label: "Pix", hint: "Aprovação na hora" },
@@ -416,13 +429,34 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     };
   });
 
+  /**
+   * Indica que o endereço do formulário já está confirmado.
+   *
+   * Nasce `true` quando o checkout abre pré-preenchido (sacola ou perfil salvo
+   * no `localStorage`): esses dados vieram de um fluxo anterior já validado e
+   * não podem travar a compra exigindo nova escolha na lista de sugestões.
+   * Volta a `false` apenas quando o cliente limpa o campo de rua e começa a
+   * digitar um endereço novo — aí sim a sugestão do autocomplete é exigida de
+   * novo para confirmar a localização exata.
+   */
+  const [addressConfirmed, setAddressConfirmed] = useState<boolean>(() =>
+    Boolean(form.rua.trim() && form.numero.trim())
+  );
+  /**
+   * Marca que o cliente já mexeu no endereço neste checkout (digitou, limpou ou
+   * escolheu uma sugestão). Daí em diante o formulário é a fonte da verdade: o
+   * endereço da sacola deixa de ser importado. Sem isso, limpar um campo fazia
+   * o bloco de sincronização devolver o valor antigo — e a confirmação junto.
+   */
+  const addressEditedRef = useRef(false);
+
   // O contexto do carrinho pode hidratar depois deste componente (localStorage).
   // Quando isso acontece, leva o endereço usado no frete para o formulário uma
   // única vez — sem sobrescrever nada que o cliente já tenha preenchido.
   const [syncedCartAddress, setSyncedCartAddress] = useState(deliveryAddress);
   if (deliveryAddress !== syncedCartAddress) {
     setSyncedCartAddress(deliveryAddress);
-    if (deliveryAddress) {
+    if (deliveryAddress && !addressEditedRef.current) {
       setForm((prev) => ({
         ...prev,
         cep:
@@ -434,6 +468,12 @@ export function CheckoutForm({ slug }: { slug?: string }) {
         cidade: prev.cidade || deliveryAddress.city || "",
         complemento: prev.complemento || deliveryAddress.complement || "",
       }));
+      // Endereço importado da sacola já foi confirmado no fluxo anterior
+      // (autocomplete da sacola ou pedido salvo): não exige novo clique na
+      // lista de sugestões para liberar o pedido.
+      if (deliveryAddress.street.trim() && deliveryAddress.number.trim()) {
+        setAddressConfirmed(true);
+      }
     }
   }
   const [errors, setErrors] = useState<FormErrors>({});
@@ -856,6 +896,11 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     deliveryPoint && deliveryPointMatchesForm(deliveryPoint, form)
       ? deliveryPoint
       : null;
+  // Endereço pronto para a cotação: coordenadas da seleção atual ou o endereço
+  // que já veio inteiro da sacola/perfil (rua + número) e o cliente não limpou.
+  // No segundo caso o servidor geocodifica o endereço digitado exigindo o
+  // número exato — o mesmo caminho usado quando a busca do Google está off.
+  const hasConfirmedAddress = activeDeliveryPoint != null || addressConfirmed;
   // Modelo por km + autocomplete disponível: a taxa só é cotada com a posição
   // exata escolhida no Google. O servidor recusa centroide de rua (era o que
   // gerava distância de 1,4 km para um endereço a 13,4 km).
@@ -897,9 +942,10 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     establishment &&
     deliveryNeedsGeo &&
     quoteEstablishmentId &&
-    // Sem a seleção do autocomplete não há posição exata: não cotamos (o
-    // servidor recusaria) e a UI pede que o cliente escolha uma sugestão.
-    (!requiresPlacesSelection || activeDeliveryPoint != null) &&
+    // Endereços pré-preenchidos (sacola/perfil) também são cotados: sem
+    // coordenadas o servidor geocodifica rua + número. Só não cotamos quando o
+    // cliente limpou o campo e ainda não escolheu uma nova sugestão.
+    (!requiresPlacesSelection || hasConfirmedAddress) &&
     (cepDigits || activeDeliveryPoint || hasTypedAddress)
       ? `${quoteEstablishmentId}:${cepDigits ?? ""}:${quotePointKey}:${
           activeDeliveryPoint ? "" : typedAddressKey
@@ -1230,6 +1276,17 @@ export function CheckoutForm({ slug }: { slug?: string }) {
 
   const updateField = (field: keyof DeliveryForm, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+    // Edição manual do endereço: o formulário passa a ser a fonte da verdade e a
+    // sacola não reimporta mais nada (nem devolve o que acabou de ser limpo).
+    if (ADDRESS_FIELDS.has(field)) {
+      addressEditedRef.current = true;
+    }
+    // Campo de rua limpo: o cliente está começando um endereço novo. A partir
+    // daqui a escolha da sugestão volta a ser obrigatória (lojas por km), pois
+    // a localização confirmada anteriormente não descreve mais o endereço.
+    if (field === "rua" && !value.trim()) {
+      setAddressConfirmed(false);
+    }
     // Editar rua/número/bairro/cidade invalida a seleção anterior: a assinatura
     // deixa de bater e `activeDeliveryPoint` vira `null` (a cotação não usa mais
     // as coordenadas). Nada de apagar o estado aqui — o widget do Google também
@@ -1295,6 +1352,12 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       bairro: neighborhood || prev.bairro,
       cidade: city || prev.cidade,
     }));
+
+    // Sugestão escolhida = localização confirmada (vale para a validação e
+    // para o feedback visual, mesmo quando o Google não devolve coordenadas).
+    // Também encerra a importação da sacola: o endereço atual veio do Google.
+    addressEditedRef.current = true;
+    setAddressConfirmed(true);
 
     if (address.latitude != null && address.longitude != null) {
       setDeliveryPoint({
@@ -1497,9 +1560,10 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       if (!form.bairro.trim()) next.bairro = "Informe o bairro.";
 
       if (deliveryNeedsGeo) {
-        if (requiresPlacesSelection && !activeDeliveryPoint) {
-          // Sem a sugestão escolhida não existe latitude/longitude exata — e o
-          // servidor recusa calcular a taxa a partir de um centroide de rua.
+        if (requiresPlacesSelection && !hasConfirmedAddress) {
+          // Endereço digitado do zero (campo limpo) sem escolher a sugestão:
+          // não há posição exata — e o servidor recusa calcular a taxa a partir
+          // de um centroide de rua.
           next.rua =
             "Selecione o endereço na lista de sugestões para confirmar a localização exata da entrega.";
         } else if (!cepDigits && !activeDeliveryPoint && !hasTypedAddress) {
@@ -2938,6 +3002,22 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                       <p className="mt-1 font-mono text-[11px] text-emerald-700 dark:text-emerald-300">
                         {activeDeliveryPoint.latitude.toFixed(6)},{" "}
                         {activeDeliveryPoint.longitude.toFixed(6)}
+                      </p>
+                    </div>
+                  ) : addressConfirmed && hasTypedAddress ? (
+                    /*
+                      Endereço pré-preenchido pela sacola/perfil (ou sugestão sem
+                      coordenadas): já é considerado válido, então nada de aviso
+                      pedindo para escolher a sugestão novamente. O servidor
+                      geocodifica rua + número para calcular a rota.
+                    */
+                    <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-relaxed text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200">
+                      <p className="font-bold">Endereço confirmado</p>
+                      <p className="mt-0.5 break-words">
+                        {[form.rua, form.numero, form.bairro, form.cidade]
+                          .map((part) => part.trim())
+                          .filter(Boolean)
+                          .join(", ")}
                       </p>
                     </div>
                   ) : (
