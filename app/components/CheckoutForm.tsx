@@ -26,6 +26,12 @@ import {
   type AppliedCoupon,
 } from "@/lib/coupons";
 import {
+  computeLoyaltyRewardDiscount,
+  loyaltyOrdersLabel,
+  loyaltyPointsLabel,
+} from "@/lib/loyalty";
+import type { LoyaltyStatusPayload } from "@/lib/loyalty-server";
+import {
   describeMinOrderShortfall,
   minOrderShortfall,
   normalizeMinOrderValue,
@@ -502,6 +508,22 @@ export function CheckoutForm({ slug }: { slug?: string }) {
   const [isApplyingCoupon, setIsApplyingCoupon] = useState(false);
   /** Telefone usado na última validação bem-sucedida (revalidação do 1º pedido). */
   const [appliedCouponPhone, setAppliedCouponPhone] = useState("");
+  // Programa de fidelidade: saldo/progresso do telefone informado e o resgate
+  // no pedido atual. O desconto nunca é enviado ao servidor — só o sinal
+  // `loyalty_redeem`, e `POST /api/orders` revalida saldo, pedido mínimo e
+  // recalcula o valor. Aqui a prévia vem de `POST /api/loyalty/status`.
+  const [loyaltyStatus, setLoyaltyStatus] =
+    useState<LoyaltyStatusPayload | null>(null);
+  const [loyaltyRedeem, setLoyaltyRedeem] = useState(false);
+  /**
+   * Produtos escolhidos para cada item do prêmio (modo produto grátis).
+   * O comprimento é sempre `free_product_quantity`; o mesmo produto pode
+   * aparecer mais de uma vez (ex.: 2x Pizza de Calabresa).
+   */
+  const [loyaltyRewardPicks, setLoyaltyRewardPicks] = useState<string[]>([]);
+  const [isLoadingLoyalty, setIsLoadingLoyalty] = useState(false);
+  /** Descarta respostas fora de ordem (telefone/carrinho mudando rápido). */
+  const loyaltySeq = useRef(0);
   // Resumo congelado no momento da confirmação (o carrinho é limpo em seguida).
   const [confirmedSummary, setConfirmedSummary] = useState<{
     total: number;
@@ -1215,6 +1237,166 @@ export function CheckoutForm({ slug }: { slug?: string }) {
     appliedCoupon.min_order_value != null &&
     subtotal < appliedCoupon.min_order_value;
 
+  // ---- Fidelidade --------------------------------------------------------
+  // O telefone é a chave do saldo (mesmo campo gravado no pedido). Enquanto
+  // não há DDD não consultamos nada — o programa não pode atrapalhar o checkout.
+  const loyaltyPhoneDigits = form.telefone.replace(/\D/g, "");
+  const loyaltyPhoneReady = loyaltyPhoneDigits.length >= 10;
+  const loyaltyRewardsAvailable = loyaltyStatus?.rewards_available ?? 0;
+  const loyaltyMinMessage = loyaltyStatus?.min_order_message ?? null;
+  // Só libera o resgate quando o servidor confirmou prêmio + pedido mínimo e a
+  // regra é aplicável ao carrinho atual. No modo por pedidos o prêmio são N
+  // itens do cardápio a R$ 0,00 (não há desconto); no modo por pontos exige
+  // desconto maior que zero.
+  const loyaltyFreeProductMode = loyaltyStatus?.free_product === true;
+  /** Produtos ativos que o cliente pode escolher como prêmio. */
+  const loyaltyFreeProducts = loyaltyStatus?.free_products ?? [];
+  const loyaltyFreeProductQuantity = Math.max(
+    1,
+    loyaltyStatus?.free_product_quantity ?? 1
+  );
+  /** `true` quando há exatamente N escolhas válidas (N = quantidade do prêmio). */
+  const loyaltyRewardPicksReady =
+    loyaltyFreeProducts.length > 0 &&
+    loyaltyRewardPicks.length === loyaltyFreeProductQuantity &&
+    loyaltyRewardPicks.every((id) =>
+      loyaltyFreeProducts.some((product) => product.id === id)
+    );
+  const loyaltyCanRedeem = Boolean(
+    loyaltyStatus?.enabled &&
+      loyaltyRewardsAvailable > 0 &&
+      !loyaltyMinMessage &&
+      (loyaltyFreeProductMode
+        ? loyaltyFreeProducts.length > 0 && subtotal > 0
+        : (loyaltyStatus?.reward_discount ?? 0) > 0)
+  );
+  // Prêmio efetivamente aplicado ao resumo (o servidor revalida no pedido).
+  const loyaltyFreeProductApplied =
+    loyaltyRedeem &&
+    loyaltyCanRedeem &&
+    loyaltyFreeProductMode &&
+    loyaltyRewardPicksReady;
+  // Mesma conta do servidor (`POST /api/orders`): o desconto do resgate incide
+  // sobre o subtotal dos itens + frete e não considera o cupom.
+  const loyaltyDiscount =
+    loyaltyRedeem && loyaltyCanRedeem && loyaltyStatus
+      ? computeLoyaltyRewardDiscount(loyaltyStatus.program, {
+          subtotal,
+          deliveryFee: deliveryFeeKnown ? deliveryFee : 0,
+        })
+      : 0;
+
+  // Prévia do programa: refeita quando o telefone, o carrinho ou o frete mudam.
+  // A resposta é apenas informativa; nada é gravado antes do pedido.
+  useEffect(() => {
+    if (!isMounted) return;
+
+    const establishmentKey = establishmentId ?? slug ?? null;
+    if (!establishmentKey || !loyaltyPhoneReady) {
+      loyaltySeq.current += 1;
+      setLoyaltyStatus(null);
+      setLoyaltyRedeem(false);
+      setIsLoadingLoyalty(false);
+      return;
+    }
+
+    const seq = ++loyaltySeq.current;
+    const fee = deliveryFeeKnown ? deliveryFee : 0;
+
+    // Debounce: evita uma consulta por tecla digitada no telefone.
+    const timer = window.setTimeout(() => {
+      setIsLoadingLoyalty(true);
+      void (async () => {
+        try {
+          const res = await fetch("/api/loyalty/status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              establishmentId: establishmentId ?? undefined,
+              slug: slug ?? undefined,
+              phone: loyaltyPhoneDigits,
+              subtotal,
+              deliveryFee: fee,
+            }),
+          });
+          if (seq !== loyaltySeq.current) return;
+
+          const data = (await res.json().catch(() => ({}))) as {
+            status?: LoyaltyStatusPayload;
+          };
+          if (!res.ok || !data.status) {
+            setLoyaltyStatus(null);
+            setLoyaltyRedeem(false);
+            return;
+          }
+
+          setLoyaltyStatus(data.status);
+          // Programa desligado, sem prêmio disponível ou regra não aplicável a
+          // este carrinho: o resgate não pode continuar marcado no resumo.
+          const loyaltyNotApplicable = data.status.free_product
+            ? (data.status.free_products?.length ?? 0) === 0 || subtotal <= 0
+            : (data.status.reward_discount ?? 0) <= 0;
+          if (
+            !data.status.enabled ||
+            data.status.rewards_available <= 0 ||
+            loyaltyNotApplicable
+          ) {
+            setLoyaltyRedeem(false);
+          }
+        } catch {
+          if (seq !== loyaltySeq.current) return;
+          // Falha na prévia não bloqueia o pedido: basta esconder o card.
+          setLoyaltyStatus(null);
+          setLoyaltyRedeem(false);
+        } finally {
+          if (seq === loyaltySeq.current) setIsLoadingLoyalty(false);
+        }
+      })();
+    }, 500);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    isMounted,
+    establishmentId,
+    slug,
+    loyaltyPhoneDigits,
+    loyaltyPhoneReady,
+    subtotal,
+    deliveryFee,
+    deliveryFeeKnown,
+  ]);
+
+  /**
+   * Mantém exatamente N escolhas de prêmio (N = `free_product_quantity`).
+   *
+   * Quando só existe 1 produto e 1 unidade, o item já vem pré-selecionado (como
+   * antes). Com várias opções/quantidades o cliente pode repetir o mesmo
+   * produto ou combinar itens — o servidor revalida a lista no pedido.
+   */
+  useEffect(() => {
+    if (!loyaltyStatus?.free_product) {
+      setLoyaltyRewardPicks([]);
+      return;
+    }
+    const products = loyaltyStatus.free_products ?? [];
+    if (products.length === 0) {
+      setLoyaltyRewardPicks([]);
+      return;
+    }
+    const quantity = Math.max(1, loyaltyStatus.free_product_quantity ?? 1);
+    setLoyaltyRewardPicks((prev) => {
+      const next = Array.from({ length: quantity }, (_, index) => {
+        const current = prev[index];
+        return current && products.some((product) => product.id === current)
+          ? current
+          : products[0].id;
+      });
+      const unchanged =
+        next.length === prev.length && next.every((id, i) => id === prev[i]);
+      return unchanged ? prev : next;
+    });
+  }, [loyaltyStatus]);
+
   // Pedido mínimo da loja (`establishments.min_order_value`): compara o
   // subtotal dos itens, sem a taxa de entrega. Bloqueia o envio e mostra
   // quanto falta — o servidor revalida em `POST /api/orders`.
@@ -1228,7 +1410,8 @@ export function CheckoutForm({ slug }: { slug?: string }) {
           0,
           subtotal +
             (deliveryFeeKnown ? deliveryFee : 0) -
-            couponDiscount
+            couponDiscount -
+            loyaltyDiscount
         )
       : 0;
 
@@ -1963,6 +2146,17 @@ export function CheckoutForm({ slug }: { slug?: string }) {
             : {}),
           // A API revalida o cupom e recalcula o desconto no servidor.
           coupon_code: appliedCoupon?.code,
+          // Fidelidade: só o sinal do resgate vai no payload. A API confere
+          // saldo/pedidos, pedido mínimo e aplica a regra vigente (desconto em R$
+          // no modo por pontos ou 1 produto a R$ 0,00 no modo por pedidos) —
+          // nada disso vem do navegador.
+          ...(loyaltyRedeem && loyaltyCanRedeem ? { loyalty_redeem: true } : {}),
+          // Produtos escolhidos para o prêmio (1 por unidade configurada). A API
+          // revalida quantidade, pertencimento à lista de elegíveis e status
+          // ativo no cardápio antes de debitar o prêmio.
+          ...(loyaltyFreeProductApplied
+            ? { loyalty_reward_product_ids: loyaltyRewardPicks }
+            : {}),
           // Troco sanitizado: só envia número válido quando for dinheiro com
           // valor > 0; senão omite (undefined some no JSON) para a API nunca
           // tentar gravar coluna inexistente/nula.
@@ -2079,6 +2273,9 @@ export function CheckoutForm({ slug }: { slug?: string }) {
       setAppliedCouponPhone("");
       setCouponCode("");
       setCouponError(null);
+      // Fidelidade: o resgate já foi consumido por este pedido. O saldo novo
+      // volta na próxima consulta do telefone.
+      setLoyaltyRedeem(false);
       setTroco("");
       setMealVoucher("");
       setCardType("");
@@ -2712,6 +2909,165 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                 ))}
             </div>
 
+            {loyaltyStatus?.enabled && (
+              <div className="mt-4 rounded-xl border border-yellow-400/40 bg-yellow-400/10 p-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-yellow-700 dark:text-yellow-300">
+                      Fidelidade
+                    </p>
+                    <p className="mt-0.5 text-sm font-semibold text-gray-900 dark:text-white">
+                      {loyaltyStatus.free_product
+                        ? loyaltyStatus.orders_goal_label
+                        : loyaltyPointsLabel(loyaltyStatus.balance)}{" "}
+                      · {loyaltyStatus.reward_label}
+                    </p>
+                  </div>
+                  {isLoadingLoyalty && (
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                      atualizando...
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                  <div
+                    className="h-full rounded-full bg-yellow-400 transition-all"
+                    style={{
+                      width: `${Math.min(
+                        100,
+                        Math.max(0, loyaltyStatus.progress_percent)
+                      )}%`,
+                    }}
+                  />
+                </div>
+
+                {loyaltyCanRedeem ? (
+                  <label className="mt-2.5 flex cursor-pointer items-start gap-2 rounded-lg bg-white/70 p-2.5 text-xs font-medium text-gray-800 dark:bg-gray-900/40 dark:text-gray-100">
+                    <input
+                      type="checkbox"
+                      checked={loyaltyRedeem}
+                      onChange={(e) => setLoyaltyRedeem(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-yellow-500 focus:ring-yellow-400"
+                    />
+                    <span>
+                      {loyaltyStatus.free_product ? (
+                        <>
+                          Usar 1 prêmio e adicionar{" "}
+                          {loyaltyFreeProductQuantity === 1 &&
+                          loyaltyFreeProducts.length === 1
+                            ? loyaltyFreeProducts[0].name
+                            : `${loyaltyFreeProductQuantity} ${
+                                loyaltyFreeProductQuantity === 1
+                                  ? "produto grátis"
+                                  : "produtos grátis"
+                              }`}{" "}
+                          ao pedido por R$ 0,00
+                          {loyaltyFreeProducts.length === 1 &&
+                          loyaltyFreeProducts[0].price > 0
+                            ? ` (de ${formatBRL(
+                                loyaltyFreeProducts[0].price
+                              )})`
+                            : ""}
+                          .
+                        </>
+                      ) : (
+                        <>
+                          Usar {loyaltyStatus.points_per_reward_label} e aplicar{" "}
+                          {loyaltyStatus.reward_label} neste pedido
+                          {loyaltyDiscount > 0
+                            ? ` (−${formatBRL(loyaltyDiscount)})`
+                            : ""}
+                          .
+                        </>
+                      )}
+                    </span>
+                  </label>
+                ) : loyaltyMinMessage ? (
+                  <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                    {loyaltyMinMessage}
+                  </p>
+                ) : loyaltyRewardsAvailable > 0 ? (
+                  <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                    {loyaltyStatus.free_product &&
+                    loyaltyFreeProducts.length === 0 ? (
+                      <>
+                        O produto do prêmio está indisponível agora. Fale com a
+                        loja para resgatar.
+                      </>
+                    ) : (
+                      <>
+                        Prêmio disponível: adicione itens ao carrinho para usar{" "}
+                        {loyaltyStatus.reward_label}.
+                      </>
+                    )}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                    {loyaltyStatus.free_product ? (
+                      <>
+                        Faltam{" "}
+                        {loyaltyOrdersLabel(loyaltyStatus.orders_remaining)} para
+                        o próximo prêmio ({loyaltyStatus.reward_label}).
+                      </>
+                    ) : (
+                      <>
+                        Faltam{" "}
+                        {loyaltyPointsLabel(loyaltyStatus.next_reward_remaining)}{" "}
+                        para o próximo prêmio (
+                        {loyaltyStatus.points_per_reward_label}).
+                      </>
+                    )}
+                  </p>
+                )}
+                {loyaltyRedeem &&
+                  loyaltyCanRedeem &&
+                  loyaltyFreeProductMode && (
+                    <div className="mt-2 space-y-2 rounded-lg bg-white/70 p-2.5 dark:bg-gray-900/40">
+                      <p className="text-xs font-semibold text-gray-800 dark:text-gray-100">
+                        {loyaltyFreeProductQuantity === 1
+                          ? "Escolha o item do prêmio"
+                          : `Escolha os ${loyaltyFreeProductQuantity} itens do prêmio`}
+                      </p>
+                      {Array.from({ length: loyaltyFreeProductQuantity }).map(
+                        (_, index) => (
+                          <label
+                            key={index}
+                            className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200"
+                          >
+                            <span className="w-16 shrink-0 font-medium">
+                              Item {index + 1}
+                            </span>
+                            <select
+                              value={loyaltyRewardPicks[index] ?? ""}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setLoyaltyRewardPicks((prev) => {
+                                  const next = [...prev];
+                                  next[index] = value;
+                                  return next;
+                                });
+                              }}
+                              className="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900 focus:border-yellow-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                            >
+                              {loyaltyFreeProducts.map((product) => (
+                                <option key={product.id} value={product.id}>
+                                  {product.name} — {formatBRL(product.price)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        )
+                      )}
+                      <p className="text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+                        Os itens entram no pedido por R$ 0,00 e não alteram o
+                        total a pagar. Você pode repetir o mesmo produto.
+                      </p>
+                    </div>
+                  )}
+              </div>
+            )}
+
             <dl className="mt-4 flex flex-col gap-2 border-t border-dashed border-gray-200 pt-4 text-sm dark:border-gray-700">
               <div className="flex items-center justify-between text-gray-500 dark:text-gray-400">
                 <dt>Subtotal</dt>
@@ -2763,6 +3119,28 @@ export function CheckoutForm({ slug }: { slug?: string }) {
                     {appliedCoupon ? ` (${appliedCoupon.code})` : ""}
                   </dt>
                   <dd className="tabular-nums">−{formatBRL(couponDiscount)}</dd>
+                </div>
+              )}
+              {loyaltyFreeProductApplied &&
+                loyaltyRewardPicks.map((productId, index) => {
+                  const product = loyaltyFreeProducts.find(
+                    (candidate) => candidate.id === productId
+                  );
+                  if (!product) return null;
+                  return (
+                    <div
+                      key={`${product.id}-${index}`}
+                      className="flex items-center justify-between font-semibold text-emerald-600 dark:text-emerald-400"
+                    >
+                      <dt>Prêmio fidelidade: {product.name}</dt>
+                      <dd className="tabular-nums">{formatBRL(0)}</dd>
+                    </div>
+                  );
+                })}
+              {loyaltyDiscount > 0 && (
+                <div className="flex items-center justify-between font-semibold text-emerald-600 dark:text-emerald-400">
+                  <dt>Resgate de pontos</dt>
+                  <dd className="tabular-nums">−{formatBRL(loyaltyDiscount)}</dd>
                 </div>
               )}
               <div className="flex items-center justify-between border-t border-gray-200 pt-2 font-bold text-gray-900 dark:border-gray-700 dark:text-white">

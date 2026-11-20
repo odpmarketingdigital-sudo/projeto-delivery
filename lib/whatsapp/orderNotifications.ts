@@ -31,6 +31,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeOrderStatus } from "@/lib/types";
+import { loyaltyPointsLabel, type LoyaltyRewardMode } from "@/lib/loyalty";
 import { orderDeliveryType } from "@/lib/orderStatus";
 import { normalizeWhatsappInstanceName } from "@/lib/whatsappAssistant";
 import {
@@ -97,6 +98,48 @@ export interface OrderNotificationOrder {
    * endereço (sem endereço = retirada).
    */
   delivery_type?: string | null;
+  /** Pontos creditados ao finalizar (migração 20261118000001). */
+  loyalty_points_earned?: number | string | null;
+}
+
+/**
+ * Resumo de fidelidade anexado à mensagem de status.
+ *
+ * Montado pela rota `PUT /api/orders` logo após creditar/estornar os pontos —
+ * assim o cliente recebe o saldo atualizado na mesma mensagem da etapa.
+ */
+export interface OrderNotificationLoyaltySummary {
+  /** Pontos creditados nesta finalização (0 quando nada foi creditado). */
+  pointsEarned: number;
+  /** Saldo do cliente depois da movimentação. */
+  balance: number;
+  /** Quanto falta para o próximo prêmio (0 = já há prêmio disponível). */
+  nextRewardRemaining: number;
+  /** Rótulo do prêmio, ex.: "R$ 10,00 de desconto" ou "Pizza grátis". */
+  rewardLabel: string;
+  /**
+   * Modalidade ativa no momento da movimentação (`points` | `orders`).
+   * Ausente = por pontos (mensagens antigas continuam iguais).
+   */
+  rewardMode?: LoyaltyRewardMode | null;
+  /** Pedidos contabilizados no ciclo (modo por pedidos). */
+  ordersCount?: number;
+  /** Meta do ciclo, ex.: 10 (modo por pedidos). */
+  ordersPerReward?: number;
+  /** Pedidos que faltam para o próximo prêmio (0 = prêmio disponível). */
+  ordersRemaining?: number;
+  /** Prêmios de produto grátis conquistados e não usados. */
+  freeRewardsAvailable?: number;
+  /** `true` quando ESTE pedido fechou o ciclo e liberou um prêmio. */
+  rewardUnlocked?: boolean;
+  /** `true` no cancelamento quando o prêmio usado no pedido voltou. */
+  rewardReturned?: boolean;
+  /**
+   * Quantos itens grátis o prêmio entrega (modo por pedidos, migração
+   * 20261121000001). Usado para deixar a mensagem explícita
+   * ("faltam 3 pedidos para ganhar 2 produtos grátis").
+   */
+  rewardQuantity?: number;
 }
 
 /** Resultado de uma tentativa de notificação. */
@@ -255,6 +298,136 @@ export function buildStoreNewOrderMessage({
   });
 }
 
+/** "1 pedido" / "N pedidos". */
+function ordersLabel(count: number): string {
+  const safe = Math.max(0, Math.trunc(Number(count) || 0));
+  return `${safe} ${safe === 1 ? "pedido" : "pedidos"}`;
+}
+
+/**
+ * Texto do prêmio com a quantidade configurada.
+ *
+ * `rewardLabel` pode já vir com a quantidade ("2x Pizza grátis") ou apenas com
+ * o produto ("Pizza grátis"); neste caso prefixamos para o cliente entender que
+ * ganhou mais de um item.
+ */
+function ordersRewardGoalLabel(
+  loyalty: OrderNotificationLoyaltySummary
+): string {
+  const quantity = Math.max(
+    1,
+    Math.trunc(Number(loyalty.rewardQuantity) || 1)
+  );
+  const label = loyalty.rewardLabel || "1 produto grátis";
+  // O rótulo já traz a quantidade ("2x Pizza grátis" / "2 produtos grátis").
+  if (quantity <= 1 || new RegExp(`^${quantity}x?\\s`).test(label)) return label;
+  return `${quantity}x ${label}`;
+}
+
+/**
+ * Linha de fidelidade no modo por pedidos (produto grátis a cada N pedidos).
+ *
+ * Exemplos:
+ * - finalizado no meio do ciclo: "⭐ Fidelidade: 3 de 10 pedidos. Faltam 7...";
+ * - finalizado fechando o ciclo: "🎉 ... Você ganhou 2 produtos grátis!";
+ * - cancelado: "⭐ A contagem deste pedido foi desfeita...".
+ */
+function buildOrdersLoyaltyLine(
+  loyalty: OrderNotificationLoyaltySummary,
+  status: string | null
+): string {
+  const per = Math.max(1, Math.trunc(Number(loyalty.ordersPerReward) || 1));
+  const count = Math.max(0, Math.trunc(Number(loyalty.ordersCount) || 0));
+  const cycle = count % per;
+  const remaining = Math.max(
+    0,
+    Math.trunc(Number(loyalty.ordersRemaining) || 0)
+  );
+  const freeRewards = Math.max(
+    0,
+    Math.trunc(Number(loyalty.freeRewardsAvailable) || 0)
+  );
+  const goalLabel = ordersRewardGoalLabel(loyalty);
+
+  if (status === "cancelado") {
+    const returned = loyalty.rewardReturned
+      ? ` Seu prêmio (${goalLabel}) voltou para você.`
+      : "";
+    return (
+      `\n⭐ A contagem deste pedido na fidelidade foi desfeita.` +
+      ` Você está com ${cycle} de ${ordersLabel(per)} no ciclo.${returned}`
+    );
+  }
+
+  if (status !== "finalizado") return "";
+
+  if (loyalty.rewardUnlocked) {
+    const extra =
+      freeRewards > 1 ? ` Você tem ${freeRewards} prêmios disponíveis.` : "";
+    return (
+      `\n🎉 Este pedido completou seu ciclo de fidelidade!` +
+      ` Você ganhou ${goalLabel}.${extra}` +
+      `\nUse o prêmio no próximo pedido pelo site.`
+    );
+  }
+
+  if (freeRewards > 0) {
+    return (
+      `\n🎁 Você tem ${freeRewards === 1 ? "um prêmio" : `${freeRewards} prêmios`}` +
+      ` disponível(is): ${goalLabel}. Use no próximo pedido!`
+    );
+  }
+
+  return (
+    `\n⭐ Fidelidade: ${cycle} de ${ordersLabel(per)} no ciclo.` +
+    ` Faltam ${ordersLabel(remaining)} para ganhar ${goalLabel}.`
+  );
+}
+
+/**
+ * Linha de fidelidade da mensagem de status.
+ *
+ * Vazia quando a rota não informou o resumo (programa desligado, pedido sem
+ * telefone ou base sem as migrações de fidelidade) — a mensagem original da
+ * etapa continua idêntica nesses casos.
+ */
+function buildLoyaltyStatusLine(
+  loyalty: OrderNotificationLoyaltySummary | null | undefined,
+  status: string | null
+): string {
+  if (!loyalty) return "";
+
+  if (loyalty.rewardMode === "orders") {
+    return buildOrdersLoyaltyLine(loyalty, status);
+  }
+
+  if (status === "finalizado") {
+    const earned =
+      loyalty.pointsEarned > 0
+        ? `\n⭐ Você ganhou ${loyaltyPointsLabel(
+            loyalty.pointsEarned
+          )} de fidelidade! Saldo: ${loyaltyPointsLabel(loyalty.balance)}.`
+        : `\n⭐ Saldo de fidelidade: ${loyaltyPointsLabel(loyalty.balance)}.`;
+
+    const next =
+      loyalty.nextRewardRemaining <= 0
+        ? `\n🎁 Você já tem um prêmio disponível: ${loyalty.rewardLabel}.`
+        : `\nFaltam ${loyaltyPointsLabel(
+            loyalty.nextRewardRemaining
+          )} para o próximo prêmio (${loyalty.rewardLabel}).`;
+
+    return `${earned}${next}`;
+  }
+
+  if (status === "cancelado") {
+    return `\n⭐ Os pontos de fidelidade deste pedido foram devolvidos. Saldo: ${loyaltyPointsLabel(
+      loyalty.balance
+    )}.`;
+  }
+
+  return "";
+}
+
 /**
  * Mensagem amigável para o CLIENTE em cada etapa do pedido.
  *
@@ -269,10 +442,13 @@ export function buildCustomerStatusMessage({
   store,
   order,
   status,
+  loyalty,
 }: {
   store?: OrderNotificationStore | null;
   order: OrderNotificationOrder;
   status?: string | null;
+  /** Resumo de fidelidade (saldo após a movimentação) — opcional. */
+  loyalty?: OrderNotificationLoyaltySummary | null;
 }): string | null {
   const nextStatus = normalizeOrderStatus(status ?? order.status);
   if (!nextStatus) return null;
@@ -289,6 +465,9 @@ export function buildCustomerStatusMessage({
   const estimateLine = estimate
     ? `\nPrevisão de ${isPickup ? "retirada" : "entrega"}: ${estimate}`
     : "";
+
+  // Linha de fidelidade (vazia quando o resumo não foi informado pela rota).
+  const loyaltyLine = buildLoyaltyStatusLine(loyalty, nextStatus);
 
   switch (nextStatus) {
     case "pendente":
@@ -308,15 +487,15 @@ export function buildCustomerStatusMessage({
     case "finalizado":
       return isPickup
         ? `${greeting} Seu pedido ${code}${storeSuffix} foi *finalizado* (retirado no balcão). ` +
-            "Obrigado pela preferência e bom apetite! 😋"
+            `Obrigado pela preferência e bom apetite! 😋${loyaltyLine}`
         : `${greeting} Seu pedido ${code}${storeSuffix} foi *finalizado*. ` +
-            "Obrigado pela preferência e bom apetite! 😋";
+            `Obrigado pela preferência e bom apetite! 😋${loyaltyLine}`;
     case "cancelado": {
       const reason = readText(order.cancellation_reason);
       const reasonLine = reason ? `\nMotivo: ${reason}` : "";
       return (
         `${greeting} Seu pedido ${code}${storeSuffix} foi *cancelado*.` +
-        `${reasonLine}\nSe precisar de ajuda, é só responder esta mensagem.`
+        `${reasonLine}${loyaltyLine}\nSe precisar de ajuda, é só responder esta mensagem.`
       );
     }
     default:
@@ -443,10 +622,12 @@ export async function notifyCustomerOrderStatus({
   store,
   order,
   status,
+  loyalty,
 }: {
   store?: OrderNotificationStore | null;
   order: OrderNotificationOrder;
   status?: string | null;
+  loyalty?: OrderNotificationLoyaltySummary | null;
 }): Promise<OrderNotificationResult> {
   const nextStatus = normalizeOrderStatus(status ?? order.status);
   if (!nextStatus) {
@@ -458,7 +639,12 @@ export async function notifyCustomerOrderStatus({
 
   const event = `status ${nextStatus} do pedido ${orderShortCode(order.id)}`;
 
-  const text = buildCustomerStatusMessage({ store, order, status: nextStatus });
+  const text = buildCustomerStatusMessage({
+    store,
+    order,
+    status: nextStatus,
+    loyalty,
+  });
   if (!text) {
     return skipNotification(
       event,
@@ -502,10 +688,13 @@ export async function notifyOrderStatusChange({
   store,
   order,
   previousStatus,
+  loyalty,
 }: {
   store?: OrderNotificationStore | null;
   order: OrderNotificationOrder;
   previousStatus?: string | null;
+  /** Resumo de fidelidade (saldo após crédito/estorno) — opcional. */
+  loyalty?: OrderNotificationLoyaltySummary | null;
 }): Promise<OrderNotificationResult> {
   const previous = normalizeOrderStatus(previousStatus);
   const next = normalizeOrderStatus(order.status);
@@ -514,7 +703,7 @@ export async function notifyOrderStatusChange({
     return { ok: false, skipped: true, error: "O status não mudou." };
   }
 
-  return notifyCustomerOrderStatus({ store, order, status: next });
+  return notifyCustomerOrderStatus({ store, order, status: next, loyalty });
 }
 
 /**

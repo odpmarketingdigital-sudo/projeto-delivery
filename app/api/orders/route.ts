@@ -35,6 +35,29 @@ import {
   normalizeMinOrderValue,
 } from "@/lib/minOrder";
 import {
+  LOYALTY_PHONE_MIN_DIGITS as LOYALTY_MIN_PHONE_DIGITS,
+  computeLoyaltyRewardDiscount,
+  isLoyaltyFreeProductProgram,
+  loyaltyMinOrderShortfall,
+  loyaltyNextRewardRemaining,
+  loyaltyOrdersLabel,
+  loyaltyOrdersRemaining,
+  loyaltyPointsLabel,
+  loyaltyRewardLabel,
+  normalizeLoyaltyPhone,
+  normalizeLoyaltyProductId,
+} from "@/lib/loyalty";
+import {
+  creditLoyaltyForCompletedOrder,
+  fetchLoyaltyAccount,
+  fetchLoyaltyProgram,
+  fetchLoyaltyRewardProducts,
+  redeemLoyaltyFreeReward,
+  redeemLoyaltyPoints,
+  reverseLoyaltyForCanceledOrder,
+  type LoyaltyRewardProduct,
+} from "@/lib/loyalty-server";
+import {
   CARD_PAYMENT_METHOD,
   cardPaymentDetailLabel,
   matchAcceptedCardBrand,
@@ -52,6 +75,7 @@ import {
   fetchOrderNotificationStore,
   notifyOrderStatusChange,
   notifyStoreNewOrder,
+  type OrderNotificationLoyaltySummary,
 } from "@/lib/whatsapp/orderNotifications";
 import { isValidCpfCnpj, onlyDigits } from "@/lib/billing";
 import {
@@ -271,6 +295,23 @@ export async function POST(request: Request) {
     notes?: string;
     /** Código do cupom aplicado no checkout (opcional). */
     coupon_code?: string;
+    /**
+     * Resgata 1 prêmio de fidelidade neste pedido (migrações 20261118000001,
+     * 20261119000001 e 20261121000001). O servidor confere programa ativo,
+     * pedido mínimo e o saldo/prêmios do telefone:
+     * - modo por pontos: aplica o desconto em R$ e debita os pontos;
+     * - modo por pedidos: entrega `reward_product_quantity` itens a R$ 0,00,
+     *   escolhidos entre os produtos configurados (ver
+     *   `loyalty_reward_product_ids`).
+     * O desconto e os produtos NUNCA vêm do navegador — só o sinal e a escolha.
+     */
+    loyalty_redeem?: boolean;
+    /**
+     * Produtos escolhidos pelo cliente para o prêmio (modo produto grátis).
+     * A quantidade precisa ser exatamente `reward_product_quantity` e cada id
+     * precisa estar na lista elegível e ativo no cardápio da loja.
+     */
+    loyalty_reward_product_ids?: unknown;
     items?: Array<{
       productId?: string;
       quantity?: number;
@@ -786,6 +827,8 @@ export async function POST(request: Request) {
     addons: Array<{ id: string; name: string; price: number }>;
     notes?: string;
     half_half?: HalfHalfSelection;
+    /** `true` no item entregue de graça pelo programa de fidelidade. */
+    loyalty_reward?: boolean;
   }> = [];
   let subtotal = 0;
 
@@ -1049,9 +1092,201 @@ export async function POST(request: Request) {
     }
   }
 
+  // Programa de fidelidade (opcional): o resgate NUNCA confia no desconto
+  // enviado pelo navegador — o servidor recarrega a configuração da loja,
+  // confere o pedido mínimo, o saldo do telefone e recalcula o desconto.
+  //
+  // Os pontos só são debitados depois de o pedido existir (ver `redeemLoyaltyPoints`
+  // abaixo), mas o saldo é pré-validado aqui para o cliente não receber um
+  // pedido com desconto que não pode pagar em pontos.
+  let loyaltyPointsToRedeem = 0;
+  let loyaltyDiscount = 0;
+  /**
+   * Produtos entregues de graça no modo por pedidos, na ordem escolhida pelo
+   * cliente (pode repetir o mesmo produto). Vazio no modo por pontos.
+   */
+  let loyaltyFreeProducts: LoyaltyRewardProduct[] = [];
+  /** Ids escolhidos, na ordem — gravados em `orders.loyalty_reward_product_ids`. */
+  let loyaltyRewardProductIds: string[] = [];
+  /** Quantidade configurada no programa (`reward_product_quantity`). */
+  let loyaltyRewardQuantity = 0;
+  /** Ciclo de pedidos vigente no momento do resgate (0 no modo por pontos). */
+  let loyaltyOrdersPerReward = 0;
+  const loyaltyPhone = normalizeLoyaltyPhone(body.customer?.phone);
+
+  if (body.loyalty_redeem === true) {
+    const loyaltyProgram = await fetchLoyaltyProgram(adminClient, establishmentId);
+    if (!loyaltyProgram.enabled) {
+      return NextResponse.json(
+        { error: "O programa de fidelidade desta loja não está ativo." },
+        { status: 400 }
+      );
+    }
+
+    // Duas modalidades: por pontos (desconto em R$) e por pedidos (1 produto
+    // grátis do cardápio a R$ 0,00 — nunca desconto).
+    const ordersMode = isLoyaltyFreeProductProgram(loyaltyProgram);
+
+    if (loyaltyPhone.length < LOYALTY_MIN_PHONE_DIGITS) {
+      return NextResponse.json(
+        {
+          error: ordersMode
+            ? "Informe um telefone válido com DDD para usar o prêmio de fidelidade."
+            : "Informe um telefone válido com DDD para resgatar pontos de fidelidade.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const loyaltyMinOrderMessage = loyaltyMinOrderShortfall(
+      loyaltyProgram,
+      subtotal
+    );
+    if (loyaltyMinOrderMessage) {
+      return NextResponse.json({ error: loyaltyMinOrderMessage }, { status: 400 });
+    }
+
+    if (ordersMode) {
+      const rewardQuantity = Math.max(
+        1,
+        loyaltyProgram.reward_product_quantity
+      );
+      const eligibleIds = loyaltyProgram.reward_product_ids;
+
+      // Escolhas do cliente: o navegador só envia ids — quantidade, lista
+      // elegível e status ativo são revalidados aqui.
+      const submittedIds: string[] = [];
+      if (Array.isArray(body.loyalty_reward_product_ids)) {
+        for (const value of body.loyalty_reward_product_ids) {
+          const id = normalizeLoyaltyProductId(value);
+          if (id) submittedIds.push(id);
+        }
+      }
+      // Compatibilidade: checkout antigo não envia ids — com 1 produto
+      // elegível e quantidade 1 o prêmio continua sendo esse produto.
+      const requestedIds =
+        submittedIds.length > 0
+          ? submittedIds
+          : rewardQuantity === 1 && eligibleIds.length === 1
+            ? [eligibleIds[0]]
+            : [];
+
+      if (requestedIds.length !== rewardQuantity) {
+        return NextResponse.json(
+          {
+            error:
+              rewardQuantity === 1
+                ? "Escolha 1 produto para usar o prêmio de fidelidade."
+                : `Escolha exatamente ${rewardQuantity} produtos para usar o prêmio de fidelidade.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      if (requestedIds.some((id) => !eligibleIds.includes(id))) {
+        return NextResponse.json(
+          {
+            error:
+              "Um dos produtos escolhidos não faz parte das opções do prêmio de fidelidade. Atualize a página e escolha novamente.",
+          },
+          { status: 400 }
+        );
+      }
+
+      // O produto precisa seguir ativo e ser desta loja — o cadastro do painel
+      // pode ter mudado entre a escolha no checkout e o envio do pedido.
+      const uniqueIds = Array.from(new Set(requestedIds));
+      const rewardProductRows = await fetchLoyaltyRewardProducts(
+        adminClient,
+        uniqueIds,
+        establishmentId
+      );
+      const rewardProductById = new Map(
+        rewardProductRows.map((product) => [product.id, product])
+      );
+      if (
+        rewardProductRows.length !== uniqueIds.length ||
+        rewardProductRows.some((product) => !product.is_active)
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Um dos produtos do prêmio não está disponível no cardápio agora. Fale com a loja.",
+          },
+          { status: 400 }
+        );
+      }
+
+      const loyaltyAccount = await fetchLoyaltyAccount(
+        adminClient,
+        establishmentId,
+        loyaltyPhone
+      );
+      const freeRewards = loyaltyAccount?.free_rewards_available ?? 0;
+      if (freeRewards <= 0) {
+        const remaining = loyaltyOrdersRemaining(
+          loyaltyProgram,
+          loyaltyAccount?.orders_count ?? 0,
+          freeRewards
+        );
+        return NextResponse.json(
+          {
+            error:
+              remaining > 0
+                ? `Você ainda não tem um prêmio disponível: faltam ${loyaltyOrdersLabel(
+                    remaining
+                  )} para o próximo.`
+                : "Você ainda não tem um prêmio de fidelidade disponível.",
+          },
+          { status: 400 }
+        );
+      }
+
+      loyaltyFreeProducts = requestedIds
+        .map((id) => rewardProductById.get(id))
+        .filter((product): product is LoyaltyRewardProduct => product != null);
+      loyaltyRewardProductIds = requestedIds;
+      loyaltyRewardQuantity = rewardQuantity;
+      loyaltyOrdersPerReward = loyaltyProgram.orders_per_reward;
+    } else {
+      const rewardDiscount = computeLoyaltyRewardDiscount(loyaltyProgram, {
+        subtotal,
+        deliveryFee,
+      });
+      if (rewardDiscount <= 0) {
+        return NextResponse.json(
+          { error: "O resgate de fidelidade não gera desconto neste pedido." },
+          { status: 400 }
+        );
+      }
+
+      const loyaltyAccount = await fetchLoyaltyAccount(
+        adminClient,
+        establishmentId,
+        loyaltyPhone
+      );
+      const loyaltyBalance = loyaltyAccount?.balance ?? 0;
+      if (loyaltyBalance < loyaltyProgram.points_per_reward) {
+        return NextResponse.json(
+          {
+            error: `Saldo insuficiente: você tem ${loyaltyPointsLabel(
+              loyaltyBalance
+            )} e o resgate custa ${loyaltyPointsLabel(
+              loyaltyProgram.points_per_reward
+            )}.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      loyaltyPointsToRedeem = loyaltyProgram.points_per_reward;
+      loyaltyDiscount = rewardDiscount;
+    }
+  }
+
   const total = Math.max(
     0,
-    roundCurrency(subtotal + deliveryFee - couponDiscount)
+    roundCurrency(subtotal + deliveryFee - couponDiscount - loyaltyDiscount)
   );
 
   // `change_for` só existe em algumas bases (pode faltar no schema cache).
@@ -1107,6 +1342,35 @@ export async function POST(request: Request) {
           ? { place_id: deliveryQuote.destination.place_id }
           : {}),
       };
+  // Resgate no modo por pedidos: cada item do prêmio entra como linha do
+  // cardápio a R$ 0,00 (nunca como desconto em R$). Itens repetidos são
+  // agrupados em uma linha com `quantity` (2x Pizza vira 1 linha com 2). O
+  // subtotal pago não muda — a linha apenas documenta o que deve ser entregue
+  // de graça (`loyalty_reward: true`).
+  if (loyaltyFreeProducts.length > 0) {
+    const groupedRewards = new Map<
+      string,
+      { product: LoyaltyRewardProduct; quantity: number }
+    >();
+    for (const product of loyaltyFreeProducts) {
+      const entry = groupedRewards.get(product.id);
+      if (entry) entry.quantity += 1;
+      else groupedRewards.set(product.id, { product, quantity: 1 });
+    }
+
+    for (const { product, quantity } of groupedRewards.values()) {
+      orderItems.push({
+        product_id: product.id,
+        name: `${product.name} (prêmio fidelidade)`,
+        quantity,
+        unit_price: 0,
+        line_total: 0,
+        addons: [],
+        loyalty_reward: true,
+      });
+    }
+  }
+
   const itemsData = orderItems ?? [];
   const notesValue = body.notes?.trim() || null;
 
@@ -1199,7 +1463,17 @@ export async function POST(request: Request) {
           coupon_id: coupon.id,
           coupon_code: coupon.code,
           coupon_discount: couponDiscount,
-          discount_amount: couponDiscount,
+          discount_amount: roundCurrency(couponDiscount + loyaltyDiscount),
+        }
+      : {}),
+    // Resgate de fidelidade (migração 20261118000001): gravado apenas quando o
+    // resgate foi validado. `discount_amount` (soma cupom + fidelidade) mantém
+    // os relatórios existentes corretos nos pedidos só com pontos.
+    ...(loyaltyPointsToRedeem > 0
+      ? {
+          loyalty_points_redeemed: loyaltyPointsToRedeem,
+          loyalty_discount: loyaltyDiscount,
+          discount_amount: roundCurrency(couponDiscount + loyaltyDiscount),
         }
       : {}),
     status: "pendente",
@@ -1377,6 +1651,81 @@ export async function POST(request: Request) {
       },
       { status: missingColumn ? 400 : 500 }
     );
+  }
+
+  // Resgate de fidelidade: os pontos só são debitados com o pedido já gravado
+  // (a função SQL é idempotente por pedido). Se o saldo mudou entre a validação
+  // acima e este ponto (corrida), o pedido é removido e o cliente recebe um
+  // erro claro — nunca entregamos desconto sem debitar os pontos.
+  if (loyaltyPointsToRedeem > 0) {
+    const loyaltyOrderCode = `#${created.id
+      .replace(/-/g, "")
+      .slice(0, 6)
+      .toUpperCase()}`;
+    const newBalance = await redeemLoyaltyPoints(adminClient, {
+      establishmentId,
+      phone: loyaltyPhone,
+      points: loyaltyPointsToRedeem,
+      orderId: created.id,
+      description: `Resgate do pedido ${loyaltyOrderCode}`,
+    });
+
+    if (newBalance === null) {
+      const { error: cleanupError } = await adminClient
+        .from("orders")
+        .delete()
+        .eq("id", created.id);
+      if (cleanupError) {
+        console.error(
+          `[orders] Falha ao remover o pedido ${created.id} após falha no resgate de pontos:`,
+          cleanupError.message
+        );
+      }
+      return NextResponse.json(
+        {
+          error:
+            "Não foi possível resgatar os pontos de fidelidade. Confira seu saldo e finalize o pedido novamente.",
+        },
+        { status: 400 }
+      );
+    }
+  }
+
+  // Resgate no modo por pedidos: o prêmio só é debitado com o pedido já gravado
+  // (a função SQL é idempotente por pedido e grava os produtos entregues em
+  // `orders.loyalty_reward_product_ids`). Se o cliente não tiver mais o prêmio
+  // (corrida com outro pedido), o pedido é removido — nunca entregamos os
+  // produtos grátis sem debitar o prêmio.
+  if (loyaltyFreeProducts.length > 0) {
+    const progress = await redeemLoyaltyFreeReward(adminClient, {
+      establishmentId,
+      phone: loyaltyPhone,
+      orderId: created.id,
+      productIds: loyaltyRewardProductIds,
+      productNames: loyaltyFreeProducts.map((product) => product.name),
+      quantity: loyaltyRewardQuantity,
+      ordersPerReward: loyaltyOrdersPerReward,
+    });
+
+    if (!progress) {
+      const { error: cleanupError } = await adminClient
+        .from("orders")
+        .delete()
+        .eq("id", created.id);
+      if (cleanupError) {
+        console.error(
+          `[orders] Falha ao remover o pedido ${created.id} após falha no resgate do prêmio de fidelidade:`,
+          cleanupError.message
+        );
+      }
+      return NextResponse.json(
+        {
+          error:
+            "Não foi possível usar o prêmio de fidelidade. Confira seus prêmios e finalize o pedido novamente.",
+        },
+        { status: 400 }
+      );
+    }
   }
 
   // Consome uma unidade do limite do cupom. Feito APÓS o insert para não
@@ -1752,6 +2101,60 @@ export async function PUT(request: Request) {
     );
   }
 
+  // Fidelidade (migração 20261118000001): credita os pontos quando o pedido é
+  // finalizado e devolve o que foi movimentado quando ele é cancelado. As duas
+  // operações são idempotentes por pedido, então reabrir/repetir o status não
+  // duplica pontos. Falhas nunca derrubam a mudança de status (o painel precisa
+  // continuar operando); ficam registradas no log do módulo.
+  let loyaltySummary: OrderNotificationLoyaltySummary | null = null;
+  if (currentStatus !== nextStatus) {
+    const movement =
+      nextStatus === "finalizado"
+        ? await creditLoyaltyForCompletedOrder(adminClient, updated)
+        : nextStatus === "cancelado"
+          ? await reverseLoyaltyForCanceledOrder(adminClient, updated)
+          : null;
+
+    if (movement) {
+      const loyaltyProgram = await fetchLoyaltyProgram(
+        adminClient,
+        existing.establishment_id
+      );
+
+      if (movement.orders) {
+        // Modo por pedidos: a mensagem mostra o ciclo atual e o prêmio liberado
+        // (ou devolvido, no cancelamento). Não existe saldo de pontos.
+        loyaltySummary = {
+          rewardMode: "orders",
+          pointsEarned: 0,
+          balance: movement.balance,
+          nextRewardRemaining: 0,
+          rewardLabel: loyaltyRewardLabel(loyaltyProgram),
+          ordersCount: movement.orders.orders_count,
+          ordersPerReward: movement.orders.orders_per_reward,
+          ordersRemaining: movement.orders.orders_remaining,
+          freeRewardsAvailable: movement.orders.free_rewards_available,
+          rewardUnlocked: movement.orders.reward_unlocked,
+          rewardReturned: movement.orders.reward_returned,
+          rewardQuantity: loyaltyProgram.reward_product_quantity,
+        };
+      } else {
+        if (nextStatus === "finalizado") {
+          updated.loyalty_points_earned = movement.points;
+        }
+        loyaltySummary = {
+          pointsEarned: nextStatus === "finalizado" ? movement.points : 0,
+          balance: movement.balance,
+          nextRewardRemaining: loyaltyNextRewardRemaining(
+            loyaltyProgram,
+            movement.balance
+          ),
+          rewardLabel: loyaltyRewardLabel(loyaltyProgram),
+        };
+      }
+    }
+  }
+
   // Notificação automática de mudança de etapa para o CLIENTE (Evolution API).
   //
   // Em `pendente → preparando` este é o momento do botão "Aceitar pedido": o
@@ -1772,6 +2175,7 @@ export async function PUT(request: Request) {
         store,
         order: updated,
         previousStatus: currentStatus,
+        loyalty: loyaltySummary,
       });
 
       // Omitir (pedido sem telefone, loja sem instância, status sem mensagem)

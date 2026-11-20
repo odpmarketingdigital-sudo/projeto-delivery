@@ -113,6 +113,7 @@ export type PanelPage =
   | "financeiro"
   | "clientes"
   | "cupons"
+  | "fidelidade"
   | "whatsapp-ia"
   | "produtos"
   | "configuracoes"
@@ -130,6 +131,7 @@ type IconName =
   | "wallet"
   | "customers"
   | "coupons"
+  | "loyalty"
   | "whatsapp"
   | "products"
   | "settings"
@@ -164,6 +166,12 @@ const STORE_NAV_ITEMS: NavItem[] = [
     icon: "customers",
   },
   { page: "cupons", href: "/painel/cupons", label: "Cupons", icon: "coupons" },
+  {
+    page: "fidelidade",
+    href: "/painel/fidelidade",
+    label: "Fidelidade",
+    icon: "loyalty",
+  },
   {
     page: "whatsapp-ia",
     href: "/painel/whatsapp-ia",
@@ -230,6 +238,7 @@ export function resolvePanelPage(pathname: string): PanelPage | null {
   if (pathname.startsWith("/painel/financeiro")) return "financeiro";
   if (pathname.startsWith("/painel/clientes")) return "clientes";
   if (pathname.startsWith("/painel/cupons")) return "cupons";
+  if (pathname.startsWith("/painel/fidelidade")) return "fidelidade";
   if (pathname.startsWith("/painel/configuracoes")) return "configuracoes";
   if (pathname.startsWith("/painel/assinatura")) return "assinatura";
   if (pathname.startsWith("/painel/produtos")) return "produtos";
@@ -297,6 +306,11 @@ function NavIcon({ name }: { name: IconName }) {
       <>
         <path d="M3 9V6a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v3a3 3 0 0 0 0 6v3a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-3a3 3 0 0 0 0-6Z" />
         <path d="M13 5v14" />
+      </>
+    ),
+    loyalty: (
+      <>
+        <path d="m12 3 2.6 5.3 5.9.9-4.3 4.1 1 5.9L12 16.4 6.8 19.2l1-5.9-4.3-4.1 5.9-.9L12 3Z" />
       </>
     ),
     whatsapp: (
